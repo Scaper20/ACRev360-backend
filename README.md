@@ -4,6 +4,10 @@ Revenue administration & collection platform for FCT Area Councils — Django + 
 on PostgreSQL, per [docs/V2_ARCHITECTURE.md](docs/V2_ARCHITECTURE.md). Kuje Area
 Council (KAC) is council #1.
 
+**New here?** See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — both ways
+to run the stack (local venv or Docker), where the API docs/database/tests
+actually live, and a checklist for confirming it's genuinely working.
+
 ## Stack
 
 Django 6.1, Django REST Framework, PostgreSQL (with row-level security for
@@ -46,12 +50,15 @@ end-to-end council onboarding.
 ## Docker
 
 ```bash
-docker compose up --build
+docker compose up -d --build
+docker compose exec web python manage.py seed_kuje
 ```
 
-Brings up Postgres, Redis, the Django app (gunicorn), and Celery worker/beat. Not
-verified in this environment (no local Docker) — review `docker-compose.yml` /
-`Dockerfile` before relying on it for a real deploy.
+Brings up Postgres, Redis, the Django app (gunicorn), and Celery worker/beat —
+verified end-to-end (full smoke walk, plus a real Celery task round trip via the
+worker/broker/result-backend). Postgres/Redis are on host ports **5433**/**6380**,
+not the defaults — this machine already runs native services on 5432/6379. See
+[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for the full picture.
 
 ## Repository layout
 
@@ -81,6 +88,7 @@ docs/               product & architecture documentation (see below)
 
 ## Documentation
 
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — how to run and verify everything, both setups
 - [docs/PRD.md](docs/PRD.md) — what the product is and why
 - [docs/V2_ARCHITECTURE.md](docs/V2_ARCHITECTURE.md) — the target architecture this build implements
 - [docs/SCHEMA.md](docs/SCHEMA.md) / [docs/TDD.md](docs/TDD.md) — data model and technical design (prototype reference + what changes for v2)

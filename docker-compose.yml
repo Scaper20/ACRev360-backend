@@ -6,9 +6,14 @@ services:
       POSTGRES_USER: acrev360
       POSTGRES_PASSWORD: acrev360
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     ports:
-      - "5432:5432"
+      # Host port 5433, not 5432 — this machine already has a native PostgreSQL
+      # service bound to 5432; mapping Docker's postgres to the same host port
+      # creates an ambiguous double-listener (confirmed via `netstat`: two PIDs
+      # both claiming 0.0.0.0:5432). Inter-container traffic (web, celery) still
+      # uses the normal internal port 5432 — only the host-facing mapping moves.
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U acrev360"]
       interval: 5s
@@ -18,7 +23,9 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      # Host port 6380 — same reasoning as postgres above (6379 also showed a
+      # pre-existing listener on this machine).
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

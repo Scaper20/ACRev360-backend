@@ -1,0 +1,15 @@
+.git
+.gitignore
+.gitattributes
+.env
+.venv
+.vscode
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+staticfiles/
+media/
+*.sqlite3
+README.md
+docs/
