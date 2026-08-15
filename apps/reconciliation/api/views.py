@@ -1,0 +1,48 @@
+from django.utils import timezone
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from apps.accounts.models import AppRole
+from apps.common.permissions import access_level_permission
+from apps.payments.models import PaymentChannel
+from apps.reconciliation.api.serializers import (
+    ReconciliationRunSerializer,
+    ResolveExceptionSerializer,
+    RunReconciliationSerializer,
+)
+from apps.reconciliation.models import ReconciliationException, ReconciliationRun
+from apps.reconciliation.services import run_reconciliation
+
+
+class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = ReconciliationRunSerializer
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+
+    def get_queryset(self):
+        return ReconciliationRun.objects.filter(council_id=self.request.user.council_id).order_by("-run_date")
+
+    @action(detail=False, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def run(self, request):
+        serializer = RunReconciliationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        channel, _ = PaymentChannel.objects.get_or_create(code=serializer.validated_data["channel_code"])
+        recon = run_reconciliation(
+            council_id=request.user.council_id, channel=channel,
+            run_date=serializer.validated_data["date"], actor=request.user,
+        )
+        return Response(ReconciliationRunSerializer(recon).data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False, methods=["post"], url_path=r"exceptions/(?P<exception_id>\d+)/resolve",
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)],
+    )
+    def resolve_exception(self, request, exception_id=None):
+        exception = ReconciliationException.objects.get(pk=exception_id, council_id=request.user.council_id)
+        serializer = ResolveExceptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        exception.note = serializer.validated_data["note"]
+        exception.resolved_at = timezone.now()
+        exception.resolved_by = request.user
+        exception.save(update_fields=["note", "resolved_at", "resolved_by"])
+        return Response(ReconciliationRunSerializer(exception.run).data)

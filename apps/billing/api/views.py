@@ -1,0 +1,147 @@
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.accounts.models import AppRole
+from apps.billing.api.serializers import (
+    AddLineSerializer,
+    BillDetailSerializer,
+    BillLineDetailSerializer,
+    BillSerializer,
+    IssueBillSerializer,
+    PublicBillLookupSerializer,
+    UpdateLineSerializer,
+)
+from apps.billing.models import Bill, BillLine
+from apps.billing.services import BillingError, add_bill_line, delete_bill_line, issue_bill, update_bill_line
+from apps.common.permissions import access_level_permission
+from apps.common.scoping import portfolio_filter
+from apps.registry.models import Payer
+from apps.revenue.models import CouncilRevenueItem
+from apps.tenancy.context import council_context
+
+
+class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+
+    def get_serializer_class(self):
+        return IssueBillSerializer if self.request.method == "POST" else BillSerializer
+
+    def get_queryset(self):
+        qs = Bill.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
+        qs = portfolio_filter(qs, self.request)
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        if request.user.access_level not in (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT):
+            return Response({"error": "Not permitted"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = IssueBillSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        payer = get_object_or_404(Payer, pk=data["payer_id"], council_id=request.user.council_id)
+        lines = []
+        for entry in data.get("lines", []):
+            item = get_object_or_404(CouncilRevenueItem, pk=entry["revenue_item_id"], council_id=request.user.council_id)
+            lines.append({"council_revenue_item": item, "quantity": entry["quantity"]})
+
+        try:
+            bill = issue_bill(
+                council_id=request.user.council_id,
+                payer=payer,
+                due_date=data.get("due_date"),
+                lines=lines,
+                bill_all_drafts=data["bill_all_drafts"],
+                roll_arrears=data["roll_arrears"],
+                actor=request.user,
+            )
+        except BillingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = BillSerializer(bill).data
+        payload["arrears_amount"] = bill.arrears_amount
+        payload["superseded_count"] = getattr(bill, "superseded_count", 0)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"], url_path="detail")
+    def bill_detail(self, request, pk=None):
+        bill = self.get_object()
+        return Response(BillDetailSerializer(bill).data)
+
+    @action(detail=True, methods=["post"], url_path="lines", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def add_line(self, request, pk=None):
+        bill = self.get_object()
+        serializer = AddLineSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        item = get_object_or_404(CouncilRevenueItem, pk=serializer.validated_data["revenue_item_id"], council_id=request.user.council_id)
+        try:
+            line = add_bill_line(bill=bill, council_revenue_item=item, quantity=serializer.validated_data["quantity"], actor=request.user)
+        except BillingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(BillLineDetailSerializer(line).data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True, methods=["put", "delete"], url_path=r"lines/(?P<line_id>\d+)",
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)],
+    )
+    def line_detail(self, request, pk=None, line_id=None):
+        bill = self.get_object()
+        line = get_object_or_404(BillLine, pk=line_id, bill=bill)
+
+        if request.method == "DELETE":
+            try:
+                delete_bill_line(line=line, actor=request.user)
+            except BillingError as exc:
+                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = UpdateLineSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        line = update_bill_line(line=line, line_amount=serializer.validated_data["line_amount"], actor=request.user)
+        return Response(BillLineDetailSerializer(line).data)
+
+
+class PublicBillLookupView(APIView):
+    """GET /api/v1/bills/<bill_ref> — public. Powers the demand-notice/demand-bill
+    print pages and USSD option 1/2. Not part of BillViewSet's pk-based routing
+    because bill_ref itself contains slashes (KAC/2026/000123)."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses={200: PublicBillLookupSerializer, 404: None}, tags=["billing"])
+    def get(self, request, bill_ref):
+        from apps.tenancy.context import resolve_council_from_bill_ref
+
+        council = resolve_council_from_bill_ref(bill_ref)
+        if council is None:
+            return Response({"error": "Bill not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        with council_context(council.id):
+            bill = Bill.objects.select_related("payer", "payer__ward").filter(bill_ref=bill_ref).first()
+            if bill is None:
+                return Response({"error": "Bill not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            lines = bill.lines.select_related("assessment__council_revenue_item")
+            return Response({
+                "bill_ref": bill.bill_ref,
+                "status": bill.status,
+                "due_date": bill.due_date,
+                "total_amount": bill.total_amount,
+                "amount_paid": bill.amount_paid,
+                "balance": bill.balance,
+                "arrears_amount": bill.arrears_amount,
+                "payer_ref": bill.payer.payer_ref,
+                "full_name": bill.payer.full_name,
+                "phone": bill.payer.phone,
+                "address": bill.payer.address,
+                "ward_name": bill.payer.ward.ward_name,
+                "lines": BillLineDetailSerializer(lines, many=True).data,
+            })

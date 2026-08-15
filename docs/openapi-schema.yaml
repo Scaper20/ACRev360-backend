@@ -1,0 +1,3507 @@
+openapi: 3.0.3
+info:
+  title: ACRev360 API
+  version: 1.0.0
+  description: Revenue administration & collection platform for FCT Area Councils.
+paths:
+  /api/v1/agents:
+    get:
+      operationId: v1_agents_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFieldAgentList'
+          description: ''
+    post:
+      operationId: v1_agents_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FieldAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FieldAgentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldAgent'
+          description: ''
+  /api/v1/agents/{id}:
+    get:
+      operationId: v1_agents_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldAgent'
+          description: ''
+  /api/v1/agents/{id}/activity:
+    get:
+      operationId: v1_agents_activity_retrieve
+      description: |-
+        Recent payments posted by this agent. The full daily-returns rollup
+        (`agent_daily_return`, worklist, offline sync) is fieldops — deferred to
+        V2_ARCHITECTURE.md §11 phase 4, out of this build pass.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldAgent'
+          description: ''
+  /api/v1/api-clients:
+    get:
+      operationId: v1_api_clients_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAPIClientList'
+          description: ''
+    post:
+      operationId: v1_api_clients_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/APIClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/APIClientRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+          description: ''
+  /api/v1/api-clients/{id}:
+    get:
+      operationId: v1_api_clients_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+          description: ''
+  /api/v1/assets:
+    get:
+      operationId: v1_assets_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEnumeratedAssetList'
+          description: ''
+    post:
+      operationId: v1_assets_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnumeratedAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EnumeratedAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EnumeratedAssetRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnumeratedAsset'
+          description: ''
+  /api/v1/audit:
+    get:
+      operationId: v1_audit_list
+      description: Last 300 audit events — council admin only.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/v1/auth/login:
+    post:
+      operationId: v1_auth_login_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppTokenObtainPairRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppTokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppTokenObtainPairRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/logout:
+    post:
+      operationId: v1_auth_logout_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/me:
+    get:
+      operationId: v1_auth_me_retrieve
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+  /api/v1/auth/refresh:
+    post:
+      operationId: v1_auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/bills:
+    get:
+      operationId: v1_bills_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBillList'
+          description: ''
+    post:
+      operationId: v1_bills_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueBillRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IssueBillRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IssueBillRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueBill'
+          description: ''
+  /api/v1/bills/{bill_ref}:
+    get:
+      operationId: v1_bills_retrieve
+      description: |-
+        GET /api/v1/bills/<bill_ref> — public. Powers the demand-notice/demand-bill
+        print pages and USSD option 1/2. Not part of BillViewSet's pk-based routing
+        because bill_ref itself contains slashes (KAC/2026/000123).
+      parameters:
+      - in: path
+        name: bill_ref
+        schema:
+          type: string
+        required: true
+      tags:
+      - billing
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicBillLookup'
+          description: ''
+        '404':
+          description: No response body
+  /api/v1/bills/{id}/detail:
+    get:
+      operationId: v1_bills_detail_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
+  /api/v1/bills/{id}/lines:
+    post:
+      operationId: v1_bills_lines_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueBillRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IssueBillRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IssueBillRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueBill'
+          description: ''
+  /api/v1/bills/{id}/lines/{line_id}:
+    put:
+      operationId: v1_bills_lines_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: line_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
+    delete:
+      operationId: v1_bills_lines_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: line_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/channels:
+    get:
+      operationId: v1_channels_list
+      description: 'Public: codes, modes and required fields.'
+      tags:
+      - channels
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChannelCatalogueEntry'
+          description: ''
+  /api/v1/channels/{code}/webhook:
+    post:
+      operationId: v1_channels_webhook_create
+      description: Payload shape is channel-specific — see GET /api/v1/channels for
+        the required-fields matrix per code.
+      parameters:
+      - in: path
+        name: code
+        schema:
+          type: string
+        required: true
+      tags:
+      - channels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+          description: ''
+  /api/v1/channels/OTC/settlement:
+    post:
+      operationId: v1_channels_OTC_settlement_create
+      description: |-
+        POST /api/v1/channels/OTC/settlement — end-of-day teller settlement file.
+        Safe to re-send: already-received references are skipped, not re-posted.
+      tags:
+      - channels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OTCSettlementRowRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OTCSettlementRowRequest'
+          multipart/form-data:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OTCSettlementRowRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OTCSettlementResponse'
+          description: ''
+  /api/v1/channels/USSD/session:
+    post:
+      operationId: v1_channels_USSD_session_create
+      description: |-
+        Stateless menu driven entirely by the accumulated input string a telco
+        gateway sends per keypress. 1 pay a bill, 2 check balance, 3 verify a receipt.
+      tags:
+      - channels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/USSDSessionRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/USSDSessionRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/USSDSessionRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+          description: 'Raw text/plain: ''CON ...'' to continue the session, ''END
+            ...'' to close it.'
+  /api/v1/consultants:
+    get:
+      operationId: v1_consultants_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSubConsultantList'
+          description: ''
+    post:
+      operationId: v1_consultants_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+  /api/v1/consultants/{id}:
+    get:
+      operationId: v1_consultants_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+  /api/v1/consultants/{id}/portfolio:
+    get:
+      operationId: v1_consultants_portfolio_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+    post:
+      operationId: v1_consultants_portfolio_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+  /api/v1/consultants/{id}/portfolio/{portfolio_id}/end:
+    post:
+      operationId: v1_consultants_portfolio_end_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: portfolio_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+  /api/v1/consultants/{id}/status_change:
+    post:
+      operationId: v1_consultants_status_change_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubConsultantRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+  /api/v1/councils/onboard:
+    post:
+      operationId: v1_councils_onboard_create
+      description: |-
+        Platform-level bootstrap: create council -> configure -> ready for
+        activate_template_item calls. Gated on Django's own is_superuser/is_staff, not
+        a business access_level — creating a new tenant sits outside any existing
+        council's context, see apps/tenancy/services.py.
+      tags:
+      - tenancy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardCouncilRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OnboardCouncilRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OnboardCouncilRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Council'
+          description: ''
+  /api/v1/dashboard/global:
+    get:
+      operationId: v1_dashboard_global_retrieve
+      description: |-
+        Council admin / global view only — billed vs. collected by consultant (or
+        Council Direct), matching the prototype's v_global_performance view.
+      tags:
+      - dashboard
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardGlobalResponse'
+          description: ''
+  /api/v1/dashboard/summary:
+    get:
+      operationId: v1_dashboard_summary_retrieve
+      description: |-
+        Scoped to the caller's portfolio — see V2_ARCHITECTURE.md §5.
+        `billed` is `total_amount - arrears_amount`, matching API_REFERENCE.md: an
+        arrears segment rolled forward from a consolidation isn't counted as new
+        billing, since it was already billed once on the bill it came from.
+      tags:
+      - dashboard
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummaryResponse'
+          description: ''
+  /api/v1/debt:
+    get:
+      operationId: v1_debt_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDebtCaseList'
+          description: ''
+  /api/v1/debt/{id}/escalate:
+    post:
+      operationId: v1_debt_escalate_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtCase'
+          description: ''
+  /api/v1/debt/refresh:
+    post:
+      operationId: v1_debt_refresh_create
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtCase'
+          description: ''
+  /api/v1/health:
+    get:
+      operationId: v1_health_retrieve
+      description: For uptime checks, not an API status page.
+      tags:
+      - health
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+          description: ''
+  /api/v1/payers:
+    get:
+      operationId: v1_payers_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPayerList'
+          description: ''
+    post:
+      operationId: v1_payers_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePayerRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreatePayerRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreatePayerRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePayer'
+          description: ''
+  /api/v1/payers/{id}:
+    get:
+      operationId: v1_payers_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payer'
+          description: ''
+  /api/v1/payers/{id}/draft-assessments:
+    get:
+      operationId: v1_payers_draft_assessments_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payer'
+          description: ''
+  /api/v1/payments:
+    get:
+      operationId: v1_payments_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPaymentList'
+          description: ''
+    post:
+      operationId: v1_payments_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostPaymentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostPaymentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostPaymentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPayment'
+          description: ''
+  /api/v1/receipts:
+    get:
+      operationId: v1_receipts_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedReceiptList'
+          description: ''
+  /api/v1/reconciliation:
+    get:
+      operationId: v1_reconciliation_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedReconciliationRunList'
+          description: ''
+  /api/v1/reconciliation/exceptions/{exception_id}/resolve:
+    post:
+      operationId: v1_reconciliation_exceptions_resolve_create
+      parameters:
+      - in: path
+        name: exception_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRun'
+          description: ''
+  /api/v1/reconciliation/run:
+    post:
+      operationId: v1_reconciliation_run_create
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRun'
+          description: ''
+  /api/v1/revenue-categories:
+    get:
+      operationId: v1_revenue_categories_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRevenueCategoryList'
+          description: ''
+  /api/v1/revenue-item-templates:
+    get:
+      operationId: v1_revenue_item_templates_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRevenueItemTemplateList'
+          description: ''
+  /api/v1/revenue-items:
+    get:
+      operationId: v1_revenue_items_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCouncilRevenueItemList'
+          description: ''
+  /api/v1/revenue-items/{id}:
+    get:
+      operationId: v1_revenue_items_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilRevenueItem'
+          description: ''
+  /api/v1/revenue-items/{id}/rate:
+    post:
+      operationId: v1_revenue_items_rate_create
+      description: Only COUNCIL_ADMIN may change what an item costs — PRD.md §4.1.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CouncilRevenueItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CouncilRevenueItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CouncilRevenueItemRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilRevenueItem'
+          description: ''
+  /api/v1/settlements:
+    get:
+      operationId: v1_settlements_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommissionSettlementList'
+          description: ''
+  /api/v1/settlements/{id}/status_change:
+    post:
+      operationId: v1_settlements_status_change_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionSettlement'
+          description: ''
+  /api/v1/settlements/compute:
+    post:
+      operationId: v1_settlements_compute_create
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionSettlement'
+          description: ''
+  /api/v1/terminals:
+    get:
+      operationId: v1_terminals_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPOSTerminalList'
+          description: ''
+  /api/v1/verify/{qr_token}:
+    get:
+      operationId: v1_verify_retrieve
+      description: 'Public: anyone with a receipt''s QR/SMS qr_token can confirm it''s
+        real.'
+      parameters:
+      - in: path
+        name: qr_token
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - payments
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyReceiptResponse'
+          description: ''
+        '404':
+          description: Receipt not found
+  /api/v1/wards:
+    get:
+      operationId: v1_wards_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWardZoneList'
+          description: ''
+    post:
+      operationId: v1_wards_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WardZoneRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WardZoneRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WardZoneRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WardZone'
+          description: ''
+  /api/v1/wards/{id}:
+    get:
+      operationId: v1_wards_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WardZone'
+          description: ''
+components:
+  schemas:
+    APIClient:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        channel:
+          type: integer
+        api_key:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+      required:
+      - api_key
+      - channel
+      - id
+    APIClientRequest:
+      type: object
+      properties:
+        channel:
+          type: integer
+        is_active:
+          type: boolean
+      required:
+      - channel
+    AgeingBucketEnum:
+      enum:
+      - '0_30'
+      - '31_60'
+      - '61_90'
+      - OVER_90
+      type: string
+      description: |-
+        * `0_30` - 0-30 days
+        * `31_60` - 31-60 days
+        * `61_90` - 61-90 days
+        * `OVER_90` - 90+ days
+    AppTokenObtainPairRequest:
+      type: object
+      description: |-
+        Carries `council_id` on the access token itself so apps.tenancy.middleware can
+        set the RLS context by decoding the token alone — no DB query needed before the
+        tenant context is known. See apps/tenancy/middleware.py.
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    AssetTypeEnum:
+      enum:
+      - PREMISES
+      - SHOP
+      - KIOSK
+      - SIGNAGE
+      type: string
+      description: |-
+        * `PREMISES` - Premises
+        * `SHOP` - Shop
+        * `KIOSK` - Kiosk
+        * `SIGNAGE` - Signage
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        action:
+          type: string
+          readOnly: true
+        entity_type:
+          type: string
+          readOnly: true
+        entity_id:
+          type: string
+          readOnly: true
+        detail:
+          readOnly: true
+        actor:
+          type: integer
+          readOnly: true
+          nullable: true
+        actor_username:
+          type: string
+          readOnly: true
+        actor_ip:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - actor
+      - actor_ip
+      - actor_username
+      - created_at
+      - detail
+      - entity_id
+      - entity_type
+      - id
+    Bill:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        bill_ref:
+          type: string
+          readOnly: true
+        payer:
+          type: integer
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        amount_paid:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        arrears_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/BillStatusEnum'
+          readOnly: true
+        due_date:
+          type: string
+          format: date
+          readOnly: true
+        superseded_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount_paid
+      - arrears_amount
+      - balance
+      - bill_ref
+      - created_at
+      - due_date
+      - full_name
+      - id
+      - payer
+      - payer_ref
+      - status
+      - superseded_by
+      - total_amount
+    BillLineDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        assessment:
+          type: integer
+          readOnly: true
+        harmonised_code:
+          type: string
+          readOnly: true
+        item_name:
+          type: string
+          readOnly: true
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        line_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - assessment
+      - harmonised_code
+      - id
+      - item_name
+      - line_amount
+      - quantity
+    BillLineEntry:
+      type: object
+      properties:
+        revenue_item_id:
+          type: integer
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          default: '1.00'
+      required:
+      - revenue_item_id
+    BillLineEntryRequest:
+      type: object
+      properties:
+        revenue_item_id:
+          type: integer
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          default: '1.00'
+      required:
+      - revenue_item_id
+    BillStatusEnum:
+      enum:
+      - ISSUED
+      - PART_PAID
+      - PAID
+      - OVERDUE
+      - CANCELLED
+      - SUPERSEDED
+      type: string
+      description: |-
+        * `ISSUED` - Issued
+        * `PART_PAID` - Part Paid
+        * `PAID` - Paid
+        * `OVERDUE` - Overdue
+        * `CANCELLED` - Cancelled
+        * `SUPERSEDED` - Superseded
+    BillsByStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+      required:
+      - count
+      - status
+    BlankEnum:
+      enum:
+      - ''
+    BusinessSizeEnum:
+      enum:
+      - MICRO
+      - SMALL
+      - MEDIUM
+      - LARGE
+      type: string
+      description: |-
+        * `MICRO` - Micro
+        * `SMALL` - Small
+        * `MEDIUM` - Medium
+        * `LARGE` - Large
+    ChannelCatalogueEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: true
+        code:
+          type: string
+        label:
+          type: string
+        required_fields:
+          type: array
+          items:
+            type: string
+      required:
+      - code
+      - id
+      - label
+      - required_fields
+    ChannelCodeEnum:
+      enum:
+      - POS
+      - OTC
+      - IB_MB
+      - USSD
+      - FIRSTMONIE
+      type: string
+      description: |-
+        * `POS` - POS
+        * `OTC` - Over-the-counter teller
+        * `IB_MB` - Internet / Mobile Banking
+        * `USSD` - USSD
+        * `FIRSTMONIE` - FirstMonie Agent Banking
+    CollectedByConsultant:
+      type: object
+      properties:
+        consultant_name:
+          type: string
+        collected:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - collected
+      - consultant_name
+    CollectedByWard:
+      type: object
+      properties:
+        ward_name:
+          type: string
+        collected:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - collected
+      - ward_name
+    CommissionSettlement:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        consultant:
+          type: integer
+          readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
+        period_start:
+          type: string
+          format: date
+          readOnly: true
+        period_end:
+          type: string
+          format: date
+          readOnly: true
+        gross_collections:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        commission_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          readOnly: true
+        commission_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/CommissionSettlementStatusEnum'
+          readOnly: true
+      required:
+      - commission_amount
+      - commission_rate
+      - consultant
+      - consultant_name
+      - gross_collections
+      - id
+      - period_end
+      - period_start
+      - status
+    CommissionSettlementStatusEnum:
+      enum:
+      - COMPUTED
+      - APPROVED
+      - SETTLED
+      - DISPUTED
+      type: string
+      description: |-
+        * `COMPUTED` - Computed
+        * `APPROVED` - Approved
+        * `SETTLED` - Settled
+        * `DISPUTED` - Disputed
+    Council:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        council_code:
+          type: string
+          maxLength: 16
+        council_name:
+          type: string
+          maxLength: 120
+        is_active:
+          type: boolean
+          readOnly: true
+        config:
+          allOf:
+          - $ref: '#/components/schemas/CouncilConfig'
+          readOnly: true
+      required:
+      - config
+      - council_code
+      - council_name
+      - id
+      - is_active
+    CouncilConfig:
+      type: object
+      properties:
+        bill_ref_prefix:
+          type: string
+          description: e.g. KAC — used as bill_ref's leading segment
+          maxLength: 16
+        bill_due_days:
+          type: integer
+          maximum: 32767
+          minimum: 0
+        revenue_bank_name:
+          type: string
+          maxLength: 120
+        revenue_bank_account_number:
+          type: string
+          maxLength: 32
+        revenue_bank_account_name:
+          type: string
+          maxLength: 160
+        treasurer_name:
+          type: string
+          maxLength: 120
+        treasurer_phone:
+          type: string
+          maxLength: 32
+        print_signatory_name:
+          type: string
+          maxLength: 120
+        print_signatory_title:
+          type: string
+          maxLength: 120
+      required:
+      - bill_ref_prefix
+    CouncilConfigRequest:
+      type: object
+      properties:
+        bill_ref_prefix:
+          type: string
+          minLength: 1
+          description: e.g. KAC — used as bill_ref's leading segment
+          maxLength: 16
+        bill_due_days:
+          type: integer
+          maximum: 32767
+          minimum: 0
+        revenue_bank_name:
+          type: string
+          maxLength: 120
+        revenue_bank_account_number:
+          type: string
+          maxLength: 32
+        revenue_bank_account_name:
+          type: string
+          maxLength: 160
+        treasurer_name:
+          type: string
+          maxLength: 120
+        treasurer_phone:
+          type: string
+          maxLength: 32
+        print_signatory_name:
+          type: string
+          maxLength: 120
+        print_signatory_title:
+          type: string
+          maxLength: 120
+      required:
+      - bill_ref_prefix
+    CouncilRevenueItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        template:
+          type: integer
+          nullable: true
+        harmonised_code:
+          type: string
+          maxLength: 32
+        item_name:
+          type: string
+          maxLength: 160
+        category:
+          type: integer
+        category_name:
+          type: string
+          readOnly: true
+        unit_of_charge:
+          type: string
+          maxLength: 64
+        is_active:
+          type: boolean
+        current_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        rate_id:
+          type: integer
+          readOnly: true
+      required:
+      - category
+      - category_name
+      - current_rate
+      - harmonised_code
+      - id
+      - item_name
+      - rate_id
+      - unit_of_charge
+    CouncilRevenueItemRequest:
+      type: object
+      properties:
+        template:
+          type: integer
+          nullable: true
+        harmonised_code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        item_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        category:
+          type: integer
+        unit_of_charge:
+          type: string
+          minLength: 1
+          maxLength: 64
+        is_active:
+          type: boolean
+      required:
+      - category
+      - harmonised_code
+      - item_name
+      - unit_of_charge
+    CreatePayer:
+      type: object
+      properties:
+        payer_type:
+          $ref: '#/components/schemas/PayerTypeEnum'
+        full_name:
+          type: string
+          maxLength: 200
+        phone:
+          type: string
+          maxLength: 32
+        address:
+          type: string
+          maxLength: 255
+        ward:
+          type: integer
+        nin_bvn_hash:
+          type: string
+          maxLength: 128
+        tin:
+          type: string
+          maxLength: 32
+        business_size:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BusinessSizeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        revenue_item_ids:
+          type: array
+          items:
+            type: integer
+      required:
+      - full_name
+      - payer_type
+      - ward
+    CreatePayerRequest:
+      type: object
+      properties:
+        payer_type:
+          $ref: '#/components/schemas/PayerTypeEnum'
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        phone:
+          type: string
+          maxLength: 32
+        address:
+          type: string
+          maxLength: 255
+        ward:
+          type: integer
+        nin_bvn_hash:
+          type: string
+          maxLength: 128
+        tin:
+          type: string
+          maxLength: 32
+        business_size:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BusinessSizeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        revenue_item_ids:
+          type: array
+          items:
+            type: integer
+        force:
+          type: boolean
+          writeOnly: true
+          default: false
+      required:
+      - full_name
+      - payer_type
+      - ward
+    DashboardGlobalResponse:
+      type: object
+      properties:
+        by_consultant:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectedByConsultant'
+        by_ward:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectedByWard'
+      required:
+      - by_consultant
+      - by_ward
+    DashboardSummaryResponse:
+      type: object
+      properties:
+        billed:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        collected:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        outstanding:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        bills_by_status:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillsByStatus'
+      required:
+      - billed
+      - bills_by_status
+      - collected
+      - outstanding
+    DebtCase:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        bill:
+          type: integer
+          readOnly: true
+        bill_ref:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        ageing_bucket:
+          allOf:
+          - $ref: '#/components/schemas/AgeingBucketEnum'
+          readOnly: true
+        enforcement_stage:
+          allOf:
+          - $ref: '#/components/schemas/EnforcementStageEnum'
+          readOnly: true
+        reminder_count:
+          type: integer
+          readOnly: true
+        opened_at:
+          type: string
+          format: date-time
+          readOnly: true
+        closed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - ageing_bucket
+      - balance
+      - bill
+      - bill_ref
+      - closed_at
+      - enforcement_stage
+      - full_name
+      - id
+      - opened_at
+      - reminder_count
+    EnforcementStageEnum:
+      enum:
+      - NONE
+      - FIRST_NOTICE
+      - FINAL_NOTICE
+      - ENFORCEMENT
+      - LEGAL
+      - CLOSED
+      type: string
+      description: |-
+        * `NONE` - None
+        * `FIRST_NOTICE` - First Notice
+        * `FINAL_NOTICE` - Final Notice
+        * `ENFORCEMENT` - Enforcement
+        * `LEGAL` - Legal
+        * `CLOSED` - Closed
+    EnumeratedAsset:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        payer:
+          type: integer
+        asset_type:
+          $ref: '#/components/schemas/AssetTypeEnum'
+        description:
+          type: string
+          maxLength: 255
+        ward:
+          type: integer
+        geo_lat:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+        geo_lng:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+      required:
+      - asset_type
+      - id
+      - payer
+      - ward
+    EnumeratedAssetRequest:
+      type: object
+      properties:
+        payer:
+          type: integer
+        asset_type:
+          $ref: '#/components/schemas/AssetTypeEnum'
+        description:
+          type: string
+          maxLength: 255
+        ward:
+          type: integer
+        geo_lat:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+        geo_lng:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+      required:
+      - asset_type
+      - payer
+      - ward
+    FieldAgent:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        agent_code:
+          type: string
+          readOnly: true
+        assigned_ward:
+          type: integer
+          nullable: true
+        device_imei:
+          type: string
+          maxLength: 32
+        status:
+          allOf:
+          - $ref: '#/components/schemas/FieldAgentStatusEnum'
+          readOnly: true
+        consultant_id:
+          type: integer
+          readOnly: true
+      required:
+      - agent_code
+      - consultant_id
+      - id
+      - status
+    FieldAgentRequest:
+      type: object
+      properties:
+        assigned_ward:
+          type: integer
+          nullable: true
+        device_imei:
+          type: string
+          maxLength: 32
+        full_name:
+          type: string
+          writeOnly: true
+          minLength: 1
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        phone:
+          type: string
+          writeOnly: true
+      required:
+      - full_name
+      - username
+    FieldAgentStatusEnum:
+      enum:
+      - ACTIVE
+      - SUSPENDED
+      - EXITED
+      type: string
+      description: |-
+        * `ACTIVE` - Active
+        * `SUSPENDED` - Suspended
+        * `EXITED` - Exited
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        time:
+          type: string
+          format: date-time
+      required:
+      - service
+      - status
+      - time
+    IssueBill:
+      type: object
+      properties:
+        payer_id:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineEntry'
+        bill_all_drafts:
+          type: boolean
+          default: false
+        roll_arrears:
+          type: boolean
+          default: false
+      required:
+      - payer_id
+    IssueBillRequest:
+      type: object
+      properties:
+        payer_id:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineEntryRequest'
+        bill_all_drafts:
+          type: boolean
+          default: false
+        roll_arrears:
+          type: boolean
+          default: false
+      required:
+      - payer_id
+    KycStatusEnum:
+      enum:
+      - PENDING
+      - VERIFIED
+      - FLAGGED
+      type: string
+      description: |-
+        * `PENDING` - Pending
+        * `VERIFIED` - Verified
+        * `FLAGGED` - Flagged
+    LogoutRequestRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    Me:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+        council:
+          type: integer
+          readOnly: true
+          nullable: true
+        council_code:
+          type: string
+          readOnly: true
+        role:
+          type: integer
+          readOnly: true
+          nullable: true
+        role_name:
+          type: string
+          readOnly: true
+        consultant:
+          type: integer
+          readOnly: true
+          nullable: true
+        access_level:
+          type: string
+          readOnly: true
+      required:
+      - access_level
+      - consultant
+      - council
+      - council_code
+      - email
+      - full_name
+      - id
+      - phone
+      - role
+      - role_name
+      - username
+    NullEnum:
+      enum:
+      - null
+    OTCSettlementException:
+      type: object
+      properties:
+        bill_ref:
+          type: string
+        row:
+          type: object
+          additionalProperties: {}
+        error:
+          type: string
+      required:
+      - error
+    OTCSettlementResponse:
+      type: object
+      properties:
+        posted:
+          type: integer
+        duplicates_skipped:
+          type: integer
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OTCSettlementException'
+      required:
+      - duplicates_skipped
+      - exceptions
+      - posted
+    OTCSettlementRowRequest:
+      type: object
+      properties:
+        tellerRef:
+          type: string
+          minLength: 1
+        branchCode:
+          type: string
+          minLength: 1
+        amount:
+          type: number
+          format: double
+        billRef:
+          type: string
+          minLength: 1
+      required:
+      - amount
+      - billRef
+      - branchCode
+      - tellerRef
+    OnboardCouncilRequest:
+      type: object
+      properties:
+        council_code:
+          type: string
+          minLength: 1
+          maxLength: 16
+        council_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        config:
+          $ref: '#/components/schemas/CouncilConfigRequest'
+      required:
+      - config
+      - council_code
+      - council_name
+    POSTerminal:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        terminal_id:
+          type: string
+          maxLength: 32
+        agent:
+          type: integer
+        ward:
+          type: integer
+        status:
+          $ref: '#/components/schemas/POSTerminalStatusEnum'
+      required:
+      - agent
+      - id
+      - terminal_id
+      - ward
+    POSTerminalStatusEnum:
+      enum:
+      - ACTIVE
+      - FAULTY
+      - RETIRED
+      type: string
+      description: |-
+        * `ACTIVE` - Active
+        * `FAULTY` - Faulty
+        * `RETIRED` - Retired
+    PaginatedAPIClientList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIClient'
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    PaginatedBillList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bill'
+    PaginatedCommissionSettlementList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommissionSettlement'
+    PaginatedCouncilRevenueItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CouncilRevenueItem'
+    PaginatedDebtCaseList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DebtCase'
+    PaginatedEnumeratedAssetList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnumeratedAsset'
+    PaginatedFieldAgentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldAgent'
+    PaginatedPOSTerminalList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/POSTerminal'
+    PaginatedPayerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payer'
+    PaginatedPaymentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+    PaginatedReceiptList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Receipt'
+    PaginatedReconciliationRunList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationRun'
+    PaginatedRevenueCategoryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevenueCategory'
+    PaginatedRevenueItemTemplateList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevenueItemTemplate'
+    PaginatedSubConsultantList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubConsultant'
+    PaginatedWardZoneList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WardZone'
+    Payer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        payer_type:
+          $ref: '#/components/schemas/PayerTypeEnum'
+        full_name:
+          type: string
+          maxLength: 200
+        phone:
+          type: string
+          maxLength: 32
+        address:
+          type: string
+          maxLength: 255
+        ward:
+          type: integer
+        nin_bvn_hash:
+          type: string
+          maxLength: 128
+        tin:
+          type: string
+          maxLength: 32
+        business_size:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BusinessSizeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        kyc_status:
+          allOf:
+          - $ref: '#/components/schemas/KycStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - full_name
+      - id
+      - kyc_status
+      - payer_ref
+      - payer_type
+      - ward
+    PayerTypeEnum:
+      enum:
+      - INDIVIDUAL
+      - BUSINESS
+      - GOVERNMENT
+      - NGO
+      type: string
+      description: |-
+        * `INDIVIDUAL` - Individual
+        * `BUSINESS` - Business
+        * `GOVERNMENT` - Government
+        * `NGO` - NGO
+    Payment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        payment_ref:
+          type: string
+          readOnly: true
+        bill:
+          type: integer
+        bill_ref:
+          type: string
+          readOnly: true
+        channel:
+          type: integer
+        channel_code:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        bank_txn_ref:
+          type: string
+          maxLength: 64
+        txn_status:
+          allOf:
+          - $ref: '#/components/schemas/TxnStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - bill
+      - bill_ref
+      - channel
+      - channel_code
+      - created_at
+      - id
+      - payment_ref
+      - txn_status
+    PostPayment:
+      type: object
+      properties:
+        bill_id:
+          type: integer
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        channel_code:
+          allOf:
+          - $ref: '#/components/schemas/ChannelCodeEnum'
+          default: POS
+        bank_txn_ref:
+          type: string
+          default: ''
+        geo:
+          type: object
+          additionalProperties: {}
+      required:
+      - amount
+      - bill_id
+    PostPaymentRequest:
+      type: object
+      properties:
+        bill_id:
+          type: integer
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        channel_code:
+          allOf:
+          - $ref: '#/components/schemas/ChannelCodeEnum'
+          default: POS
+        bank_txn_ref:
+          type: string
+          default: ''
+        geo:
+          type: object
+          additionalProperties: {}
+      required:
+      - amount
+      - bill_id
+    PublicBillLookup:
+      type: object
+      description: |-
+        Shapes the public (unauthenticated) bill lookup response — payer identity
+        plus bill/lines/arrears, matching what the print pages need.
+      properties:
+        bill_ref:
+          type: string
+        status:
+          type: string
+        due_date:
+          type: string
+          format: date
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        amount_paid:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        arrears_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        payer_ref:
+          type: string
+        full_name:
+          type: string
+        phone:
+          type: string
+        address:
+          type: string
+        ward_name:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineDetail'
+      required:
+      - address
+      - amount_paid
+      - arrears_amount
+      - balance
+      - bill_ref
+      - due_date
+      - full_name
+      - lines
+      - payer_ref
+      - phone
+      - status
+      - total_amount
+      - ward_name
+    Receipt:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        receipt_ref:
+          type: string
+          readOnly: true
+        payment:
+          type: integer
+          readOnly: true
+        bill_ref:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        qr_token:
+          type: string
+          format: uuid
+          readOnly: true
+        verified_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - bill_ref
+      - created_at
+      - id
+      - payment
+      - qr_token
+      - receipt_ref
+      - verified_count
+    ReconciliationException:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        run:
+          type: integer
+          readOnly: true
+        feed_row:
+          type: integer
+          readOnly: true
+          nullable: true
+        bank_txn_ref:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        payment:
+          type: integer
+          nullable: true
+        note:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by:
+          type: integer
+          nullable: true
+      required:
+      - amount
+      - bank_txn_ref
+      - feed_row
+      - id
+      - run
+    ReconciliationExceptionRequest:
+      type: object
+      properties:
+        payment:
+          type: integer
+          nullable: true
+        note:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by:
+          type: integer
+          nullable: true
+    ReconciliationRun:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        channel:
+          type: integer
+          readOnly: true
+        channel_code:
+          type: string
+          readOnly: true
+        run_date:
+          type: string
+          format: date
+          readOnly: true
+        total_platform:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        total_bank:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ReconciliationRunStatusEnum'
+          readOnly: true
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationException'
+          readOnly: true
+      required:
+      - channel
+      - channel_code
+      - exceptions
+      - id
+      - run_date
+      - status
+      - total_bank
+      - total_platform
+    ReconciliationRunStatusEnum:
+      enum:
+      - OPEN
+      - BALANCED
+      - EXCEPTIONS
+      - CLOSED
+      type: string
+      description: |-
+        * `OPEN` - Open
+        * `BALANCED` - Balanced
+        * `EXCEPTIONS` - Exceptions
+        * `CLOSED` - Closed
+    RevenueCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 120
+        sort_order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+      required:
+      - id
+      - name
+    RevenueItemTemplate:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        harmonised_code:
+          type: string
+          maxLength: 32
+        item_name:
+          type: string
+          maxLength: 160
+        category:
+          type: integer
+        category_name:
+          type: string
+          readOnly: true
+        unit_of_charge:
+          type: string
+          maxLength: 64
+        in_initial_scope:
+          type: boolean
+      required:
+      - category
+      - category_name
+      - harmonised_code
+      - id
+      - item_name
+      - unit_of_charge
+    SubConsultant:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        consultant_name:
+          type: string
+          maxLength: 160
+        contract_ref:
+          type: string
+          maxLength: 64
+        commission_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Percent, e.g. 30.00
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SubConsultantStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - commission_rate
+      - consultant_name
+      - contract_ref
+      - created_at
+      - id
+      - status
+    SubConsultantRequest:
+      type: object
+      properties:
+        consultant_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        contract_ref:
+          type: string
+          minLength: 1
+          maxLength: 64
+        commission_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Percent, e.g. 30.00
+      required:
+      - commission_rate
+      - consultant_name
+      - contract_ref
+    SubConsultantStatusEnum:
+      enum:
+      - PENDING
+      - ACTIVE
+      - SUSPENDED
+      - EXITED
+      type: string
+      description: |-
+        * `PENDING` - Pending
+        * `ACTIVE` - Active
+        * `SUSPENDED` - Suspended
+        * `EXITED` - Exited
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    TxnStatusEnum:
+      enum:
+      - PENDING
+      - CONFIRMED
+      - FAILED
+      - REVERSED
+      type: string
+      description: |-
+        * `PENDING` - Pending
+        * `CONFIRMED` - Confirmed
+        * `FAILED` - Failed
+        * `REVERSED` - Reversed
+    USSDSessionRequestRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Accumulated USSD input, e.g. '1*KAC/2026/000001*5000'
+        msisdn:
+          type: string
+          minLength: 1
+      required:
+      - msisdn
+      - text
+    VerifyReceiptResponse:
+      type: object
+      properties:
+        receipt_ref:
+          type: string
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        bill_ref:
+          type: string
+        payer_name:
+          type: string
+        channel:
+          type: string
+        paid_at:
+          type: string
+          format: date-time
+        verified_count:
+          type: integer
+      required:
+      - amount
+      - bill_ref
+      - channel
+      - paid_at
+      - payer_name
+      - receipt_ref
+      - verified_count
+    WardZone:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        ward_code:
+          type: string
+          maxLength: 32
+        ward_name:
+          type: string
+          maxLength: 120
+        zone_type:
+          $ref: '#/components/schemas/ZoneTypeEnum'
+      required:
+      - id
+      - ward_code
+      - ward_name
+    WardZoneRequest:
+      type: object
+      properties:
+        ward_code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        ward_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        zone_type:
+          $ref: '#/components/schemas/ZoneTypeEnum'
+      required:
+      - ward_code
+      - ward_name
+    WebhookResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/WebhookResponseStatusEnum'
+        paymentRef:
+          type: string
+        receiptRef:
+          type: string
+        verifyToken:
+          type: string
+        error:
+          type: string
+        bank_txn_ref:
+          type: string
+      required:
+      - status
+    WebhookResponseStatusEnum:
+      enum:
+      - posted
+      - duplicate
+      - accepted_unmatched
+      - rejected
+      type: string
+      description: |-
+        * `posted` - posted
+        * `duplicate` - duplicate
+        * `accepted_unmatched` - accepted_unmatched
+        * `rejected` - rejected
+    ZoneTypeEnum:
+      enum:
+      - WARD
+      - ZONE
+      - DISTRICT
+      type: string
+      description: |-
+        * `WARD` - Ward
+        * `ZONE` - Zone
+        * `DISTRICT` - District
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

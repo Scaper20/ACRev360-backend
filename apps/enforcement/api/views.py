@@ -1,0 +1,33 @@
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from apps.accounts.models import AppRole
+from apps.common.permissions import access_level_permission
+from apps.common.scoping import portfolio_filter
+from apps.enforcement.api.serializers import DebtCaseSerializer
+from apps.enforcement.models import DebtCase
+from apps.enforcement.services import escalate, refresh_debt
+
+
+class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = DebtCaseSerializer
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+
+    def get_queryset(self):
+        qs = DebtCase.objects.filter(council_id=self.request.user.council_id).order_by("-opened_at")
+        return portfolio_filter(qs, self.request, payer_path="bill__payer")
+
+    @action(detail=False, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def refresh(self, request):
+        result = refresh_debt(council_id=request.user.council_id, actor=request.user)
+        return Response(result)
+
+    @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def escalate(self, request, pk=None):
+        case = self.get_object()
+        try:
+            escalate(debt_case=case, actor=request.user)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(DebtCaseSerializer(case).data)
