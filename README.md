@@ -8,6 +8,9 @@ Council (KAC) is council #1.
 to run the stack (local venv or Docker), where the API docs/database/tests
 actually live, and a checklist for confirming it's genuinely working.
 
+**Deploying?** See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — backend to Render,
+frontend to Vercel, free tier, step by step.
+
 ## Stack
 
 Django 6.1, Django REST Framework, PostgreSQL (with row-level security for

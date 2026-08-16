@@ -1,0 +1,67 @@
+databases:
+  - name: acrev360-db
+    plan: free
+    databaseName: acrev360
+    user: acrev360
+    postgresMajorVersion: "17"
+
+services:
+  - type: web
+    name: acrev360-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: acrev360-backend.onrender.com
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "True"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: acrev360-db
+          property: connectionString
+      # CORS_ALLOWED_ORIGINS and WEBHOOK_ENCRYPTION_KEY have no safe default —
+      # fill these in from the Render dashboard after the frontend's Vercel URL
+      # is known and a Fernet key is generated (see docs/DEPLOYMENT.md).
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: WEBHOOK_ENCRYPTION_KEY
+        sync: false
+      - key: WEBHOOK_STRICT_SIGNATURES
+        value: "True"
+
+  # Daily debt-ageing refresh via Render's native Cron Jobs instead of a
+  # standing Celery worker + beat + Redis broker — the only scheduled job this
+  # app currently has (apps/enforcement/tasks.py), and nothing yet calls
+  # .delay()/.apply_async(), so there's no other async workload to justify the
+  # extra always-on services on the free tier. Runs the same task function
+  # synchronously via `manage.py refresh_debt_ageing`. Swap this out for the
+  # celery-worker/celery-beat services in docker-compose.yml (plus a Render Key
+  # Value/Redis instance) once real async work (e.g. webhook post-processing)
+  # lands.
+  - type: cron
+    name: acrev360-debt-ageing
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    schedule: "0 1 * * *" # 01:00 UTC = 02:00 Africa/Lagos
+    dockerCommand: python manage.py refresh_debt_ageing
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        sync: false # same value as the web service's — copy it in after first deploy
+      - key: DJANGO_ALLOWED_HOSTS
+        value: acrev360-backend.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: acrev360-db
+          property: connectionString
+      - key: WEBHOOK_ENCRYPTION_KEY
+        sync: false
+      # Required by config/settings/prod.py (no default) even though the cron
+      # job never serves HTTP — settings are loaded for every manage.py
+      # invocation. Same value as the web service's.
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false

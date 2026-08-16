@@ -23,4 +23,7 @@ USER appuser
 EXPOSE 8000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+# Shell form (not exec-array) so ${PORT:-8000} expands — Render assigns PORT at
+# runtime and expects the container to bind to it; docker-compose.yml overrides
+# this CMD with a fixed port for local dev, so that path is unaffected.
+CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 3
