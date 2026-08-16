@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,6 +18,7 @@ from apps.settlements.services import compute_settlements
 class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CommissionSettlementSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+    lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         user = self.request.user
@@ -25,6 +27,7 @@ class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
             qs = qs.filter(consultant_id=user.consultant_id)
         return qs
 
+    @extend_schema(request=ComputeSettlementsSerializer, responses=CommissionSettlementSerializer(many=True))
     @action(detail=False, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def compute(self, request):
         serializer = ComputeSettlementsSerializer(data=request.data)
@@ -34,6 +37,7 @@ class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
         )
         return Response(CommissionSettlementSerializer(results, many=True).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=SettlementStatusSerializer, responses=CommissionSettlementSerializer)
     @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def status_change(self, request, pk=None):
         settlement = self.get_object()

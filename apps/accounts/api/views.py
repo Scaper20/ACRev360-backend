@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import generics, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -22,7 +23,13 @@ from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.accounts.tokens import AppTokenObtainPairSerializer
 from apps.audit.services import audit
 from apps.common.permissions import access_level_permission
+from apps.payments.api.serializers import PaymentSerializer
 from apps.revenue.models import ConsultantPortfolio
+
+
+class AgentActivityResponseSerializer(serializers.Serializer):
+    today_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    recent_payments = PaymentSerializer(many=True)
 
 
 class TokenPairResponseSerializer(serializers.Serializer):
@@ -69,6 +76,7 @@ class MeView(generics.RetrieveAPIView):
 class SubConsultantViewSet(viewsets.ModelViewSet):
     serializer_class = SubConsultantSerializer
     http_method_names = ["get", "post", "head", "options"]
+    lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -85,6 +93,7 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
             entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"consultant_name": instance.consultant_name},
         )
 
+    @extend_schema(request=SubConsultantStatusSerializer, responses=SubConsultantSerializer)
     @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def status_change(self, request, pk=None):
         consultant = self.get_object()
@@ -99,7 +108,9 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         )
         return Response(SubConsultantSerializer(consultant).data)
 
-    @action(detail=True, methods=["get", "post"])
+    @extend_schema(methods=["GET"], responses=ConsultantPortfolioSerializer(many=True))
+    @extend_schema(methods=["POST"], request=ConsultantPortfolioSerializer, responses=ConsultantPortfolioSerializer)
+    @action(detail=True, methods=["get", "post"], pagination_class=None)
     def portfolio(self, request, pk=None):
         consultant = self.get_object()
         if request.user.access_level == AppRole.CONSULTANT and request.user.consultant_id != consultant.id:
@@ -120,7 +131,12 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         )
         return Response(ConsultantPortfolioSerializer(entry).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"], url_path="portfolio/(?P<portfolio_id>[^/.]+)/end")
+    @extend_schema(
+        parameters=[OpenApiParameter("portfolio_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        request=None,
+        responses=ConsultantPortfolioSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path=r"portfolio/(?P<portfolio_id>[0-9]+)/end")
     def end_portfolio(self, request, pk=None, portfolio_id=None):
         consultant = self.get_object()
         entry = ConsultantPortfolio.objects.get(pk=portfolio_id, consultant=consultant)
@@ -137,6 +153,7 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
     serializer_class = FieldAgentSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
     http_method_names = ["get", "post", "head", "options"]
+    lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         user = self.request.user
@@ -171,6 +188,7 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             entity_id=agent.id, detail={"agent_code": agent.agent_code},
         )
 
+    @extend_schema(responses=AgentActivityResponseSerializer)
     @action(detail=True, methods=["get"])
     def activity(self, request, pk=None):
         """Recent payments posted by this agent. The full daily-returns rollup

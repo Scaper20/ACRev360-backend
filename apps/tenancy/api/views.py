@@ -14,6 +14,7 @@ from apps.tenancy.services import onboard_council
 class WardZoneViewSet(viewsets.ModelViewSet):
     serializer_class = WardZoneSerializer
     http_method_names = ["get", "post", "head", "options"]
+    lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
         if self.request.method == "POST":

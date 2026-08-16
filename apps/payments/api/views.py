@@ -118,6 +118,7 @@ class APIClientViewSet(viewsets.ModelViewSet):
     serializer_class = APIClientSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
     http_method_names = ["get", "post", "head", "options"]
+    lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         return APIClient.objects.filter(council_id=self.request.user.council_id)

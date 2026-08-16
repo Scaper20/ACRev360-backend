@@ -25,8 +25,29 @@ class CreatePayerSerializer(serializers.ModelSerializer):
         ]
 
 
+class PayerCreateResponseSerializer(PayerSerializer):
+    draft_assessments_created = serializers.IntegerField(read_only=True)
+
+    class Meta(PayerSerializer.Meta):
+        fields = PayerSerializer.Meta.fields + ["draft_assessments_created"]
+
+
+class DuplicatePayerResponseSerializer(serializers.Serializer):
+    error = serializers.CharField()
+    duplicate_of = PayerSerializer()
+
+
 class EnumeratedAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = EnumeratedAsset
         fields = ["id", "payer", "asset_type", "description", "ward", "geo_lat", "geo_lng"]
         read_only_fields = ["id"]
+
+
+class DraftAssessmentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    council_revenue_item_id = serializers.IntegerField()
+    harmonised_code = serializers.CharField()
+    item_name = serializers.CharField()
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2)

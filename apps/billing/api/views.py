@@ -1,6 +1,8 @@
+from django.db import models
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, status, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -25,8 +27,27 @@ from apps.revenue.models import CouncilRevenueItem
 from apps.tenancy.context import council_context
 
 
+class IssueBillResponseSerializer(BillSerializer):
+    arrears_amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    superseded_count = serializers.IntegerField(read_only=True)
+
+    class Meta(BillSerializer.Meta):
+        fields = BillSerializer.Meta.fields + ["arrears_amount", "superseded_count"]
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by bill status"),
+            OpenApiParameter("payer", OpenApiTypes.INT, description="Filter to one payer's bills"),
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by bill reference or payer name"),
+        ]
+    ),
+    create=extend_schema(request=IssueBillSerializer, responses=IssueBillResponseSerializer),
+)
 class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    lookup_value_regex = r"[0-9]+"
 
     def get_serializer_class(self):
         return IssueBillSerializer if self.request.method == "POST" else BillSerializer
@@ -37,6 +58,12 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
         status_param = self.request.query_params.get("status")
         if status_param:
             qs = qs.filter(status=status_param)
+        payer_param = self.request.query_params.get("payer")
+        if payer_param:
+            qs = qs.filter(payer_id=payer_param)
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(models.Q(bill_ref__icontains=q) | models.Q(payer__full_name__icontains=q))
         return qs
 
     def create(self, request, *args, **kwargs):
@@ -71,11 +98,13 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
         payload["superseded_count"] = getattr(bill, "superseded_count", 0)
         return Response(payload, status=status.HTTP_201_CREATED)
 
+    @extend_schema(responses=BillDetailSerializer)
     @action(detail=True, methods=["get"], url_path="detail")
     def bill_detail(self, request, pk=None):
         bill = self.get_object()
         return Response(BillDetailSerializer(bill).data)
 
+    @extend_schema(request=AddLineSerializer, responses=BillLineDetailSerializer)
     @action(detail=True, methods=["post"], url_path="lines", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def add_line(self, request, pk=None):
         bill = self.get_object()
@@ -88,8 +117,16 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(BillLineDetailSerializer(line).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        methods=["PUT"], parameters=[OpenApiParameter("line_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        request=UpdateLineSerializer, responses=BillLineDetailSerializer,
+    )
+    @extend_schema(
+        methods=["DELETE"], parameters=[OpenApiParameter("line_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        request=None, responses={204: None},
+    )
     @action(
-        detail=True, methods=["put", "delete"], url_path=r"lines/(?P<line_id>\d+)",
+        detail=True, methods=["put", "delete"], url_path=r"lines/(?P<line_id>[0-9]+)",
         permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)],
     )
     def line_detail(self, request, pk=None, line_id=None):

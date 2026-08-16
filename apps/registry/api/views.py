@@ -1,4 +1,6 @@
 from django.db.models import Q
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -7,14 +9,29 @@ from apps.accounts.models import AppRole
 from apps.billing.models import Assessment
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
-from apps.registry.api.serializers import CreatePayerSerializer, EnumeratedAssetSerializer, PayerSerializer
+from apps.registry.api.serializers import (
+    CreatePayerSerializer,
+    DraftAssessmentSerializer,
+    DuplicatePayerResponseSerializer,
+    EnumeratedAssetSerializer,
+    PayerCreateResponseSerializer,
+    PayerSerializer,
+)
 from apps.registry.models import EnumeratedAsset, Payer
 from apps.registry.services import DuplicatePayer, create_payer
 from apps.revenue.models import CouncilRevenueItem
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by name, reference or phone"),
+        ]
+    )
+)
 class PayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    lookup_value_regex = r"[0-9]+"
 
     def get_serializer_class(self):
         return CreatePayerSerializer if self.request.method == "POST" else PayerSerializer
@@ -27,6 +44,7 @@ class PayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
             qs = qs.filter(Q(full_name__icontains=q) | Q(payer_ref__icontains=q) | Q(phone__icontains=q))
         return qs
 
+    @extend_schema(responses={201: PayerCreateResponseSerializer, 409: DuplicatePayerResponseSerializer})
     def create(self, request, *args, **kwargs):
         serializer = CreatePayerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -52,7 +70,8 @@ class PayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
         payload["draft_assessments_created"] = draft_count
         return Response(payload, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["get"], url_path="draft-assessments")
+    @extend_schema(responses=DraftAssessmentSerializer(many=True))
+    @action(detail=True, methods=["get"], url_path="draft-assessments", pagination_class=None)
     def draft_assessments(self, request, pk=None):
         payer = self.get_object()
         drafts = Assessment.objects.filter(payer=payer, status=Assessment.DRAFT).select_related("council_revenue_item")

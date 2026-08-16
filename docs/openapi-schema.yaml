@@ -58,6 +58,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -82,6 +83,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -92,7 +94,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FieldAgent'
+                $ref: '#/components/schemas/AgentActivityResponse'
           description: ''
   /api/v1/api-clients:
     get:
@@ -148,6 +150,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -329,6 +332,21 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: payer
+        schema:
+          type: integer
+        description: Filter to one payer's bills
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by bill reference or payer name
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Filter by bill status
       tags:
       - v1
       security:
@@ -363,7 +381,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IssueBill'
+                $ref: '#/components/schemas/IssueBillResponse'
           description: ''
   /api/v1/bills/{bill_ref}:
     get:
@@ -400,6 +418,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -410,7 +429,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Bill'
+                $ref: '#/components/schemas/BillDetail'
           description: ''
   /api/v1/bills/{id}/lines:
     post:
@@ -420,6 +439,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -427,13 +447,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IssueBillRequest'
+              $ref: '#/components/schemas/AddLineRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/IssueBillRequest'
+              $ref: '#/components/schemas/AddLineRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/IssueBillRequest'
+              $ref: '#/components/schemas/AddLineRequest'
         required: true
       security:
       - jwtAuth: []
@@ -442,7 +462,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IssueBill'
+                $ref: '#/components/schemas/BillLineDetail'
           description: ''
   /api/v1/bills/{id}/lines/{line_id}:
     put:
@@ -452,15 +472,27 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       - in: path
         name: line_id
         schema:
-          type: string
-          pattern: ^\d+$
+          type: integer
         required: true
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLineRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UpdateLineRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateLineRequest'
+        required: true
       security:
       - jwtAuth: []
       responses:
@@ -468,7 +500,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Bill'
+                $ref: '#/components/schemas/BillLineDetail'
           description: ''
     delete:
       operationId: v1_bills_lines_destroy
@@ -477,12 +509,12 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       - in: path
         name: line_id
         schema:
-          type: string
-          pattern: ^\d+$
+          type: integer
         required: true
       tags:
       - v1
@@ -658,6 +690,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -672,12 +705,13 @@ paths:
           description: ''
   /api/v1/consultants/{id}/portfolio:
     get:
-      operationId: v1_consultants_portfolio_retrieve
+      operationId: v1_consultants_portfolio_list
       parameters:
       - in: path
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -688,7 +722,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubConsultant'
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConsultantPortfolio'
           description: ''
     post:
       operationId: v1_consultants_portfolio_create
@@ -697,6 +733,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -704,13 +741,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
+              $ref: '#/components/schemas/ConsultantPortfolioRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
+              $ref: '#/components/schemas/ConsultantPortfolioRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
+              $ref: '#/components/schemas/ConsultantPortfolioRequest'
         required: true
       security:
       - jwtAuth: []
@@ -719,7 +756,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubConsultant'
+                $ref: '#/components/schemas/ConsultantPortfolio'
           description: ''
   /api/v1/consultants/{id}/portfolio/{portfolio_id}/end:
     post:
@@ -729,26 +766,15 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       - in: path
         name: portfolio_id
         schema:
-          type: string
+          type: integer
         required: true
       tags:
       - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
-        required: true
       security:
       - jwtAuth: []
       responses:
@@ -756,7 +782,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubConsultant'
+                $ref: '#/components/schemas/ConsultantPortfolio'
           description: ''
   /api/v1/consultants/{id}/status_change:
     post:
@@ -766,6 +792,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -773,13 +800,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
+              $ref: '#/components/schemas/SubConsultantStatusRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
+              $ref: '#/components/schemas/SubConsultantStatusRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/SubConsultantRequest'
+              $ref: '#/components/schemas/SubConsultantStatusRequest'
         required: true
       security:
       - jwtAuth: []
@@ -886,6 +913,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -910,7 +938,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DebtCase'
+                $ref: '#/components/schemas/DebtRefreshResponse'
           description: ''
   /api/v1/health:
     get:
@@ -938,6 +966,11 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by name, reference or phone
       tags:
       - v1
       security:
@@ -972,7 +1005,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreatePayer'
+                $ref: '#/components/schemas/PayerCreateResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicatePayerResponse'
           description: ''
   /api/v1/payers/{id}:
     get:
@@ -982,6 +1021,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -996,12 +1036,13 @@ paths:
           description: ''
   /api/v1/payers/{id}/draft-assessments:
     get:
-      operationId: v1_payers_draft_assessments_retrieve
+      operationId: v1_payers_draft_assessments_list
       parameters:
       - in: path
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -1012,7 +1053,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Payer'
+                type: array
+                items:
+                  $ref: '#/components/schemas/DraftAssessment'
           description: ''
   /api/v1/payments:
     get:
@@ -1109,11 +1152,22 @@ paths:
       - in: path
         name: exception_id
         schema:
-          type: string
-          pattern: ^\d+$
+          type: integer
         required: true
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveExceptionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResolveExceptionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResolveExceptionRequest'
+        required: true
       security:
       - jwtAuth: []
       responses:
@@ -1128,6 +1182,18 @@ paths:
       operationId: v1_reconciliation_run_create
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunReconciliationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RunReconciliationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RunReconciliationRequest'
+        required: true
       security:
       - jwtAuth: []
       responses:
@@ -1208,6 +1274,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -1229,6 +1296,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -1236,13 +1304,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CouncilRevenueItemRequest'
+              $ref: '#/components/schemas/ChangeRateRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/CouncilRevenueItemRequest'
+              $ref: '#/components/schemas/ChangeRateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/CouncilRevenueItemRequest'
+              $ref: '#/components/schemas/ChangeRateRequest'
         required: true
       security:
       - jwtAuth: []
@@ -1282,9 +1350,22 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettlementStatusRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SettlementStatusRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SettlementStatusRequest'
+        required: true
       security:
       - jwtAuth: []
       responses:
@@ -1297,8 +1378,27 @@ paths:
   /api/v1/settlements/compute:
     post:
       operationId: v1_settlements_compute_create
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComputeSettlementsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ComputeSettlementsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ComputeSettlementsRequest'
+        required: true
       security:
       - jwtAuth: []
       responses:
@@ -1306,7 +1406,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CommissionSettlement'
+                $ref: '#/components/schemas/PaginatedCommissionSettlementList'
           description: ''
   /api/v1/terminals:
     get:
@@ -1409,6 +1509,7 @@ paths:
         name: id
         schema:
           type: string
+          pattern: ^[0-9]+$
         required: true
       tags:
       - v1
@@ -1449,6 +1550,18 @@ components:
           type: boolean
       required:
       - channel
+    AddLineRequest:
+      type: object
+      properties:
+        revenue_item_id:
+          type: integer
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          default: '1.00'
+      required:
+      - revenue_item_id
     AgeingBucketEnum:
       enum:
       - '0_30'
@@ -1461,6 +1574,20 @@ components:
         * `31_60` - 31-60 days
         * `61_90` - 61-90 days
         * `OVER_90` - 90+ days
+    AgentActivityResponse:
+      type: object
+      properties:
+        today_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        recent_payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+      required:
+      - recent_payments
+      - today_total
     AppTokenObtainPairRequest:
       type: object
       description: |-
@@ -1573,7 +1700,7 @@ components:
           readOnly: true
         status:
           allOf:
-          - $ref: '#/components/schemas/BillStatusEnum'
+          - $ref: '#/components/schemas/StatusE25Enum'
           readOnly: true
         due_date:
           type: string
@@ -1596,6 +1723,80 @@ components:
       - due_date
       - full_name
       - id
+      - payer
+      - payer_ref
+      - status
+      - superseded_by
+      - total_amount
+    BillDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        bill_ref:
+          type: string
+          readOnly: true
+        payer:
+          type: integer
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        amount_paid:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        arrears_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusE25Enum'
+          readOnly: true
+        due_date:
+          type: string
+          format: date
+          readOnly: true
+        superseded_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineDetail'
+          readOnly: true
+      required:
+      - amount_paid
+      - arrears_amount
+      - balance
+      - bill_ref
+      - created_at
+      - due_date
+      - full_name
+      - id
+      - lines
       - payer
       - payer_ref
       - status
@@ -1632,18 +1833,6 @@ components:
       - item_name
       - line_amount
       - quantity
-    BillLineEntry:
-      type: object
-      properties:
-        revenue_item_id:
-          type: integer
-        quantity:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-          default: '1.00'
-      required:
-      - revenue_item_id
     BillLineEntryRequest:
       type: object
       properties:
@@ -1656,22 +1845,6 @@ components:
           default: '1.00'
       required:
       - revenue_item_id
-    BillStatusEnum:
-      enum:
-      - ISSUED
-      - PART_PAID
-      - PAID
-      - OVERDUE
-      - CANCELLED
-      - SUPERSEDED
-      type: string
-      description: |-
-        * `ISSUED` - Issued
-        * `PART_PAID` - Part Paid
-        * `PAID` - Paid
-        * `OVERDUE` - Overdue
-        * `CANCELLED` - Cancelled
-        * `SUPERSEDED` - Superseded
     BillsByStatus:
       type: object
       properties:
@@ -1697,6 +1870,15 @@ components:
         * `SMALL` - Small
         * `MEDIUM` - Medium
         * `LARGE` - Large
+    ChangeRateRequest:
+      type: object
+      properties:
+        rate_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - rate_amount
     ChannelCatalogueEntry:
       type: object
       properties:
@@ -1791,7 +1973,7 @@ components:
           readOnly: true
         status:
           allOf:
-          - $ref: '#/components/schemas/CommissionSettlementStatusEnum'
+          - $ref: '#/components/schemas/Status5d5Enum'
           readOnly: true
       required:
       - commission_amount
@@ -1803,18 +1985,59 @@ components:
       - period_end
       - period_start
       - status
-    CommissionSettlementStatusEnum:
-      enum:
-      - COMPUTED
-      - APPROVED
-      - SETTLED
-      - DISPUTED
-      type: string
-      description: |-
-        * `COMPUTED` - Computed
-        * `APPROVED` - Approved
-        * `SETTLED` - Settled
-        * `DISPUTED` - Disputed
+    ComputeSettlementsRequest:
+      type: object
+      properties:
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+      required:
+      - period_end
+      - period_start
+    ConsultantPortfolio:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        consultant:
+          type: integer
+        council_revenue_item:
+          type: integer
+        ward:
+          type: integer
+          nullable: true
+        effective_from:
+          type: string
+          format: date
+          readOnly: true
+        effective_to:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+      required:
+      - consultant
+      - council_revenue_item
+      - effective_from
+      - effective_to
+      - id
+    ConsultantPortfolioRequest:
+      type: object
+      properties:
+        consultant:
+          type: integer
+        council_revenue_item:
+          type: integer
+        ward:
+          type: integer
+          nullable: true
+      required:
+      - consultant
+      - council_revenue_item
     Council:
       type: object
       properties:
@@ -1951,69 +2174,6 @@ components:
       - item_name
       - rate_id
       - unit_of_charge
-    CouncilRevenueItemRequest:
-      type: object
-      properties:
-        template:
-          type: integer
-          nullable: true
-        harmonised_code:
-          type: string
-          minLength: 1
-          maxLength: 32
-        item_name:
-          type: string
-          minLength: 1
-          maxLength: 160
-        category:
-          type: integer
-        unit_of_charge:
-          type: string
-          minLength: 1
-          maxLength: 64
-        is_active:
-          type: boolean
-      required:
-      - category
-      - harmonised_code
-      - item_name
-      - unit_of_charge
-    CreatePayer:
-      type: object
-      properties:
-        payer_type:
-          $ref: '#/components/schemas/PayerTypeEnum'
-        full_name:
-          type: string
-          maxLength: 200
-        phone:
-          type: string
-          maxLength: 32
-        address:
-          type: string
-          maxLength: 255
-        ward:
-          type: integer
-        nin_bvn_hash:
-          type: string
-          maxLength: 128
-        tin:
-          type: string
-          maxLength: 32
-        business_size:
-          nullable: true
-          oneOf:
-          - $ref: '#/components/schemas/BusinessSizeEnum'
-          - $ref: '#/components/schemas/BlankEnum'
-          - $ref: '#/components/schemas/NullEnum'
-        revenue_item_ids:
-          type: array
-          items:
-            type: integer
-      required:
-      - full_name
-      - payer_type
-      - ward
     CreatePayerRequest:
       type: object
       properties:
@@ -2144,6 +2304,52 @@ components:
       - id
       - opened_at
       - reminder_count
+    DebtRefreshResponse:
+      type: object
+      properties:
+        opened:
+          type: integer
+        updated:
+          type: integer
+      required:
+      - opened
+      - updated
+    DraftAssessment:
+      type: object
+      properties:
+        id:
+          type: integer
+        council_revenue_item_id:
+          type: integer
+        harmonised_code:
+          type: string
+        item_name:
+          type: string
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - amount
+      - council_revenue_item_id
+      - harmonised_code
+      - id
+      - item_name
+      - quantity
+    DuplicatePayerResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        duplicate_of:
+          $ref: '#/components/schemas/Payer'
+      required:
+      - duplicate_of
+      - error
     EnforcementStageEnum:
       enum:
       - NONE
@@ -2294,26 +2500,6 @@ components:
       - service
       - status
       - time
-    IssueBill:
-      type: object
-      properties:
-        payer_id:
-          type: integer
-        due_date:
-          type: string
-          format: date
-        lines:
-          type: array
-          items:
-            $ref: '#/components/schemas/BillLineEntry'
-        bill_all_drafts:
-          type: boolean
-          default: false
-        roll_arrears:
-          type: boolean
-          default: false
-      required:
-      - payer_id
     IssueBillRequest:
       type: object
       properties:
@@ -2334,6 +2520,78 @@ components:
           default: false
       required:
       - payer_id
+    IssueBillResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        bill_ref:
+          type: string
+          readOnly: true
+        payer:
+          type: integer
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        amount_paid:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        arrears_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusE25Enum'
+          readOnly: true
+        due_date:
+          type: string
+          format: date
+          readOnly: true
+        superseded_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        superseded_count:
+          type: integer
+          readOnly: true
+      required:
+      - amount_paid
+      - arrears_amount
+      - balance
+      - bill_ref
+      - created_at
+      - due_date
+      - full_name
+      - id
+      - payer
+      - payer_ref
+      - status
+      - superseded_by
+      - superseded_count
+      - total_amount
     KycStatusEnum:
       enum:
       - PENDING
@@ -2942,6 +3200,60 @@ components:
       - payer_ref
       - payer_type
       - ward
+    PayerCreateResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        payer_type:
+          $ref: '#/components/schemas/PayerTypeEnum'
+        full_name:
+          type: string
+          maxLength: 200
+        phone:
+          type: string
+          maxLength: 32
+        address:
+          type: string
+          maxLength: 255
+        ward:
+          type: integer
+        nin_bvn_hash:
+          type: string
+          maxLength: 128
+        tin:
+          type: string
+          maxLength: 32
+        business_size:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BusinessSizeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        kyc_status:
+          allOf:
+          - $ref: '#/components/schemas/KycStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        draft_assessments_created:
+          type: integer
+          readOnly: true
+      required:
+      - created_at
+      - draft_assessments_created
+      - full_name
+      - id
+      - kyc_status
+      - payer_ref
+      - payer_type
+      - ward
     PayerTypeEnum:
       enum:
       - INDIVIDUAL
@@ -3178,21 +3490,6 @@ components:
       - feed_row
       - id
       - run
-    ReconciliationExceptionRequest:
-      type: object
-      properties:
-        payment:
-          type: integer
-          nullable: true
-        note:
-          type: string
-        resolved_at:
-          type: string
-          format: date-time
-          nullable: true
-        resolved_by:
-          type: integer
-          nullable: true
     ReconciliationRun:
       type: object
       properties:
@@ -3249,6 +3546,14 @@ components:
         * `BALANCED` - Balanced
         * `EXCEPTIONS` - Exceptions
         * `CLOSED` - Closed
+    ResolveExceptionRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 1
+      required:
+      - note
     RevenueCategory:
       type: object
       properties:
@@ -3294,6 +3599,65 @@ components:
       - id
       - item_name
       - unit_of_charge
+    RunReconciliationRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        channel_code:
+          type: string
+          minLength: 1
+      required:
+      - channel_code
+      - date
+    SettlementStatusRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/Status5d5Enum'
+      required:
+      - status
+    Status5d5Enum:
+      enum:
+      - COMPUTED
+      - APPROVED
+      - SETTLED
+      - DISPUTED
+      type: string
+      description: |-
+        * `COMPUTED` - Computed
+        * `APPROVED` - Approved
+        * `SETTLED` - Settled
+        * `DISPUTED` - Disputed
+    StatusC83Enum:
+      enum:
+      - PENDING
+      - ACTIVE
+      - SUSPENDED
+      - EXITED
+      type: string
+      description: |-
+        * `PENDING` - Pending
+        * `ACTIVE` - Active
+        * `SUSPENDED` - Suspended
+        * `EXITED` - Exited
+    StatusE25Enum:
+      enum:
+      - ISSUED
+      - PART_PAID
+      - PAID
+      - OVERDUE
+      - CANCELLED
+      - SUPERSEDED
+      type: string
+      description: |-
+        * `ISSUED` - Issued
+        * `PART_PAID` - Part Paid
+        * `PAID` - Paid
+        * `OVERDUE` - Overdue
+        * `CANCELLED` - Cancelled
+        * `SUPERSEDED` - Superseded
     SubConsultant:
       type: object
       properties:
@@ -3313,7 +3677,7 @@ components:
           description: Percent, e.g. 30.00
         status:
           allOf:
-          - $ref: '#/components/schemas/SubConsultantStatusEnum'
+          - $ref: '#/components/schemas/StatusC83Enum'
           readOnly: true
         created_at:
           type: string
@@ -3346,18 +3710,13 @@ components:
       - commission_rate
       - consultant_name
       - contract_ref
-    SubConsultantStatusEnum:
-      enum:
-      - PENDING
-      - ACTIVE
-      - SUSPENDED
-      - EXITED
-      type: string
-      description: |-
-        * `PENDING` - Pending
-        * `ACTIVE` - Active
-        * `SUSPENDED` - Suspended
-        * `EXITED` - Exited
+    SubConsultantStatusRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusC83Enum'
+      required:
+      - status
     TokenPairResponse:
       type: object
       properties:
@@ -3412,6 +3771,15 @@ components:
       required:
       - msisdn
       - text
+    UpdateLineRequest:
+      type: object
+      properties:
+        line_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - line_amount
     VerifyReceiptResponse:
       type: object
       properties:

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -31,10 +32,12 @@ class RevenueItemTemplateViewSet(mixins.ListModelMixin, viewsets.GenericViewSet)
 class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     serializer_class = CouncilRevenueItemSerializer
     permission_classes = [access_level_permission(*READ_ONLY_LEVELS)]
+    lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         return CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True).order_by("harmonised_code")
 
+    @extend_schema(request=ChangeRateSerializer, responses=CouncilRevenueItemSerializer)
     @action(detail=True, methods=["post"], url_path="rate", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def rate(self, request, pk=None):
         """Only COUNCIL_ADMIN may change what an item costs — PRD.md §4.1."""

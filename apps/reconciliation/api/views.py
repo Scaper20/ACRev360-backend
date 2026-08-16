@@ -1,4 +1,6 @@
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -22,6 +24,7 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def get_queryset(self):
         return ReconciliationRun.objects.filter(council_id=self.request.user.council_id).order_by("-run_date")
 
+    @extend_schema(request=RunReconciliationSerializer, responses=ReconciliationRunSerializer)
     @action(detail=False, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def run(self, request):
         serializer = RunReconciliationSerializer(data=request.data)
@@ -33,8 +36,12 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
         return Response(ReconciliationRunSerializer(recon).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("exception_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        request=ResolveExceptionSerializer, responses=ReconciliationRunSerializer,
+    )
     @action(
-        detail=False, methods=["post"], url_path=r"exceptions/(?P<exception_id>\d+)/resolve",
+        detail=False, methods=["post"], url_path=r"exceptions/(?P<exception_id>[0-9]+)/resolve",
         permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)],
     )
     def resolve_exception(self, request, exception_id=None):
