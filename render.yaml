@@ -1,6 +1,6 @@
 databases:
   - name: acrev360-db
-    plan: hobby
+    plan: free
     databaseName: acrev360
     user: acrev360
     postgresMajorVersion: "17"
@@ -9,7 +9,7 @@ services:
   - type: web
     name: acrev360-backend
     runtime: docker
-    plan: hobby
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/v1/health
     envVars:
@@ -45,7 +45,7 @@ services:
   - type: cron
     name: acrev360-debt-ageing
     runtime: docker
-    plan: hobby
+    plan: starter
     dockerfilePath: ./Dockerfile
     schedule: "0 1 * * *" # 01:00 UTC = 02:00 Africa/Lagos
     dockerCommand: python manage.py refresh_debt_ageing
