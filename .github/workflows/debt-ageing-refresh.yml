@@ -1,0 +1,39 @@
+name: Daily debt ageing refresh
+
+# Free stand-in for Render Cron Jobs (which have a $1/mo minimum charge per
+# job — no free instance type exists for them). Calls the same
+# POST /api/v1/debt/refresh endpoint the "Refresh Ageing" button in the
+# frontend uses (apps/enforcement/api/views.py::DebtCaseViewSet.refresh),
+# logging in fresh each run since access tokens are short-lived (30 min).
+# See docs/DEPLOYMENT.md.
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 01:00 UTC = 02:00 Africa/Lagos
+  workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      # Note: this hits the single-council refresh endpoint, scoped to
+      # ACREV_ADMIN_USERNAME's own council — not the multi-council sweep
+      # apps/enforcement/tasks.py::refresh_all_councils_debt() does. Fine
+      # while only one council is seeded; once a second council is onboarded,
+      # add a second login+refresh step per council (or move to Celery beat).
+      - name: Log in and refresh debt ageing
+        env:
+          API_BASE_URL: ${{ secrets.ACREV_API_BASE_URL }}
+          ADMIN_USERNAME: ${{ secrets.ACREV_ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ACREV_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          access_token=$(curl -sf -X POST "$API_BASE_URL/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c 'import json,os; print(json.dumps({"username": os.environ["ADMIN_USERNAME"], "password": os.environ["ADMIN_PASSWORD"]}))')" \
+            | python3 -c "import sys, json; print(json.load(sys.stdin)['access'])")
+
+          curl -sf -X POST "$API_BASE_URL/api/v1/debt/refresh" \
+            -H "Authorization: Bearer $access_token" \
+            -H "Content-Type: application/json"

@@ -33,35 +33,8 @@ services:
       - key: WEBHOOK_STRICT_SIGNATURES
         value: "True"
 
-  # Daily debt-ageing refresh via Render's native Cron Jobs instead of a
-  # standing Celery worker + beat + Redis broker — the only scheduled job this
-  # app currently has (apps/enforcement/tasks.py), and nothing yet calls
-  # .delay()/.apply_async(), so there's no other async workload to justify the
-  # extra always-on services on the free tier. Runs the same task function
-  # synchronously via `manage.py refresh_debt_ageing`. Swap this out for the
-  # celery-worker/celery-beat services in docker-compose.yml (plus a Render Key
-  # Value/Redis instance) once real async work (e.g. webhook post-processing)
-  # lands.
-  - type: cron
-    name: acrev360-debt-ageing
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./Dockerfile
-    schedule: "0 1 * * *" # 01:00 UTC = 02:00 Africa/Lagos
-    dockerCommand: python manage.py refresh_debt_ageing
-    envVars:
-      - key: DJANGO_SECRET_KEY
-        sync: false # same value as the web service's — copy it in after first deploy
-      - key: DJANGO_ALLOWED_HOSTS
-        value: acrev360-backend.onrender.com
-      - key: DATABASE_URL
-        fromDatabase:
-          name: acrev360-db
-          property: connectionString
-      - key: WEBHOOK_ENCRYPTION_KEY
-        sync: false
-      # Required by config/settings/prod.py (no default) even though the cron
-      # job never serves HTTP — settings are loaded for every manage.py
-      # invocation. Same value as the web service's.
-      - key: CORS_ALLOWED_ORIGINS
-        sync: false
+# No cron/worker service here: Render Cron Jobs have a $1/mo minimum charge
+# regardless of "plan" (no free instance type for them), so the daily
+# debt-ageing refresh runs instead via a free GitHub Actions scheduled
+# workflow that calls the existing POST /api/v1/debt/refresh endpoint — see
+# .github/workflows/debt-ageing-refresh.yml and docs/DEPLOYMENT.md.
