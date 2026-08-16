@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
-from rest_framework import generics, status, viewsets
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import generics, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -25,6 +25,19 @@ from apps.common.permissions import access_level_permission
 from apps.revenue.models import ConsultantPortfolio
 
 
+class TokenPairResponseSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+
+
+@extend_schema_view(
+    post=extend_schema(
+        responses=TokenPairResponseSerializer,
+        description="access/refresh JWT pair. The access token carries council_id/access_level/"
+        "consultant_id claims used to scope every subsequent request — see apps/tenancy/middleware.py.",
+        tags=["auth"],
+    )
+)
 class LoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = AppTokenObtainPairSerializer

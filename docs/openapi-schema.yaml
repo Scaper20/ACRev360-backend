@@ -231,11 +231,10 @@ paths:
   /api/v1/auth/login:
     post:
       operationId: v1_auth_login_create
-      description: |-
-        Takes a set of user credentials and returns an access and refresh JSON web
-        token pair to prove the authentication of those credentials.
+      description: access/refresh JWT pair. The access token carries council_id/access_level/consultant_id
+        claims used to scope every subsequent request — see apps/tenancy/middleware.py.
       tags:
-      - v1
+      - auth
       requestBody:
         content:
           application/json:
@@ -252,7 +251,11 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPairResponse'
+          description: ''
   /api/v1/auth/logout:
     post:
       operationId: v1_auth_logout_create
@@ -3355,6 +3358,16 @@ components:
         * `ACTIVE` - Active
         * `SUSPENDED` - Suspended
         * `EXITED` - Exited
+    TokenPairResponse:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
     TokenRefresh:
       type: object
       properties:
