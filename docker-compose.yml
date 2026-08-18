@@ -7,6 +7,10 @@ services:
       POSTGRES_PASSWORD: acrev360
     volumes:
       - postgres_data:/var/lib/postgresql
+      # Runs once against a *fresh* data dir to create the non-superuser
+      # "appuser" role web/celery connect as — see 01-appuser.sql for why
+      # POSTGRES_USER itself can't be that role.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
     ports:
       # Host port 5433, not 5432 — this machine already has a native PostgreSQL
       # service bound to 5432; mapping Docker's postgres to the same host port
@@ -37,7 +41,7 @@ services:
     command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
     env_file: .env
     environment:
-      DATABASE_URL: postgres://acrev360:acrev360@postgres:5432/acrev360
+      DATABASE_URL: postgres://appuser:appuser@postgres:5432/acrev360
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     ports:
@@ -55,7 +59,7 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.prod
-      DATABASE_URL: postgres://acrev360:acrev360@postgres:5432/acrev360
+      DATABASE_URL: postgres://appuser:appuser@postgres:5432/acrev360
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
@@ -71,7 +75,7 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.prod
-      DATABASE_URL: postgres://acrev360:acrev360@postgres:5432/acrev360
+      DATABASE_URL: postgres://appuser:appuser@postgres:5432/acrev360
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:

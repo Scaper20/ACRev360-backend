@@ -96,25 +96,41 @@ explicitly called out as v1's mistake, not repeated here).
 # local venv's database
 psql -U acrev360 -h localhost -p 5432 -d acrev360
 
-# Docker's database
-psql -U acrev360 -h localhost -p 5433 -d acrev360
+# Docker's database — RLS-scoped, matches what the app actually sees
+psql -U appuser -h localhost -p 5433 -d acrev360
 ```
-(password `acrev360` for the app role in both cases — see `.env`.) Once
-connected: `\dt` lists tables, `SELECT * FROM council;`, `SELECT * FROM bill;`,
-etc. A GUI tool (pgAdmin, DBeaver, TablePlus — none are currently installed on
-this machine, any would work) is a more comfortable option if you'd rather
-browse than type SQL; use the same host/port/user/password/database above.
+(password `acrev360` for the local-venv role, `appuser` for Docker's — see
+`.env` / `docker/postgres-init/01-appuser.sql`.) Once connected: `\dt` lists
+tables, `SELECT * FROM council;`, `SELECT * FROM bill;`, etc. A GUI tool
+(pgAdmin, DBeaver, TablePlus — none are currently installed on this machine,
+any would work) is a more comfortable option if you'd rather browse than type
+SQL; use the same host/port/user/password/database above.
 
 **One genuinely confusing thing worth knowing up front:** row-level security
 (the mechanism that keeps council A from ever seeing council B's rows —
-V2_ARCHITECTURE.md §3) only applies to the app's own `acrev360` database role.
-Postgres superusers (`postgres`, which is what you'd use for admin tasks like
-creating the database in the first place) **bypass RLS entirely** — that's
-Postgres's own design, not a bug in this policy. So if you connect as
-`postgres` and run `SELECT * FROM payer;`, you'll see every council's rows at
-once, even though the exact same query through the API (or through `psql -U
-acrev360`) is correctly scoped. If that ever looks like a security hole, it
-isn't — it's which role you're connected as.
+V2_ARCHITECTURE.md §3) only applies to a non-superuser role. Postgres
+superusers **bypass RLS entirely**, including `FORCE ROW LEVEL SECURITY` —
+that's Postgres's own design, not a bug in this policy. Which role that is
+differs by setup:
+
+- **Local venv (Option A):** the app connects as `acrev360`, a plain role on
+  your native Postgres install — not a superuser. `postgres` is the
+  bypassing superuser here; `psql -U acrev360` is correctly RLS-scoped.
+- **Docker (Option B):** the app connects as `appuser`, a non-superuser role
+  created by `docker/postgres-init/01-appuser.sql` specifically so RLS
+  applies to it. `acrev360` is *not* a safe "scoped" role to test against in
+  this setup — the official Postgres image makes whatever `POSTGRES_USER` is
+  set to (`acrev360`, here) the cluster's **bootstrap superuser**, so it
+  bypasses RLS just like `postgres` does natively. Use `psql -U appuser -h
+  localhost -p 5433 -d acrev360` (password `appuser`) to see correctly
+  RLS-scoped queries against Docker's database; connecting as `acrev360`
+  there will show every council's rows at once, same as connecting as
+  `postgres` would locally.
+
+If that ever looks like a security hole, it isn't — it's which role you're
+connected as. (This is also why the init script above only fires against a
+*fresh* Docker volume — see the script's own comments if you're reusing an
+existing `postgres_data` volume from before this was added.)
 
 ## Running the tests
 
@@ -122,10 +138,11 @@ isn't — it's which role you're connected as.
 pytest
 ```
 
-10 tests, all against a real Postgres instance (`test_acrev360`, created and
+31 tests, all against a real Postgres instance (`test_acrev360`, created and
 destroyed automatically by pytest-django — never touches your seeded dev data).
-They cover the three invariant classes this product cannot regress on
-(V2_ARCHITECTURE.md §10):
+The original three invariant classes this product cannot regress on
+(V2_ARCHITECTURE.md §10), plus coverage added for the dashboard aggregates,
+POS terminal fields, and reconciliation exceptions view (BACKEND_HANDOFF.md):
 
 - **`tests/test_tenancy_rls.py`** — council isolation exercised directly against
   RLS: a naive query with no council filter at all, a write attempted for the
@@ -135,6 +152,11 @@ They cover the three invariant classes this product cannot regress on
   refusal (`CANCELLED`/`SUPERSEDED` can't take a payment), arrears consolidation
   never double-counts what's owed, webhook replays are idempotent (same
   `bank_txn_ref` twice → one payment, not two).
+- **`tests/test_dashboard.py`**, **`tests/test_pos_terminals.py`**,
+  **`tests/test_serializers.py`**, **`tests/test_reconciliation_exceptions.py`**
+  — the fields/endpoints added for the frontend handoff: zero-state safety,
+  portfolio scoping, council-direct grouping, cross-council isolation, and an
+  explicit query-count assertion guarding the terminal list's N+1 fix.
 - **`tests/test_onboarding.py`** — a brand-new council can be created,
   configured, and billed end-to-end.
 
@@ -146,7 +168,7 @@ Run through this after any setup (local or Docker):
 2. `/api/docs/` and `/api/redoc/` both load in a browser
 3. Logging in via Swagger (above) returns an `access` token, and Authorize
    unlocks the other endpoints
-4. `pytest` → `10 passed`
+4. `pytest` → `31 passed`
 5. (Docker only) `docker compose ps` shows all 5 services `Up`/`healthy`
 
 If all five hold, the backend is genuinely working end to end, not just

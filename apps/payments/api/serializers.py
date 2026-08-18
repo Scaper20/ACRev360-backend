@@ -12,12 +12,14 @@ class PaymentChannelSerializer(serializers.ModelSerializer):
 class PaymentSerializer(serializers.ModelSerializer):
     bill_ref = serializers.CharField(source="bill.bill_ref", read_only=True)
     channel_code = serializers.CharField(source="channel.code", read_only=True)
+    full_name = serializers.CharField(source="bill.payer.full_name", read_only=True)
+    payer_ref = serializers.CharField(source="bill.payer.payer_ref", read_only=True)
 
     class Meta:
         model = Payment
         fields = [
             "id", "payment_ref", "bill", "bill_ref", "channel", "channel_code",
-            "amount", "bank_txn_ref", "txn_status", "created_at",
+            "amount", "bank_txn_ref", "txn_status", "created_at", "full_name", "payer_ref",
         ]
         read_only_fields = ["id", "payment_ref", "txn_status", "created_at"]
 
@@ -27,6 +29,7 @@ class PostPaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     channel_code = serializers.ChoiceField(choices=PaymentChannel.CODE_CHOICES, default=PaymentChannel.POS)
     bank_txn_ref = serializers.CharField(required=False, allow_blank=True, default="")
+    terminal_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     geo = serializers.DictField(required=False)
 
 
@@ -41,10 +44,12 @@ class ReceiptSerializer(serializers.ModelSerializer):
 
 
 class POSTerminalSerializer(serializers.ModelSerializer):
+    collected = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
     class Meta:
         model = POSTerminal
-        fields = ["id", "terminal_id", "agent", "ward", "status"]
-        read_only_fields = ["id"]
+        fields = ["id", "terminal_id", "bank_terminal_id", "agent", "ward", "status", "collected"]
+        read_only_fields = ["id", "collected"]
 
 
 class APIClientSerializer(serializers.ModelSerializer):

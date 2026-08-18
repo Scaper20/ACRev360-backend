@@ -54,6 +54,7 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
 
     def get_queryset(self):
         qs = Bill.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
+        qs = qs.select_related("payer", "payer__enumerated_by", "payer__enumerated_by__consultant")
         qs = portfolio_filter(qs, self.request)
         status_param = self.request.query_params.get("status")
         if status_param:

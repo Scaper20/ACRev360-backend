@@ -9,6 +9,7 @@ from apps.accounts.models import AppRole
 from apps.common.permissions import access_level_permission
 from apps.payments.models import PaymentChannel
 from apps.reconciliation.api.serializers import (
+    GlobalExceptionSerializer,
     ReconciliationRunSerializer,
     ResolveExceptionSerializer,
     RunReconciliationSerializer,
@@ -53,3 +54,23 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         exception.resolved_by = request.user
         exception.save(update_fields=["note", "resolved_at", "resolved_by"])
         return Response(ReconciliationRunSerializer(exception.run).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("resolved", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False)],
+        responses=GlobalExceptionSerializer(many=True),
+    )
+    @action(detail=False, methods=["get"], url_path="exceptions")
+    def exceptions(self, request):
+        """Cross-run view of exceptions — 'browse everything unmatched' rather than
+        having to already know which run an exception belongs to. Defaults to
+        unresolved-only; ?resolved=true/false narrows either way."""
+        qs = ReconciliationException.objects.filter(council_id=request.user.council_id).select_related(
+            "run", "run__channel", "feed_row"
+        ).order_by("-run__run_date")
+        resolved_param = request.query_params.get("resolved")
+        if resolved_param is None:
+            qs = qs.filter(resolved_at__isnull=True)
+        else:
+            want_resolved = resolved_param.lower() == "true"
+            qs = qs.filter(resolved_at__isnull=not want_resolved)
+        return Response(GlobalExceptionSerializer(qs, many=True).data)

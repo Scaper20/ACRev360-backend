@@ -4,7 +4,7 @@ from apps.audit.services import audit
 from apps.billing.models import Bill
 from apps.billing.services import recompute_bill
 from apps.common.refs import finalize_ref, placeholder_ref
-from apps.payments.models import Payment, PaymentChannel, Receipt
+from apps.payments.models import POSTerminal, Payment, PaymentChannel, Receipt
 
 
 class PaymentRejected(Exception):
@@ -22,6 +22,7 @@ def post_payment(
     bank_txn_ref="",
     posted_by=None,
     geo=None,
+    terminal: POSTerminal | None = None,
 ) -> Payment:
     """The single money-in path every channel — POS, teller, transfer, USSD, agent
     banking, portal entry, offline sync replay — funnels through. See
@@ -38,6 +39,7 @@ def post_payment(
         payment_ref=placeholder_ref(),
         bill=bill,
         channel=channel,
+        terminal=terminal,
         amount=amount,
         bank_txn_ref=bank_txn_ref,
         txn_status=Payment.CONFIRMED,
