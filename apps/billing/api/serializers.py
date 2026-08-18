@@ -7,14 +7,20 @@ class BillSerializer(serializers.ModelSerializer):
     payer_ref = serializers.CharField(source="payer.payer_ref", read_only=True)
     full_name = serializers.CharField(source="payer.full_name", read_only=True)
     balance = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    consultant_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Bill
         fields = [
             "id", "bill_ref", "payer", "payer_ref", "full_name", "total_amount", "amount_paid",
             "arrears_amount", "balance", "status", "due_date", "superseded_by", "created_at",
+            "consultant_name",
         ]
         read_only_fields = fields
+
+    def get_consultant_name(self, obj):
+        consultant = getattr(obj.payer.enumerated_by, "consultant", None)
+        return consultant.consultant_name if consultant else None
 
 
 class BillLineDetailSerializer(serializers.ModelSerializer):

@@ -1,3 +1,5 @@
+from django.db.models import DecimalField, Q, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import mixins, serializers, status, viewsets
@@ -26,6 +28,7 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Ge
 
     def get_queryset(self):
         qs = Payment.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
+        qs = qs.select_related("bill", "bill__payer", "channel")
         return portfolio_filter(qs, self.request, payer_path="bill__payer")
 
     def get_serializer_class(self):
@@ -38,12 +41,16 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Ge
 
         bill = get_object_or_404(Bill, pk=data["bill_id"], council_id=request.user.council_id)
         channel, _ = PaymentChannel.objects.get_or_create(code=data["channel_code"])
+        terminal = None
+        if data.get("terminal_id") is not None:
+            terminal = get_object_or_404(POSTerminal, pk=data["terminal_id"], council_id=request.user.council_id)
 
         try:
             payment = post_payment(
                 council_id=request.user.council_id,
                 bill=bill,
                 channel=channel,
+                terminal=terminal,
                 amount=data["amount"],
                 bank_txn_ref=data.get("bank_txn_ref", ""),
                 posted_by=request.user,
@@ -111,7 +118,17 @@ class POSTerminalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
 
     def get_queryset(self):
-        return POSTerminal.objects.filter(council_id=self.request.user.council_id).order_by("terminal_id")
+        return (
+            POSTerminal.objects.filter(council_id=self.request.user.council_id)
+            .annotate(
+                collected=Coalesce(
+                    Sum("payments__amount", filter=Q(payments__txn_status=Payment.CONFIRMED)),
+                    0,
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            .order_by("terminal_id")
+        )
 
 
 class APIClientViewSet(viewsets.ModelViewSet):

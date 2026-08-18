@@ -4,7 +4,8 @@ import pytest
 from django.db import transaction
 from rest_framework.test import APIClient
 
-from apps.accounts.models import AppRole, AppUser
+from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
+from apps.payments.models import POSTerminal
 from apps.registry.models import Payer
 from apps.revenue.models import CouncilRevenueItem, RateSchedule, RevenueCategory, RevenueItemTemplate
 from apps.tenancy.context import set_council_context
@@ -78,6 +79,38 @@ def make_payer(db):
         return Payer.objects.create(
             council=council, payer_ref=f"C-{Payer.objects.filter(council=council).count() + 1:07d}",
             payer_type=Payer.BUSINESS, full_name=name, phone=phone, ward=ward, enumerated_by=actor,
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_consultant(db):
+    def _make(council, name="Test Consultant", contract_ref="CR-1", rate=30, status=SubConsultant.ACTIVE):
+        return SubConsultant.objects.create(
+            council=council, consultant_name=name, contract_ref=contract_ref,
+            commission_rate=rate, status=status,
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_field_agent(db):
+    def _make(council, user, ward=None, agent_code="AGT-1", status=FieldAgent.ACTIVE):
+        return FieldAgent.objects.create(
+            council=council, user=user, agent_code=agent_code, assigned_ward=ward, status=status,
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_terminal(db):
+    def _make(council, agent, ward, terminal_id="TERM-1", bank_terminal_id="", status=POSTerminal.ACTIVE):
+        return POSTerminal.objects.create(
+            council=council, terminal_id=terminal_id, bank_terminal_id=bank_terminal_id,
+            agent=agent, ward=ward, status=status,
         )
 
     return _make

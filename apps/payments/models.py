@@ -32,6 +32,7 @@ class POSTerminal(CouncilScopedModel):
     STATUS_CHOICES = [(ACTIVE, "Active"), (FAULTY, "Faulty"), (RETIRED, "Retired")]
 
     terminal_id = models.CharField(max_length=32)
+    bank_terminal_id = models.CharField(max_length=32, blank=True)
     agent = models.ForeignKey("accounts.FieldAgent", on_delete=models.PROTECT, related_name="terminals")
     ward = models.ForeignKey(WardZone, on_delete=models.PROTECT, related_name="terminals")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=ACTIVE)
@@ -83,6 +84,9 @@ class Payment(CouncilScopedModel):
     payment_ref = models.CharField(max_length=64, unique=True, blank=True)
     bill = models.ForeignKey("billing.Bill", on_delete=models.PROTECT, related_name="payments")
     channel = models.ForeignKey(PaymentChannel, on_delete=models.PROTECT, related_name="payments")
+    terminal = models.ForeignKey(
+        POSTerminal, on_delete=models.PROTECT, null=True, blank=True, related_name="payments"
+    )
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     bank_txn_ref = models.CharField(max_length=64, blank=True)
     txn_status = models.CharField(max_length=16, choices=TXN_STATUS_CHOICES, default=CONFIRMED)
