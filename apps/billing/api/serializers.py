@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from apps.billing.models import Bill, BillLine
@@ -51,10 +53,10 @@ class BillDetailSerializer(BillSerializer):
 # band). Omitted entirely for a plain FLAT item.
 class BillLineEntrySerializer(serializers.Serializer):
     revenue_item_id = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, default=1)
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, default=1, min_value=Decimal("0.01"))
     rate_band_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     rate_tier_id = serializers.IntegerField(required=False, allow_null=True, default=None)
-    amount_override = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, allow_null=True, default=None)
+    amount_override = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), required=False, allow_null=True, default=None)
 
 
 class IssueBillSerializer(serializers.Serializer):
@@ -67,10 +69,10 @@ class IssueBillSerializer(serializers.Serializer):
 
 class AddLineSerializer(serializers.Serializer):
     revenue_item_id = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, default=1)
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, default=1, min_value=Decimal("0.01"))
     rate_band_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     rate_tier_id = serializers.IntegerField(required=False, allow_null=True, default=None)
-    amount_override = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, allow_null=True, default=None)
+    amount_override = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), required=False, allow_null=True, default=None)
 
 
 class UpdateLineSerializer(serializers.Serializer):

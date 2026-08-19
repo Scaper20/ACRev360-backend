@@ -37,6 +37,10 @@ class DuplicatePayerResponseSerializer(serializers.Serializer):
     duplicate_of = PayerSerializer()
 
 
+class KycStatusSerializer(serializers.Serializer):
+    kyc_status = serializers.ChoiceField(choices=Payer.KYC_STATUS_CHOICES)
+
+
 class EnumeratedAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = EnumeratedAsset

@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -18,10 +18,12 @@ from apps.billing.api.serializers import (
     PublicBillLookupSerializer,
     UpdateLineSerializer,
 )
-from apps.billing.models import Bill, BillLine
+from apps.audit.services import audit
+from apps.billing.models import Assessment, Bill, BillLine
 from apps.billing.services import BillingError, add_bill_line, delete_bill_line, issue_bill, update_bill_line
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
+from apps.payments.models import Payment
 from apps.registry.models import Payer
 from apps.revenue.models import CouncilRevenueItem, RateBand, RateTier
 from apps.tenancy.context import council_context
@@ -61,9 +63,14 @@ class IssueBillResponseSerializer(BillSerializer):
     ),
     create=extend_schema(request=IssueBillSerializer, responses=IssueBillResponseSerializer),
 )
-class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
     lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
+        return super().get_permissions()
 
     def get_serializer_class(self):
         return IssueBillSerializer if self.request.method == "POST" else BillSerializer
@@ -121,6 +128,29 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
         payload["arrears_amount"] = bill.arrears_amount
         payload["superseded_count"] = getattr(bill, "superseded_count", 0)
         return Response(payload, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        bill = self.get_object()
+        if Payment.objects.filter(bill=bill).exists():
+            return Response(
+                {"error": f"{bill.bill_ref} has payments on record and can't be deleted — this preserves the payment/receipt history."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # The bill was a mistake in its entirety (wrong payer, wrong items,
+        # duplicate) — its assessments go with it rather than lingering as
+        # orphaned BILLED-status rows with no bill to show for them. This is
+        # "undo an issued bill", not "waive/cancel a valid debt" — a payer
+        # whose liability still stands should be re-billed, not have this
+        # used as a write-off.
+        assessment_ids = list(bill.lines.values_list("assessment_id", flat=True))
+        audit(
+            council_id=bill.council_id, actor=request.user, action="BILL_DELETED", entity_type="BILL",
+            entity_id=bill.id, detail={"bill_ref": bill.bill_ref, "total_amount": str(bill.total_amount)},
+        )
+        response = super().destroy(request, *args, **kwargs)
+        Assessment.objects.filter(id__in=assessment_ids).delete()
+        return response
 
     @extend_schema(responses=BillDetailSerializer)
     @action(detail=True, methods=["get"], url_path="detail")

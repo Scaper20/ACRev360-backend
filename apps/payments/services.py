@@ -70,3 +70,33 @@ def post_payment(
         detail={"payment_ref": payment.payment_ref, "bill_ref": bill.bill_ref, "amount": str(amount), "channel": channel.code},
     )
     return payment
+
+
+@transaction.atomic
+def reverse_payment(*, payment: Payment, actor, reason="") -> Payment:
+    """The only way to correct a mis-recorded payment — there was previously no
+    way to do this at all short of a raw negative-amount POST /payments, which
+    is now rejected (PostPaymentSerializer.amount has min_value=0.01). Marks the
+    payment REVERSED rather than deleting it, so the original record and its
+    receipt stay in the audit trail; the bill's amount_paid/status are
+    recomputed as if the payment had never landed."""
+    if payment.txn_status != Payment.CONFIRMED:
+        raise PaymentRejected(f"{payment.payment_ref} is {payment.txn_status.lower()}, not confirmed — nothing to reverse")
+
+    bill = payment.bill
+    payment.txn_status = Payment.REVERSED
+    payment.save(update_fields=["txn_status"])
+
+    bill.amount_paid = max(bill.amount_paid - payment.amount, 0)
+    bill.save(update_fields=["amount_paid", "updated_at"])
+    recompute_bill(bill)
+
+    audit(
+        council_id=payment.council_id,
+        actor=actor,
+        action="PAYMENT_REVERSED",
+        entity_type="PAYMENT",
+        entity_id=payment.id,
+        detail={"payment_ref": payment.payment_ref, "bill_ref": bill.bill_ref, "amount": str(payment.amount), "reason": reason},
+    )
+    return payment

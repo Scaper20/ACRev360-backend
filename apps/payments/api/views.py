@@ -1,8 +1,10 @@
 from django.db.models import DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,19 +19,56 @@ from apps.payments.api.serializers import (
     POSTerminalSerializer,
     PostPaymentSerializer,
     ReceiptSerializer,
+    ReversePaymentSerializer,
 )
 from apps.payments.models import APIClient, PaymentChannel, POSTerminal, Payment, Receipt
-from apps.payments.services import PaymentRejected, post_payment
+from apps.payments.services import PaymentRejected, post_payment, reverse_payment
 from apps.tenancy.context import find_across_active_councils
 
 
-class PaymentViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by txn_status"),
+            OpenApiParameter("channel", OpenApiTypes.STR, description="Filter by channel code"),
+            OpenApiParameter("payer", OpenApiTypes.INT, description="Filter to one payer's payments"),
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by payment ref, bill ref or payer name"),
+            OpenApiParameter("date_from", OpenApiTypes.DATE, description="Only payments on/after this date"),
+            OpenApiParameter("date_to", OpenApiTypes.DATE, description="Only payments on/before this date"),
+        ]
+    )
+)
+class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         qs = Payment.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
-        qs = qs.select_related("bill", "bill__payer", "channel")
-        return portfolio_filter(qs, self.request, payer_path="bill__payer")
+        qs = qs.select_related("bill", "bill__payer", "channel", "terminal", "posted_by")
+        qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
+
+        params = self.request.query_params
+        status_param = params.get("status")
+        if status_param:
+            qs = qs.filter(txn_status=status_param)
+        channel_param = params.get("channel")
+        if channel_param:
+            qs = qs.filter(channel__code=channel_param)
+        payer_param = params.get("payer")
+        if payer_param:
+            qs = qs.filter(bill__payer_id=payer_param)
+        q = params.get("q")
+        if q:
+            qs = qs.filter(
+                Q(payment_ref__icontains=q) | Q(bill__bill_ref__icontains=q) | Q(bill__payer__full_name__icontains=q)
+            )
+        date_from = params.get("date_from")
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        date_to = params.get("date_to")
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+        return qs
 
     def get_serializer_class(self):
         return PostPaymentSerializer if self.request.method == "POST" else PaymentSerializer
@@ -60,6 +99,19 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Ge
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=ReversePaymentSerializer, responses=PaymentSerializer)
+    @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def reverse(self, request, pk=None):
+        """Only COUNCIL_ADMIN may reverse a payment — see reverse_payment()."""
+        payment = self.get_object()
+        serializer = ReversePaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payment = reverse_payment(payment=payment, actor=request.user, reason=serializer.validated_data["reason"])
+        except PaymentRejected as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(PaymentSerializer(payment).data)
 
 
 class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
