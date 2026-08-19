@@ -73,6 +73,10 @@ class CouncilRevenueItem(CouncilScopedModel):
     def current_rate(self):
         return self.rate_schedules.filter(effective_to__isnull=True).order_by("-effective_from").first()
 
+    @property
+    def active_bands(self):
+        return self.rate_bands.filter(effective_to__isnull=True).order_by("sort_order", "label")
+
 
 class RateSchedule(TimeStampedModel):
     """
@@ -102,6 +106,97 @@ class RateSchedule(TimeStampedModel):
 
     def __str__(self):
         return f"{self.council_revenue_item.harmonised_code} @ {self.rate_amount}"
+
+
+class RateBand(TimeStampedModel):
+    """
+    A named sub-classification of a revenue item, priced independently of the
+    item's plain `RateSchedule` — e.g. "Beer parlor" under Liquor Licensing, or
+    "School Sign Board" under Control of Advertisement, each gazetted with its own
+    minimum/maximum or small/medium/large figures rather than one flat rate for
+    the whole item.
+
+    An item with zero open bands still prices from `RateSchedule` exactly as
+    before (`FLAT`, single number). An item with one or more open bands requires
+    the assessing agent to pick a band; `RANGE` bands additionally require an
+    amount within [min_amount, max_amount], and `TIERED` bands require picking
+    one of the band's `RateTier` rows instead of typing a number.
+
+    Versioned the same way as `RateSchedule` and for the same reason: never
+    mutate a band in place, close it (`effective_to`) and open a new one, so an
+    assessment's `rate_band`/`rate_tier` FK always points at the exact figures it
+    was priced against, even after the council amends the bye-law. A whole item's
+    band set is replaced together (`revenue.services.replace_rate_bands`), which
+    mirrors how a gazette amendment supersedes a whole schedule at once rather
+    than editing individual cells.
+    """
+
+    FLAT, RANGE, TIERED = "FLAT", "RANGE", "TIERED"
+    RATE_MODE_CHOICES = [(FLAT, "Flat"), (RANGE, "Range"), (TIERED, "Tiered")]
+
+    council_revenue_item = models.ForeignKey(
+        CouncilRevenueItem, on_delete=models.CASCADE, related_name="rate_bands"
+    )
+    label = models.CharField(
+        max_length=160, blank=True,
+        help_text="The gazette's sub-classification name, e.g. 'Beer parlor'. Blank only when "
+        "the item has exactly one band standing in for the whole item (no sub-classification), "
+        "e.g. Communication Mast's single Large/Medium/Small triple.",
+    )
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    rate_mode = models.CharField(max_length=16, choices=RATE_MODE_CHOICES)
+    flat_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    min_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    max_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    effective_from = models.DateField()
+    effective_to = models.DateField(null=True, blank=True)
+
+    class Meta:
+        db_table = "rate_band"
+        ordering = ["sort_order", "label"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["council_revenue_item", "label"],
+                condition=models.Q(effective_to__isnull=True),
+                name="uniq_open_band_label_per_item",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(rate_mode="FLAT", flat_amount__isnull=False, min_amount__isnull=True, max_amount__isnull=True)
+                    | models.Q(rate_mode="RANGE", flat_amount__isnull=True, min_amount__isnull=False, max_amount__isnull=False)
+                    | models.Q(rate_mode="TIERED", flat_amount__isnull=True, min_amount__isnull=True, max_amount__isnull=True)
+                ),
+                name="rate_band_amount_fields_match_mode",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.council_revenue_item.harmonised_code} — {self.label or '(unlabeled)'}"
+
+
+class RateTier(TimeStampedModel):
+    """
+    One labeled amount within a `TIERED` `RateBand` — "Small"/"Medium"/"Large" for
+    Liquor Licensing, "Rural"/"Semi Urban"/"Urban" for Tenement Rate Collection's
+    location-tiered categories. Not a fixed enum on purpose: different bye-laws
+    tier by different things, and the label is exactly what the agent sees when
+    picking one during assessment.
+    """
+
+    band = models.ForeignKey(RateBand, on_delete=models.CASCADE, related_name="tiers")
+    label = models.CharField(max_length=40)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "rate_tier"
+        ordering = ["sort_order", "label"]
+        constraints = [
+            models.UniqueConstraint(fields=["band", "label"], name="uniq_tier_label_per_band"),
+        ]
+
+    def __str__(self):
+        return f"{self.band} · {self.label} = {self.amount}"
 
 
 class ConsultantPortfolio(CouncilScopedModel):

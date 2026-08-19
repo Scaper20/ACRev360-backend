@@ -6,13 +6,69 @@ from django.utils import timezone
 from apps.audit.services import audit
 from apps.billing.models import Assessment, Bill, BillLine
 from apps.common.refs import finalize_ref, placeholder_ref
+from apps.revenue.models import RateBand
 
 
 class BillingError(Exception):
     """Raised for invalid billing operations — callers map this to a 400."""
 
 
-def create_draft_assessment(*, payer, council_revenue_item, actor, quantity=1, asset=None):
+def create_draft_assessment(
+    *, payer, council_revenue_item, actor, quantity=1, asset=None, rate_band=None, rate_tier=None, amount_override=None
+):
+    """Prices one assessment against whichever pricing source the item currently
+    uses. An item with open `RateBand`s *requires* `rate_band` — see
+    `CouncilRevenueItem.active_bands` — and validates it server-side rather than
+    trusting the client's arithmetic, same discipline as every other money path
+    in this codebase:
+
+    - band.rate_mode == FLAT: charges band.flat_amount, no further input needed.
+    - band.rate_mode == RANGE: charges `amount_override`, which must fall within
+      [band.min_amount, band.max_amount] — rejected otherwise.
+    - band.rate_mode == TIERED: charges `rate_tier.amount`; `rate_tier` must
+      belong to the chosen `rate_band`.
+
+    An item with no open bands prices from its plain `RateSchedule`, unchanged
+    from before banding existed.
+    """
+    active_bands = list(council_revenue_item.active_bands)
+
+    if active_bands:
+        if rate_band is None or rate_band.council_revenue_item_id != council_revenue_item.id or rate_band.effective_to is not None:
+            raise BillingError(f"{council_revenue_item.harmonised_code} requires selecting a rate band")
+
+        if rate_band.rate_mode == RateBand.FLAT:
+            unit_amount = rate_band.flat_amount
+        elif rate_band.rate_mode == RateBand.RANGE:
+            if amount_override is None:
+                raise BillingError(f"Enter a chargeable amount for '{rate_band.label}'")
+            if not (rate_band.min_amount <= amount_override <= rate_band.max_amount):
+                raise BillingError(
+                    f"'{rate_band.label}' must be charged between {rate_band.min_amount} and {rate_band.max_amount}"
+                )
+            unit_amount = amount_override
+            rate_tier = None
+        elif rate_band.rate_mode == RateBand.TIERED:
+            if rate_tier is None or rate_tier.band_id != rate_band.id:
+                raise BillingError(f"Select a valid tier for '{rate_band.label}'")
+            unit_amount = rate_tier.amount
+        else:  # pragma: no cover — exhaustive over RateBand.RATE_MODE_CHOICES
+            raise BillingError(f"Unknown rate mode '{rate_band.rate_mode}'")
+
+        amount = unit_amount * quantity
+        return Assessment.objects.create(
+            council_id=payer.council_id,
+            payer=payer,
+            council_revenue_item=council_revenue_item,
+            rate_band=rate_band,
+            rate_tier=rate_tier,
+            asset=asset,
+            quantity=quantity,
+            amount=amount,
+            status=Assessment.DRAFT,
+            created_by=actor,
+        )
+
     rate = council_revenue_item.current_rate
     if rate is None:
         raise BillingError(f"{council_revenue_item.harmonised_code} has no active rate")
@@ -81,6 +137,9 @@ def issue_bill(
             council_revenue_item=entry["council_revenue_item"],
             actor=actor,
             quantity=entry.get("quantity", 1),
+            rate_band=entry.get("rate_band"),
+            rate_tier=entry.get("rate_tier"),
+            amount_override=entry.get("amount_override"),
         )
         assessments.append(assessment)
 
@@ -144,8 +203,16 @@ def issue_bill(
 
 
 @transaction.atomic
-def add_bill_line(*, bill, council_revenue_item, quantity, actor):
-    assessment = create_draft_assessment(payer=bill.payer, council_revenue_item=council_revenue_item, actor=actor, quantity=quantity)
+def add_bill_line(*, bill, council_revenue_item, quantity, actor, rate_band=None, rate_tier=None, amount_override=None):
+    assessment = create_draft_assessment(
+        payer=bill.payer,
+        council_revenue_item=council_revenue_item,
+        actor=actor,
+        quantity=quantity,
+        rate_band=rate_band,
+        rate_tier=rate_tier,
+        amount_override=amount_override,
+    )
     assessment.status = Assessment.BILLED
     assessment.save(update_fields=["status"])
     line = BillLine.objects.create(bill=bill, assessment=assessment, line_amount=assessment.amount)

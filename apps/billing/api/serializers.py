@@ -27,11 +27,13 @@ class BillLineDetailSerializer(serializers.ModelSerializer):
     harmonised_code = serializers.CharField(source="assessment.council_revenue_item.harmonised_code", read_only=True)
     item_name = serializers.CharField(source="assessment.council_revenue_item.item_name", read_only=True)
     quantity = serializers.DecimalField(source="assessment.quantity", max_digits=10, decimal_places=2, read_only=True)
+    band_label = serializers.CharField(source="assessment.rate_band.label", read_only=True, default=None)
+    tier_label = serializers.CharField(source="assessment.rate_tier.label", read_only=True, default=None)
 
     class Meta:
         model = BillLine
-        fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "line_amount"]
-        read_only_fields = ["id", "assessment", "harmonised_code", "item_name", "quantity"]
+        fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "line_amount", "band_label", "tier_label"]
+        read_only_fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "band_label", "tier_label"]
 
 
 class BillDetailSerializer(BillSerializer):
@@ -42,9 +44,17 @@ class BillDetailSerializer(BillSerializer):
         read_only_fields = fields
 
 
+# rate_band_id/rate_tier_id/amount_override are only required when the chosen
+# item has open rate bands — see CouncilRevenueItem.active_bands and
+# apps.billing.services.create_draft_assessment, which does the real
+# validation (band belongs to the item, amount within range, tier belongs to
+# band). Omitted entirely for a plain FLAT item.
 class BillLineEntrySerializer(serializers.Serializer):
     revenue_item_id = serializers.IntegerField()
     quantity = serializers.DecimalField(max_digits=10, decimal_places=2, default=1)
+    rate_band_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    rate_tier_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    amount_override = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, allow_null=True, default=None)
 
 
 class IssueBillSerializer(serializers.Serializer):
@@ -58,6 +68,9 @@ class IssueBillSerializer(serializers.Serializer):
 class AddLineSerializer(serializers.Serializer):
     revenue_item_id = serializers.IntegerField()
     quantity = serializers.DecimalField(max_digits=10, decimal_places=2, default=1)
+    rate_band_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    rate_tier_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    amount_override = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, allow_null=True, default=None)
 
 
 class UpdateLineSerializer(serializers.Serializer):

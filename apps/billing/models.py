@@ -20,7 +20,20 @@ class Assessment(CouncilScopedModel):
     council_revenue_item = models.ForeignKey(
         "revenue.CouncilRevenueItem", on_delete=models.PROTECT, related_name="assessments"
     )
-    rate_schedule = models.ForeignKey("revenue.RateSchedule", on_delete=models.PROTECT, related_name="assessments")
+    # Exactly one pricing source is ever set: rate_schedule for a plain FLAT item,
+    # or rate_band (+ rate_tier when that band is TIERED) for a banded one — see
+    # apps.billing.services.create_draft_assessment. Both null is never valid;
+    # enforced in code, not a DB constraint, since which one applies depends on
+    # the item's band state *at assessment time*, not a fact about this row alone.
+    rate_schedule = models.ForeignKey(
+        "revenue.RateSchedule", on_delete=models.PROTECT, null=True, blank=True, related_name="assessments"
+    )
+    rate_band = models.ForeignKey(
+        "revenue.RateBand", on_delete=models.PROTECT, null=True, blank=True, related_name="assessments"
+    )
+    rate_tier = models.ForeignKey(
+        "revenue.RateTier", on_delete=models.PROTECT, null=True, blank=True, related_name="assessments"
+    )
     asset = models.ForeignKey(
         "registry.EnumeratedAsset", on_delete=models.SET_NULL, null=True, blank=True, related_name="assessments"
     )

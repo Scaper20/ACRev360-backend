@@ -23,8 +23,24 @@ from apps.billing.services import BillingError, add_bill_line, delete_bill_line,
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.registry.models import Payer
-from apps.revenue.models import CouncilRevenueItem
+from apps.revenue.models import CouncilRevenueItem, RateBand, RateTier
 from apps.tenancy.context import council_context
+
+
+def _resolve_band_and_tier(entry, item):
+    """Turns rate_band_id/rate_tier_id off a validated line entry into real
+    model instances, 404ing on a mismatched id rather than letting the billing
+    service silently ignore one it can't find. Tenancy scoping goes through
+    council_revenue_item (already council-scoped by the caller), since
+    RateBand/RateTier aren't CouncilScopedModels themselves — they inherit
+    tenancy from the item they price."""
+    rate_band = None
+    if entry.get("rate_band_id") is not None:
+        rate_band = get_object_or_404(RateBand, pk=entry["rate_band_id"], council_revenue_item=item)
+    rate_tier = None
+    if entry.get("rate_tier_id") is not None:
+        rate_tier = get_object_or_404(RateTier, pk=entry["rate_tier_id"], band__council_revenue_item=item)
+    return rate_band, rate_tier
 
 
 class IssueBillResponseSerializer(BillSerializer):
@@ -79,7 +95,14 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
         lines = []
         for entry in data.get("lines", []):
             item = get_object_or_404(CouncilRevenueItem, pk=entry["revenue_item_id"], council_id=request.user.council_id)
-            lines.append({"council_revenue_item": item, "quantity": entry["quantity"]})
+            rate_band, rate_tier = _resolve_band_and_tier(entry, item)
+            lines.append({
+                "council_revenue_item": item,
+                "quantity": entry["quantity"],
+                "rate_band": rate_band,
+                "rate_tier": rate_tier,
+                "amount_override": entry.get("amount_override"),
+            })
 
         try:
             bill = issue_bill(
@@ -112,8 +135,17 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
         serializer = AddLineSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         item = get_object_or_404(CouncilRevenueItem, pk=serializer.validated_data["revenue_item_id"], council_id=request.user.council_id)
+        rate_band, rate_tier = _resolve_band_and_tier(serializer.validated_data, item)
         try:
-            line = add_bill_line(bill=bill, council_revenue_item=item, quantity=serializer.validated_data["quantity"], actor=request.user)
+            line = add_bill_line(
+                bill=bill,
+                council_revenue_item=item,
+                quantity=serializer.validated_data["quantity"],
+                actor=request.user,
+                rate_band=rate_band,
+                rate_tier=rate_tier,
+                amount_override=serializer.validated_data.get("amount_override"),
+            )
         except BillingError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(BillLineDetailSerializer(line).data, status=status.HTTP_201_CREATED)
