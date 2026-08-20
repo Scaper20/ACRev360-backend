@@ -54,12 +54,12 @@ forgotten.
 
 ---
 
-## 2026-08-20 — [IN PROGRESS] Search bars on list pages that get tedious with a lot of records
+## 2026-08-20 — Search bars on list pages that get tedious with a lot of records
 
 **Ask:** add search to list pages that could get tedious to search once a council has "a
 lot of people" in them.
 
-**Backend — committed:** added a `q` search param (icontains, OR'd across the relevant
+**Backend (`37dff0c`):** added a `q` search param (icontains, OR'd across the relevant
 fields) to `get_queryset()` on:
 - `SubConsultantViewSet` — matches `consultant_name`, `contract_ref`.
 - `FieldAgentViewSet` — matches `agent_code`, `user__full_name`.
@@ -85,16 +85,15 @@ had no payer-identifying field to search or display.
 `PayerViewSet`, `BillViewSet`, `PaymentViewSet` already had `q` support from earlier
 passes — not touched here.
 
-**Frontend — IN PROGRESS, not fully committed as of this entry:**
-- Done: `BillListPage.tsx` (search box added; backend `q` already existed, this page
-  just never had a UI for it), `ConsultantsPage.tsx`, `AgentsPage.tsx` (also added a
-  "Name" column using the new `agent_full_name` field, and the detail modal title now
-  shows the agent's name), `DebtPage.tsx` (search box added to the toolbar, visible to
-  both admin and consultant — "Refresh Ageing" stays admin-only within the same toolbar).
-- **Not yet done:** `ReceiptsPage.tsx` (edit was in progress, interrupted — needs the
-  same `q` state + search input + a "Payer" column using the new `full_name` field),
-  `AuditPage.tsx` (backend ready, frontend not started), `SettlementsPage.tsx` (backend
-  ready, frontend not started).
+**Frontend (`e553f2e`):** search box added to `BillListPage.tsx` (backend `q` already
+existed, this page just never had a UI for it), `ConsultantsPage.tsx`, `AgentsPage.tsx`
+(also added a "Name" column using the new `agent_full_name` field, and the detail modal
+title now shows the agent's name), `DebtPage.tsx`, `ReceiptsPage.tsx` (also added a
+"Payer" column + KV row using the new `full_name` field), `AuditPage.tsx`,
+`SettlementsPage.tsx`. `DebtPage`/`SettlementsPage`'s search box is visible to both admin
+and consultant (the underlying list already is to both); the admin-only action button
+(`Refresh Ageing` / `Compute Settlements`) stays in the same toolbar rather than gating
+the whole thing.
 - Deliberately skipped: `StakeholdersPage.tsx`, `TerminalsPage.tsx`,
   `RevenueItemsPage.tsx`, `ChannelsPage.tsx` — all low-cardinality (a handful to a few
   dozen rows realistically), doesn't fit "a lot of people."
@@ -104,10 +103,17 @@ query's `queryKey` and `params.query.q: q || undefined`, an `onSearchChange` han
 that also resets `page` to 1, a search `<input className="grow">` in the page's
 `.toolbar`. Matches the existing convention from `PayerListPage.tsx`/`PaymentsPage.tsx`.
 
-**Gotchas:** the frontend half is genuinely incomplete — if you're picking this back up,
-finish Receipts/Debt/Audit/Settlements before considering this ask done. Regenerate
-`packages/api/src/generated/schema.ts` (see the local-codegen note above) before working
-on the frontend half if it hasn't been regenerated since the backend changes landed.
+Verified live as admin: all seven search boxes narrow results correctly (spot-checked
+each with a real query against the seeded demo data).
+
+**Gotchas:** mid-pass, `ReceiptSerializer.full_name` was added to the backend *after*
+the Docker image had already been rebuilt for the other five endpoints' changes — the
+regenerated frontend schema silently didn't have the field until a second rebuild caught
+up, surfacing as a TypeScript error (caught immediately by `tsc -b`, not by manual
+testing, since nothing runtime-visible broke). If a serializer field is added in a
+follow-up edit after you've already rebuilt once this session, rebuild again before
+regenerating the schema — "I rebuilt earlier this session" doesn't cover a change made
+after that rebuild.
 
 ---
 
