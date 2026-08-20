@@ -1,3 +1,4 @@
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.accounts.models import AppUser, FieldAgent, SubConsultant
@@ -6,6 +7,40 @@ from apps.revenue.models import AgentPortfolio, ConsultantPortfolio
 
 class LogoutRequestSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+class UpdateProfileSerializer(serializers.ModelSerializer):
+    """PATCH /auth/me — deliberately a narrow, separate serializer rather than
+    reusing MeSerializer for writes too: username/council/role/consultant/
+    access_level and the agent_*/consultant_* denormalized fields all stay
+    admin-managed, not self-service. Only what's actually "my profile" is
+    writable here."""
+
+    class Meta:
+        model = AppUser
+        fields = ["full_name", "email", "phone"]
+
+    def validate_full_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Full name can't be blank.")
+        return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        # AUTH_PASSWORD_VALIDATORS isn't actually enforced anywhere else in
+        # this codebase — every account is provisioned via AppUser.objects.
+        # create_user() (Django's default manager, no validate_password()
+        # call), so admin-set/seeded passwords (including the shared
+        # "acrev360-2026" demo one) never went through this check. A
+        # self-chosen change is the one case where it's this user's own
+        # judgment, not an admin's — worth the baseline strength check here
+        # even though nothing upstream of it currently has one.
+        validate_password(value)
+        return value
 
 
 class MeSerializer(serializers.ModelSerializer):

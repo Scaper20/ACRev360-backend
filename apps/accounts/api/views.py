@@ -13,6 +13,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.accounts.api.serializers import (
     AgentPortfolioSerializer,
+    ChangePasswordSerializer,
     ConsultantPortfolioSerializer,
     FieldAgentSerializer,
     LogoutRequestSerializer,
@@ -20,6 +21,7 @@ from apps.accounts.api.serializers import (
     StakeholderSerializer,
     SubConsultantSerializer,
     SubConsultantStatusSerializer,
+    UpdateProfileSerializer,
 )
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.accounts.tokens import AppTokenObtainPairSerializer
@@ -67,12 +69,57 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class MeView(generics.RetrieveAPIView):
-    serializer_class = MeSerializer
+@extend_schema_view(
+    # get_serializer_class() (used for the *request* body) leads
+    # drf-spectacular to also document the 200 response as UpdateProfile —
+    # this response is actually the full MeSerializer shape, per the comment
+    # on update() below. Neither a plain @extend_schema directly on the
+    # update() method override, nor this class-level extend_schema_view
+    # form, actually corrects the generated response type (confirmed via two
+    # separate rebuild+regenerate cycles each) — drf-spectacular appears to
+    # resolve the response schema for a GenericAPIView method override from
+    # get_serializer_class() itself, ahead of either override mechanism.
+    # Left in place as accurate intent/documentation; the actual fix is a
+    # manual type override on the frontend (packages/api/src/overrides.ts),
+    # same fallback already used there for POST /payments.
+    update=extend_schema(request=UpdateProfileSerializer, responses=MeSerializer),
+)
+class MeView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):
         return self.request.user
+
+    def get_serializer_class(self):
+        return UpdateProfileSerializer if self.request.method == "PATCH" else MeSerializer
+
+    def update(self, request, *args, **kwargs):
+        # UpdateProfileSerializer only carries full_name/email/phone — after
+        # saving, respond with the full MeSerializer shape instead, so the
+        # frontend doesn't need a second round trip just to get
+        # consultant_name/agent_code/etc. back into its own state.
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(MeSerializer(instance).data)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=ChangePasswordSerializer, responses={204: None}, tags=["auth"])
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        if not user.check_password(serializer.validated_data["current_password"]):
+            return Response({"error": "Current password is incorrect"}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        audit(council_id=user.council_id, actor=user, action="PASSWORD_CHANGED", entity_type="APP_USER", entity_id=user.id, detail={})
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema_view(

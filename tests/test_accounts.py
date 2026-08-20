@@ -415,3 +415,87 @@ def test_agent_can_view_own_activity_not_anothers(scoped, authed_api_client, mak
 
     r_other = own_client.get(f"/api/v1/agents/{other_agent.id}/activity")
     assert r_other.status_code == 404, r_other.content  # get_queryset() scopes AGENT to their own row first
+
+
+# --- profile editing + password changing (any authenticated role) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_user_can_update_their_own_profile(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).patch(
+        "/api/v1/auth/me", {"full_name": "Updated Name", "email": "updated@example.com", "phone": "08099998888"}, format="json",
+    )
+    assert r.status_code == 200, r.content
+    body = r.json()
+    assert body["full_name"] == "Updated Name"
+    assert body["email"] == "updated@example.com"
+    assert body["phone"] == "08099998888"
+    # full MeSerializer shape, not just the three writable fields — access_level
+    # in particular is what the frontend's route guarding depends on.
+    assert body["access_level"] == AppRole.COUNCIL_ADMIN
+
+    scoped["admin"].refresh_from_db()
+    assert scoped["admin"].full_name == "Updated Name"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_profile_update_cannot_smuggle_in_admin_managed_fields(scoped, authed_api_client, make_user):
+    other_admin = make_user(scoped["council"], username="acc-other-admin")
+    r = authed_api_client(scoped["admin"]).patch(
+        "/api/v1/auth/me",
+        {"full_name": "Still Admin", "access_level": "GLOBAL_VIEW", "consultant": None, "council": other_admin.council_id},
+        format="json",
+    )
+    assert r.status_code == 200, r.content
+    assert r.json()["access_level"] == AppRole.COUNCIL_ADMIN  # unwritable field, silently ignored, not smuggled through
+
+    scoped["admin"].refresh_from_db()
+    assert scoped["admin"].role.access_level == AppRole.COUNCIL_ADMIN
+
+
+@pytest.mark.django_db(transaction=True)
+def test_profile_update_rejects_blank_full_name(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).patch("/api/v1/auth/me", {"full_name": "   "}, format="json")
+    assert r.status_code == 400, r.content
+
+
+@pytest.mark.django_db(transaction=True)
+def test_user_can_change_their_own_password(scoped, authed_api_client):
+    scoped["admin"].set_password("original-pw-123")
+    scoped["admin"].save()
+
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/auth/change-password", {"current_password": "original-pw-123", "new_password": "a-genuinely-new-pw-456"}, format="json",
+    )
+    assert r.status_code == 204, r.content
+
+    scoped["admin"].refresh_from_db()
+    assert scoped["admin"].check_password("a-genuinely-new-pw-456")
+    assert not scoped["admin"].check_password("original-pw-123")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_change_password_rejects_wrong_current_password(scoped, authed_api_client):
+    scoped["admin"].set_password("original-pw-123")
+    scoped["admin"].save()
+
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/auth/change-password", {"current_password": "totally-wrong", "new_password": "a-genuinely-new-pw-456"}, format="json",
+    )
+    assert r.status_code == 400, r.content
+
+    scoped["admin"].refresh_from_db()
+    assert scoped["admin"].check_password("original-pw-123")  # unchanged
+
+
+@pytest.mark.django_db(transaction=True)
+def test_change_password_rejects_a_weak_new_password(scoped, authed_api_client):
+    scoped["admin"].set_password("original-pw-123")
+    scoped["admin"].save()
+
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/auth/change-password", {"current_password": "original-pw-123", "new_password": "short"}, format="json",
+    )
+    assert r.status_code == 400, r.content
+
+    scoped["admin"].refresh_from_db()
+    assert scoped["admin"].check_password("original-pw-123")  # unchanged
