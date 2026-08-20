@@ -193,6 +193,76 @@ retroactive once `authStore` has already been read from.
 
 ---
 
+## 2026-08-20 — Audit pass on the agent mobile app (fieldops + apps/field)
+
+**Ask:** explicit — "have you done an audit on it? is there anything missing?" — after
+the previous entry shipped the app verified only by tests plus one live happy-path
+walkthrough, not a dedicated audit the way the payer/bill/payment work got one.
+
+**Fixed (backend, `apps/fieldops/services.py`):**
+- **Sync race condition.** Two sync requests racing on the same `client_id` (the flaky-
+  connection retry this whole app exists for) could both pass the "does a
+  `MobileSyncRecord` exist yet" check before either committed, both call
+  `post_payment()`/`create_payer()`, and only collide at the unique constraint on
+  `.create()` — an uncaught `IntegrityError` that would 500 the *entire batch*, including
+  unrelated records. Fixed with a nested `atomic()` savepoint around just the `.create()`;
+  the loser's side effects roll back to that savepoint and it returns the winner's actual
+  outcome instead of crashing.
+- **Ward scoping on the sync-replay path.** `_replay_payment`/`_replay_payer` checked
+  bill/payer validity but not that the target was in the agent's own ward — a crafted
+  sync payload (not anything the honest frontend sends, but nothing stopped a
+  tampered client) could pay or register into any ward in the council. Now rejected,
+  mirroring `get_worklist()`'s own ward scoping exactly.
+- **Broad per-record exception handling.** `_replay_payment`/`_replay_payer` only
+  anticipated specific failures (`PaymentRejected`, `DuplicatePayer`, `BillingError`) — a
+  malformed record from genuinely corrupted local storage (again, the scenario this app
+  is built to survive) would propagate uncaught and 500 the whole batch. Now caught
+  broadly per-record, turned into `REJECTED` with the exception message.
+
+**Fixed (frontend, `apps/field`):**
+- `RegisterView`'s follow-up `POST /assets` call (attaching captured GPS to a
+  newly-created payer) had its response completely unchecked — a failure there was
+  indistinguishable from success, silently losing the GPS tag. `ReceiptView` gained an
+  optional `warning` line for exactly this shape of problem: the primary action already
+  succeeded, a secondary one didn't, and that shouldn't look like either a full failure
+  or a full success.
+- The revenue-item checklist failing to load (typically: offline before ever fetching it
+  this session) rendered as a silently empty checklist — indistinguishable from "this
+  payer owes nothing." Now shows an explicit notice instead.
+
+**Flagged, not fixed — needs a decision, not just code:** `AGENT` role can call
+`POST /api/v1/payments` and `POST /api/v1/payers` **directly** (not through fieldops at
+all) against any bill/ward in the council — this permission predates fieldops (added
+when agent accounts first got direct API access) and is shared with `COUNCIL_ADMIN`/
+`CONSULTANT`, for whom "any bill/ward" is correct and intended. The same ward check just
+added to the *sync-replay* path doesn't cover this *live* path, since fixing it means
+touching `PaymentViewSet`/`PayerViewSet` behavior other roles rely on, not just new
+fieldops code. Worth a deliberate decision (agent-specific branch in those shared
+viewsets?) rather than a silent change during an audit of something else.
+
+**Known, low-priority, not addressed this pass:** no automated test coverage for the
+React views themselves (`offlineQueue.ts`'s logic is tested; `CollectView`/
+`RegisterView`/`WorklistView`/`StatusView` are only covered by manual verification) — no
+Playwright suite for `apps/field` the way `apps/portal` has one. `sw.js`'s `CACHE_NAME`
+never gets bumped across deploys, so old deploys' hashed assets accumulate in the cache
+indefinitely rather than being cleaned up (not a correctness bug — Vite's content-hashed
+filenames mean a stale cache entry is never served for new content — just unbounded
+growth over many deploys). The mobile app has no way to view past receipts/collection
+history (matches the old prototype's own scope, not a regression, but a real agent would
+likely want it).
+
+**Files:** backend — `apps/fieldops/services.py`, `tests/test_fieldops.py` (+2 tests:
+ward-mismatch rejection for both PAYMENT and PAYER). 125/125 backend tests passing.
+Frontend — `apps/field/src/views/RegisterView.tsx`, `apps/field/src/views/ReceiptView.tsx`.
+`tsc -b`, `vite build`, `vitest` all clean.
+
+**Gotchas:** the race-condition fix is reasoned-correct (nested-atomic-plus-catch is a
+standard Django idiom) but not covered by an automated concurrency test — simulating true
+concurrency reliably in this test suite would need threading or mocking disproportionate
+to the value here. If this class of bug ever recurs, that's the gap to close.
+
+---
+
 ## 2026-08-20 — Search bars on list pages that get tedious with a lot of records
 
 **Ask:** add search to list pages that could get tedious to search once a council has "a
