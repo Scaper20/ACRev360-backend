@@ -91,6 +91,37 @@ def test_arrears_consolidation_conserves_outstanding(scoped, make_revenue_item):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_bill_detail_lists_which_prior_bills_were_consolidated(scoped, authed_api_client, make_revenue_item):
+    # The arrears row only ever showed a lump total — nothing named *which*
+    # prior bills it came from, even though Bill.supersedes already has that
+    # data. Surfaced live: an admin reading a consolidated bill had no way to
+    # see which of a payer's old bills it actually covered.
+    council, payer, admin = scoped["council"], scoped["payer"], scoped["admin"]
+    item_a = scoped["item"]
+    item_b = make_revenue_item(council, code="MNYITEM3", rate=7000)
+
+    bill_a = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_a, "quantity": 1}], actor=admin)
+    bill_b = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_b, "quantity": 1}], actor=admin)
+    consolidated = issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
+
+    r = authed_api_client(admin).get(f"/api/v1/bills/{consolidated.id}/detail")
+    assert r.status_code == 200, r.content
+    superseded = {row["bill_ref"]: row["amount"] for row in r.json()["superseded_bills"]}
+    assert superseded == {bill_a.bill_ref: "10000.00", bill_b.bill_ref: "7000.00"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_public_bill_lookup_also_lists_superseded_bills(scoped, api_client):
+    council, payer, admin, item = scoped["council"], scoped["payer"], scoped["admin"], scoped["item"]
+    original = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    consolidated = issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
+
+    r = api_client.get(f"/api/v1/bills/{consolidated.bill_ref}")
+    assert r.status_code == 200, r.content
+    assert r.json()["superseded_bills"] == [{"bill_ref": original.bill_ref, "amount": "10000.00"}]
+
+
+@pytest.mark.django_db(transaction=True)
 def test_bill_needs_at_least_one_line_or_arrears(scoped):
     with pytest.raises(BillingError):
         issue_bill(council_id=scoped["council"].id, payer=scoped["payer"], actor=scoped["admin"])

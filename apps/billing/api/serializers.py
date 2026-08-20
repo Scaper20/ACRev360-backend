@@ -38,11 +38,34 @@ class BillLineDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "band_label", "tier_label"]
 
 
+class SupersededBillSerializer(serializers.Serializer):
+    """One prior bill folded into this one's arrears_amount via roll_arrears —
+    see billing.services.issue_bill. `amount` reads the prior bill's own
+    `balance` (aliased — a SUPERSEDED bill isn't itself called "amount"
+    anything), frozen at whatever it was the moment it was superseded (a
+    SUPERSEDED bill can never take a further payment — see post_payment's
+    terminal-state check — so its current balance is exactly what got rolled
+    in). Takes Bill instances directly (e.g. `bill.supersedes.all()`), not
+    hand-built dicts — a dict would need this same "amount" key, and DRF's
+    DecimalField-to-string formatting only happens by going through this
+    serializer, not by building a response dict by hand (see the git history
+    on PublicBillLookupView for the bug that shipped from doing that once)."""
+
+    bill_ref = serializers.CharField()
+    amount = serializers.DecimalField(source="balance", max_digits=14, decimal_places=2)
+
+
 class BillDetailSerializer(BillSerializer):
     lines = BillLineDetailSerializer(many=True, read_only=True)
+    # Only on the detail serializer, not the list one — this is a breakdown
+    # someone looks up when they need it, not something worth an extra query
+    # per row of a bill list. source="supersedes" is the reverse of
+    # Bill.superseded_by — DRF calls .all() on it automatically since this is
+    # a many=True nested serializer over a related manager, same as `lines`.
+    superseded_bills = SupersededBillSerializer(source="supersedes", many=True, read_only=True)
 
     class Meta(BillSerializer.Meta):
-        fields = BillSerializer.Meta.fields + ["lines"]
+        fields = BillSerializer.Meta.fields + ["lines", "superseded_bills"]
         read_only_fields = fields
 
 
@@ -96,3 +119,4 @@ class PublicBillLookupSerializer(serializers.Serializer):
     address = serializers.CharField()
     ward_name = serializers.CharField()
     lines = BillLineDetailSerializer(many=True)
+    superseded_bills = SupersededBillSerializer(many=True)

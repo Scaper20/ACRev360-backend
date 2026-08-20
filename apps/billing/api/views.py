@@ -16,6 +16,7 @@ from apps.billing.api.serializers import (
     BillSerializer,
     IssueBillSerializer,
     PublicBillLookupSerializer,
+    SupersededBillSerializer,
     UpdateLineSerializer,
 )
 from apps.audit.services import audit
@@ -247,4 +248,5 @@ class PublicBillLookupView(APIView):
                 "address": bill.payer.address,
                 "ward_name": bill.payer.ward.ward_name,
                 "lines": BillLineDetailSerializer(lines, many=True).data,
+                "superseded_bills": SupersededBillSerializer(bill.supersedes.all(), many=True).data,
             })
