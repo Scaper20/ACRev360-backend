@@ -86,6 +86,69 @@ forgotten.
   contract_ref`) — any new `UniqueConstraint`-backed create path needs its own
   pre-check-and-400 in the view, same pattern both fixes used. Don't rely on the
   constraint itself to produce a usable error.
+- **Prefer a nested serializer field over a `SerializerMethodField` whenever the value
+  comes straight off a related manager or model attribute** (`superseded_bills =
+  SupersededBillSerializer(source="supersedes", many=True)`, not a method that hand-builds
+  dicts and returns them). A method field returning a plain dict skips two things at
+  once: drf-spectacular can't infer its shape without an explicit `@extend_schema_field`
+  hint (types as a bare `string`/`object` in the generated schema), and building the
+  response by hand skips the nested serializer's own field formatting — a `Decimal`
+  comes out as a raw float instead of DRF's usual `"10000.00"` string. The declarative
+  nested-field form gets both right for free, and `many=True` over a related manager
+  calls `.all()` automatically, same as `lines` already does elsewhere in this file.
+
+---
+
+## 2026-08-20 — Payer bill history + arrears-consolidation breakdown
+
+**Ask:** two things the user found confusing while poking at the app after the QA run —
+"Enumerated Revenue Items — not yet billed (0)" always showing 0 on the Payer Registry
+detail view, and whether the arrears checkbox actually consolidates a payer's prior
+bills the way it's supposed to.
+
+**Turned out to be:** the "not yet billed" section was working exactly as designed
+(draft assessments awaiting a bill, not a payer's actual bills — `issue_bill()` bills a
+draft in the same call it creates it when given explicit lines, so there's never a
+lingering one to show for a payer billed the normal way). The arrears logic was also
+already fully correct server-side and already showed a total in the UI/print. But both
+pointed at a real, precise gap each: no way to see a payer's *actual* bill history from
+their own record, and no way to see *which* prior bills a consolidation total came from.
+
+**Fixed:**
+- `PayerDetailModal` gained a "Bills" section — sourced from the same `GET /bills?payer=`
+  filter the Bills page itself already uses, so no new backend endpoint was needed.
+- New `superseded_bills` field on `BillDetailSerializer` and `PublicBillLookupSerializer`
+  (`Bill.supersedes`, the reverse of `superseded_by`, already had this data — it just
+  wasn't exposed). `BillDetailModal` and both print documents (Demand Notice, Demand
+  Bill) now show one line per consolidated bill instead of a single lump total.
+- **Gotcha for next time:** the first pass at `superseded_bills` used a
+  `SerializerMethodField` returning hand-built dicts. Two bugs from that, both worth
+  remembering — see the new recurring-theme note above this entry for the general
+  pattern, but concretely here: (a) drf-spectacular typed it as a bare `string` in the
+  schema, since a method field's return shape isn't inferrable without an explicit hint;
+  (b) the hand-built dict's `Decimal` amount serialized as a raw float (`10000.0`) instead
+  of DRF's usual formatted string (`"10000.00"`), since skipping the serializer skips its
+  field-level formatting too — a real correctness bug, not just a typing one, caught by a
+  test asserting the exact string. Fixed by using `SupersededBillSerializer` as a direct
+  nested field (`source="supersedes"`) instead, same as `lines` already does — nested
+  declarative fields over a related manager get `.all()` called automatically and go
+  through proper field serialization; hand-built response dicts get neither.
+- Found and fixed live while building the payer Bills section: a `SUPERSEDED` bill's
+  `balance` is frozen (`post_payment()` refuses any further payment against it), but the
+  list was showing it as "owing" anyway — double-counting against whatever bill it got
+  rolled into. Balance/"owing" now only shows for bills still in a non-terminal status.
+
+**Files:** backend — `apps/billing/api/serializers.py`, `apps/billing/api/views.py`,
+`tests/test_money_invariants.py` (+2 tests). 128/128 backend tests passing. Frontend —
+`apps/portal/src/routes/payers/PayerDetailModal.tsx`,
+`apps/portal/src/routes/bills/BillDetailModal.tsx`,
+`apps/portal/src/routes/print/DemandNoticePrint.tsx`,
+`apps/portal/src/routes/print/DemandBillPrint.tsx`. Verified live: consolidated two real
+bills from the QA-run data (Danjuma Ventures, ₦200,000 + ₦100,000 → one ₦300,000 bill),
+confirmed the breakdown renders correctly in the detail modal, the printed Demand
+Notice, and the printed Demand Bill.
+
+**Gotchas:** none beyond the SerializerMethodField one above.
 
 ---
 
