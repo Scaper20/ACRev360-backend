@@ -18,13 +18,21 @@ class PaymentSerializer(serializers.ModelSerializer):
     payer_ref = serializers.CharField(source="bill.payer.payer_ref", read_only=True)
     terminal_code = serializers.CharField(source="terminal.terminal_id", read_only=True, default=None)
     posted_by_name = serializers.CharField(source="posted_by.full_name", read_only=True, default=None)
+    # Denormalized so a caller that just posted a payment (the field agent
+    # app's live-collection receipt screen, in particular) doesn't need a
+    # second round trip to look up the 1:1 Receipt for its qr_token — the
+    # only thing GET /verify/{qr_token} can actually check. default=None is
+    # defensive only; post_payment() always creates the Receipt in the same
+    # transaction, so a real Payment is never actually missing one.
+    receipt_ref = serializers.CharField(source="receipt.receipt_ref", read_only=True, default=None)
+    qr_token = serializers.CharField(source="receipt.qr_token", read_only=True, default=None)
 
     class Meta:
         model = Payment
         fields = [
             "id", "payment_ref", "bill", "bill_ref", "channel", "channel_code",
             "amount", "bank_txn_ref", "txn_status", "created_at", "full_name", "payer_ref",
-            "terminal", "terminal_code", "posted_by", "posted_by_name",
+            "terminal", "terminal_code", "posted_by", "posted_by_name", "receipt_ref", "qr_token",
         ]
         read_only_fields = ["id", "payment_ref", "txn_status", "created_at"]
 

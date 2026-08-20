@@ -210,6 +210,13 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         qs = FieldAgent.objects.filter(council_id=user.council_id)
         if user.access_level == AppRole.CONSULTANT:
             qs = qs.filter(user__consultant_id=user.consultant_id)
+        elif user.access_level == AppRole.AGENT:
+            # Only relevant to the `activity` action below (list/retrieve/
+            # create stay COUNCIL_ADMIN/CONSULTANT-only via the class-level
+            # permission_classes) — scoping here too means an agent
+            # reaching for another agent's id 404s at get_object(), rather
+            # than relying solely on activity()'s own ownership check.
+            qs = qs.filter(user_id=user.id)
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(agent_code__icontains=q) | models.Q(user__full_name__icontains=q))
@@ -307,15 +314,27 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         return Response(AgentPortfolioSerializer(entry).data)
 
     @extend_schema(responses=AgentActivityResponseSerializer)
-    @action(detail=True, methods=["get"])
+    @action(
+        detail=True, methods=["get"],
+        # Wider than get_permissions()'s COUNCIL_ADMIN/CONSULTANT default —
+        # this is also the mobile agent app's own "today's tally" tile, so
+        # an agent needs to read their own activity. get_queryset() already
+        # scopes an AGENT caller to their own FieldAgent row (another
+        # agent's id 404s before this body runs); the check below is
+        # belt-and-suspenders against a future get_queryset() change.
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)],
+    )
     def activity(self, request, pk=None):
-        """Recent payments posted by this agent. The full daily-returns rollup
-        (`agent_daily_return`, worklist, offline sync) is fieldops — deferred to
-        V2_ARCHITECTURE.md §11 phase 4, out of this build pass."""
+        """Recent payments posted by this agent — backs both the admin/
+        consultant detail view and the mobile app's status view. The
+        fieldops app (worklist, offline sync) builds on top of this rather
+        than duplicating it — see fieldops.services.get_worklist."""
         from apps.payments.api.serializers import PaymentSerializer
         from apps.payments.models import Payment
 
         agent = self.get_object()
+        if request.user.access_level == AppRole.AGENT and agent.user_id != request.user.id:
+            return Response({"error": "Not your activity"}, status=status.HTTP_403_FORBIDDEN)
         recent_payments = Payment.objects.filter(posted_by=agent.user).order_by("-created_at")[:20]
         today_total = (
             Payment.objects.filter(posted_by=agent.user, created_at__date=timezone.localdate())

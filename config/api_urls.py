@@ -16,6 +16,7 @@ urlpatterns = [
     path("", include("apps.settlements.api.urls")),
     path("", include("apps.enforcement.api.urls")),
     path("", include("apps.audit.api.urls")),
+    path("", include("apps.fieldops.api.urls")),
     path("dashboard/summary", DashboardSummaryView.as_view(), name="dashboard-summary"),
     path("dashboard/global", DashboardGlobalView.as_view(), name="dashboard-global"),
 ]

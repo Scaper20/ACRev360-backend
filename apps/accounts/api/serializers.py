@@ -19,6 +19,15 @@ class MeSerializer(serializers.ModelSerializer):
     consultant_name = serializers.CharField(source="consultant.consultant_name", read_only=True, default=None)
     consultant_commission_rate = serializers.DecimalField(source="consultant.commission_rate", max_digits=5, decimal_places=2, read_only=True, default=None)
     consultant_status = serializers.CharField(source="consultant.status", read_only=True, default=None)
+    # Same denormalization reasoning as the consultant_* fields above, for the
+    # mobile agent app's login/header — AGENT can't list FieldAgentViewSet at
+    # all, and `field_agent` (reverse OneToOne) resolves cleanly to None for
+    # every non-agent user rather than raising, since Django deliberately
+    # makes RelatedObjectDoesNotExist inherit from AttributeError.
+    agent_id = serializers.IntegerField(source="field_agent.id", read_only=True, default=None)
+    agent_code = serializers.CharField(source="field_agent.agent_code", read_only=True, default=None)
+    assigned_ward_id = serializers.IntegerField(source="field_agent.assigned_ward_id", read_only=True, default=None)
+    assigned_ward_name = serializers.CharField(source="field_agent.assigned_ward.ward_name", read_only=True, default=None)
 
     class Meta:
         model = AppUser
@@ -26,6 +35,7 @@ class MeSerializer(serializers.ModelSerializer):
             "id", "username", "full_name", "email", "phone",
             "council", "council_code", "role", "role_name", "consultant", "access_level",
             "consultant_name", "consultant_commission_rate", "consultant_status",
+            "agent_id", "agent_code", "assigned_ward_id", "assigned_ward_name",
         ]
         read_only_fields = fields
 

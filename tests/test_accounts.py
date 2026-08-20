@@ -357,3 +357,42 @@ def test_agent_search_matches_code_and_name(scoped, authed_api_client, make_fiel
     by_name = client.get("/api/v1/agents?q=Zainab")
     assert {r["agent_code"] for r in by_name.json()["results"]} == {"AGT-FINDME-1"}
     assert by_name.json()["results"][0]["agent_full_name"] == "Zainab Findable"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_me_includes_agent_identity_for_agent_role(scoped, authed_api_client, make_field_agent, make_user):
+    agent_user = make_user(scoped["council"], username="acc-me-agent", access_level=AppRole.AGENT)
+    agent = make_field_agent(scoped["council"], agent_user, ward=scoped["ward"], agent_code="AGT-ME-1")
+
+    r = authed_api_client(agent_user).get("/api/v1/auth/me")
+    assert r.status_code == 200, r.content
+    body = r.json()
+    assert body["agent_id"] == agent.id
+    assert body["agent_code"] == "AGT-ME-1"
+    assert body["assigned_ward_id"] == scoped["ward"].id
+    assert body["assigned_ward_name"] == scoped["ward"].ward_name
+
+
+@pytest.mark.django_db(transaction=True)
+def test_me_agent_fields_are_null_for_non_agent(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).get("/api/v1/auth/me")
+    assert r.status_code == 200, r.content
+    body = r.json()
+    assert body["agent_id"] is None
+    assert body["agent_code"] is None
+    assert body["assigned_ward_id"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_agent_can_view_own_activity_not_anothers(scoped, authed_api_client, make_field_agent, make_user):
+    own_user = make_user(scoped["council"], username="acc-activity-own", access_level=AppRole.AGENT)
+    own_agent = make_field_agent(scoped["council"], own_user, ward=scoped["ward"], agent_code="AGT-ACT-OWN")
+    other_user = make_user(scoped["council"], username="acc-activity-other", access_level=AppRole.AGENT)
+    other_agent = make_field_agent(scoped["council"], other_user, ward=scoped["ward"], agent_code="AGT-ACT-OTHER")
+
+    own_client = authed_api_client(own_user)
+    r_own = own_client.get(f"/api/v1/agents/{own_agent.id}/activity")
+    assert r_own.status_code == 200, r_own.content
+
+    r_other = own_client.get(f"/api/v1/agents/{other_agent.id}/activity")
+    assert r_other.status_code == 404, r_other.content  # get_queryset() scopes AGENT to their own row first
