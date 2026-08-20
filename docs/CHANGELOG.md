@@ -128,6 +128,62 @@ forgotten.
   Render incident (upstream Google Cloud issue, free-tier builds/deploys
   disabled) did also overlap the first two attempts here, which delayed
   spotting the actual cause.
+- **`apps/field`'s service worker (`sw.js`) can serve a stale JS bundle straight
+  through a dev-server restart and even a hard navigate**, because it
+  intercepts fetches at the browser level, ahead of Vite entirely — a code
+  change that provably built correctly (clean `tsc`/`vite build`, no errors)
+  can still appear completely absent in the running page, including console
+  errors that look like a broken React install (`Invalid hook call`, `Cannot
+  read properties of null (reading 'useState')`) which are actually just a
+  symptom of two different bundle versions' React copies colliding, not a
+  real dependency problem. Confirmed by checking `navigator.serviceWorker.
+  getRegistrations()` directly — an active registration was still serving the
+  old bundle. Fixed by unregistering it and clearing `caches` from the
+  console, then reloading: `navigator.serviceWorker.getRegistrations().
+  then(rs => Promise.all(rs.map(r => r.unregister()))).then(() => caches.
+  keys()).then(ks => Promise.all(ks.map(k => caches.delete(k))))`. Check this
+  first if a change to `apps/field` "isn't showing up" locally — don't assume
+  the build is broken.
+
+---
+
+## 2026-08-20 — Extend profile editing / password change to the field app
+
+**Ask:** "okay fix that" — following up on the open scoping question from the profile/
+password work earlier: the portal got a "My Account" modal, but `apps/field` (the agent
+mobile PWA) had no equivalent, since the backend endpoints (`PATCH /auth/me`,
+`POST /auth/change-password`) are already role-agnostic — nothing backend-side was
+missing, only the mobile UI.
+
+**Added:** `apps/field/src/components/MyProfileModal.tsx`, a near-exact mirror of the
+portal's version (same two-section modal: profile fields, then change password; same
+`UpdateProfileResponse` cast for the known schema mismatch). `FieldShell`'s header
+avatar/name block is now a button when `onProfileClick` is passed, same conditional
+pattern as `AppShell`'s `.who`. `AuthContext` (field) gained `setUser()`, matching the
+portal's.
+
+**Hit along the way (see new recurring-theme note above):** local verification initially
+looked completely broken — the header button never appeared to accept clicks, and the
+console showed React "Invalid hook call" errors that looked like a real dependency
+problem. Actual cause: `apps/field`'s own service worker was serving a stale JS bundle
+from a previous session, intercepting fetches ahead of Vite's dev server entirely — not
+a real bug in the new code. Confirmed via `navigator.serviceWorker.getRegistrations()`
+directly, fixed by unregistering it and clearing `caches`. Separately, the local
+backend's `web` container had again lost its host port binding (same recurring issue
+documented above) — `docker compose up -d --force-recreate web` then `docker start`
+directly resolved it, same sequence as every previous time.
+
+**Files:** `apps/field/src/App.tsx`, `apps/field/src/auth/AuthContext.tsx`,
+`apps/field/src/components/FieldShell.{tsx,css}`,
+`apps/field/src/components/MyProfileModal.tsx` (new). No backend changes — the endpoints
+already worked for any authenticated user regardless of role.
+
+**Gotchas:** verified live against the local backend (real agent account, "Ijeoma
+Ibekwe") via direct DOM/`dispatchEvent` interaction rather than the browser pane's
+`computer` click tool, which wasn't registering clicks reliably in this session for this
+tab — profile save round-tripped correctly (`PATCH` 200, header updated), wrong-password
+change correctly rejected (400). Reverted the test email change afterward to leave the
+real agent's data clean, same courtesy as the portal's shared demo account earlier.
 
 ---
 
