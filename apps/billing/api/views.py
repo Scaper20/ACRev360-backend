@@ -64,7 +64,10 @@ class IssueBillResponseSerializer(BillSerializer):
     create=extend_schema(request=IssueBillSerializer, responses=IssueBillResponseSerializer),
 )
 class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    # GLOBAL_VIEW deliberately excluded — bills carry payer full_name/payer_ref,
+    # exactly what a stakeholder account must not see (aggregate totals only,
+    # via DashboardSummaryView/DashboardGlobalView).
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):

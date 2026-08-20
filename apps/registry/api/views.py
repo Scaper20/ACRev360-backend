@@ -36,7 +36,9 @@ from apps.revenue.models import CouncilRevenueItem
 class PayerViewSet(
     mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
 ):
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    # GLOBAL_VIEW deliberately excluded — the payer registry is names, phone
+    # numbers and KYC status, exactly what a stakeholder account must not see.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):

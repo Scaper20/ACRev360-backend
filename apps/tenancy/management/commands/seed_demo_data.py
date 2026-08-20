@@ -89,6 +89,7 @@ class Command(BaseCommand):
             channels.setdefault(code, PaymentChannel.objects.get_or_create(code=code)[0])
 
         consultants = self._seed_consultants(council, items)
+        self._seed_stakeholder(council)
         agents = self._seed_agents(council, consultants, wards)
         self._seed_terminals(council, agents, wards)
         used_phones = set()
@@ -110,6 +111,11 @@ class Command(BaseCommand):
             f"Demo data seeded for {council.council_code}: {len(payers)} payers, {len(agents)} agents, "
             f"{len(consultants)} consultants"
         ))
+        self.stdout.write("\nSign-in accounts (password: acrev360-2026)")
+        self.stdout.write("  admin         Council Revenue Administrator  — full admin")
+        self.stdout.write(f"  consultant1   {consultants[0].consultant_name:<28} — own portfolio only")
+        self.stdout.write("  stakeholder   Council Stakeholder            — read-only, general figures only")
+        self.stdout.write(f"  agent01..{len(agents):02d}   Field Collection Agents        — mobile app (not this portal)")
 
     # ---------------------------------------------------------------- consultants
 
@@ -129,7 +135,27 @@ class Command(BaseCommand):
             for item in random.sample(items, k=min(3, len(items))):
                 ConsultantPortfolio.objects.create(council_id=council.id, consultant=consultant, council_revenue_item=item, ward=None)
             consultants.append(consultant)
+
+        # One demo login for the first firm — "own portfolio only" access,
+        # matching the old prototype's consultant1 demo account.
+        if not AppUser.objects.filter(username="consultant1").exists():
+            consultant_role, _ = AppRole.objects.get_or_create(name="CONSULTANT_MANAGER", defaults={"access_level": AppRole.CONSULTANT})
+            AppUser.objects.create_user(
+                username="consultant1", password="acrev360-2026", full_name=f"Manager, {consultants[0].consultant_name}",
+                council_id=council.id, role=consultant_role, consultant=consultants[0],
+            )
         return consultants
+
+    def _seed_stakeholder(self, council):
+        # Read-only oversight demo login — matching the old prototype's
+        # stakeholder demo account. See StakeholderViewSet's docstring for
+        # what this role is deliberately unable to see.
+        if AppUser.objects.filter(username="stakeholder").exists():
+            return
+        stakeholder_role, _ = AppRole.objects.get_or_create(name="STAKEHOLDER", defaults={"access_level": AppRole.GLOBAL_VIEW})
+        AppUser.objects.create_user(
+            username="stakeholder", password="acrev360-2026", full_name="Council Stakeholder", council_id=council.id, role=stakeholder_role,
+        )
 
     # --------------------------------------------------------------------- agents
 

@@ -16,6 +16,7 @@ from apps.accounts.api.serializers import (
     FieldAgentSerializer,
     LogoutRequestSerializer,
     MeSerializer,
+    StakeholderSerializer,
     SubConsultantSerializer,
     SubConsultantStatusSerializer,
 )
@@ -77,21 +78,45 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
     serializer_class = SubConsultantSerializer
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
-
-    def get_permissions(self):
-        if self.request.method == "POST":
-            return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
-        return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.GLOBAL_VIEW)()]
+    # Governs list/retrieve/create (and end_portfolio, which declares no
+    # override of its own). Consultant names/commission/status are exactly
+    # what a stakeholder account must not see (see StakeholderViewSet's
+    # docstring), so this is COUNCIL_ADMIN-only — a consultant's own identity
+    # is exposed instead via /auth/me (MeSerializer.consultant_name etc.).
+    # status_change and portfolio below declare their own, wider
+    # permission_classes on the @action itself — a custom get_permissions()
+    # here would silently shadow those per-action overrides (DRF applies
+    # them by setting self.permission_classes before dispatch, which only
+    # the default get_permissions() reads), so this deliberately stays a
+    # plain class attribute rather than a method.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
 
     def get_queryset(self):
         return SubConsultant.objects.filter(council_id=self.request.user.council_id).order_by("consultant_name")
 
     def perform_create(self, serializer):
+        data = serializer.validated_data
+        manager_username = data.pop("manager_username", None)
+        manager_password = data.pop("manager_password", None)
+        manager_full_name = data.pop("manager_full_name", None)
+
         instance = serializer.save(council_id=self.request.user.council_id, status=SubConsultant.PENDING)
         audit(
             council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_ONBOARDED",
-            entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"consultant_name": instance.consultant_name},
+            entity_type="SUB_CONSULTANT", entity_id=instance.id,
+            detail={"consultant_name": instance.consultant_name, "manager_login_created": bool(manager_username)},
         )
+
+        if manager_username:
+            consultant_role, _ = AppRole.objects.get_or_create(name="CONSULTANT_MANAGER", defaults={"access_level": AppRole.CONSULTANT})
+            AppUser.objects.create_user(
+                username=manager_username, password=manager_password or "acrev360-2026", full_name=manager_full_name,
+                council_id=instance.council_id, role=consultant_role, consultant=instance,
+            )
+            audit(
+                council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_MANAGER_ONBOARDED",
+                entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"username": manager_username},
+            )
 
     @extend_schema(request=SubConsultantStatusSerializer, responses=SubConsultantSerializer)
     @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
@@ -110,7 +135,15 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
 
     @extend_schema(methods=["GET"], responses=ConsultantPortfolioSerializer(many=True))
     @extend_schema(methods=["POST"], request=ConsultantPortfolioSerializer, responses=ConsultantPortfolioSerializer)
-    @action(detail=True, methods=["get", "post"], pagination_class=None)
+    @action(
+        detail=True, methods=["get", "post"], pagination_class=None,
+        # Wider than get_permissions()'s COUNCIL_ADMIN-only default — a
+        # consultant manager needs to see their own portfolio for their
+        # dashboard. The method body below still 403s a CONSULTANT trying to
+        # read another firm's portfolio, or POST at all (assignment stays
+        # COUNCIL_ADMIN-only).
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)],
+    )
     def portfolio(self, request, pk=None):
         consultant = self.get_object()
         if request.user.access_level == AppRole.CONSULTANT and request.user.consultant_id != consultant.id:
@@ -208,3 +241,42 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             "today_total": today_total,
             "recent_payments": PaymentSerializer(recent_payments, many=True).data,
         })
+
+
+class StakeholderViewSet(viewsets.ModelViewSet):
+    """Read-only oversight accounts (GLOBAL_VIEW access level) — council/FCT
+    stakeholders who need a performance pulse but must never see individual
+    payer or sub-consultant identities. That boundary is enforced elsewhere
+    (GLOBAL_VIEW is deliberately absent from PayerViewSet, BillViewSet,
+    PaymentViewSet, ReceiptViewSet and SubConsultantViewSet's permissions,
+    and DashboardGlobalView anonymizes its per-consultant breakdown for this
+    role) — this viewset only manages the accounts themselves, and that
+    management is COUNCIL_ADMIN-only both ways."""
+
+    serializer_class = StakeholderSerializer
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
+    http_method_names = ["get", "post", "head", "options"]
+    lookup_value_regex = r"[0-9]+"
+
+    def get_queryset(self):
+        return AppUser.objects.filter(
+            council_id=self.request.user.council_id, role__access_level=AppRole.GLOBAL_VIEW
+        ).order_by("full_name")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        stakeholder_role, _ = AppRole.objects.get_or_create(name="STAKEHOLDER", defaults={"access_level": AppRole.GLOBAL_VIEW})
+        instance = AppUser.objects.create_user(
+            username=data.pop("username"),
+            password=data.pop("password", "acrev360-2026"),
+            full_name=data.pop("full_name"),
+            phone=data.pop("phone", ""),
+            council_id=user.council_id,
+            role=stakeholder_role,
+        )
+        serializer.instance = instance
+        audit(
+            council_id=user.council_id, actor=user, action="STAKEHOLDER_ONBOARDED",
+            entity_type="APP_USER", entity_id=instance.id, detail={"username": instance.username},
+        )

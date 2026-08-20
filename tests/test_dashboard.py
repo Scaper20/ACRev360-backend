@@ -234,3 +234,54 @@ def test_global_council_direct_grouping_unaffected(scoped, authed_api_client):
     assert row["collection_rate"] == 100
     assert row["commission_accrued"] == 0
     assert row["status"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_global_anonymizes_consultants_for_stakeholder(
+    scoped, authed_api_client, make_consultant, make_user, make_payer, make_field_agent,
+):
+    """GLOBAL_VIEW must never learn which named consultant collected what —
+    see StakeholderViewSet's docstring. Two named consultants plus a
+    council-direct payer should collapse into exactly two anonymous rows."""
+    council, ward, item, admin = scoped["council"], scoped["ward"], scoped["item"], scoped["admin"]
+    channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.POS)
+
+    consultant_a = make_consultant(council, name="Alpha Co", contract_ref="CR-A")
+    user_a = make_user(council, username="dsh-alpha", access_level=AppRole.CONSULTANT, consultant=consultant_a)
+    payer_a = make_payer(council, ward, user_a, name="Alpha Payer", phone="08030000001")
+    bill_a = issue_bill(council_id=council.id, payer=payer_a, lines=[{"council_revenue_item": item, "quantity": 1}], actor=user_a)
+    post_payment(council_id=council.id, bill=bill_a, channel=channel, amount=4000, posted_by=user_a)
+
+    consultant_b = make_consultant(council, name="Beta Co", contract_ref="CR-B")
+    user_b = make_user(council, username="dsh-beta", access_level=AppRole.CONSULTANT, consultant=consultant_b)
+    payer_b = make_payer(council, ward, user_b, name="Beta Payer", phone="08030000002")
+    bill_b = issue_bill(council_id=council.id, payer=payer_b, lines=[{"council_revenue_item": item, "quantity": 1}], actor=user_b)
+    post_payment(council_id=council.id, bill=bill_b, channel=channel, amount=6000, posted_by=user_b)
+
+    direct_bill = issue_bill(council_id=council.id, payer=scoped["payer"], lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    post_payment(council_id=council.id, bill=direct_bill, channel=channel, amount=1000, posted_by=admin)
+
+    stakeholder = make_user(council, username="dsh-stakeholder", access_level=AppRole.GLOBAL_VIEW)
+    r = authed_api_client(stakeholder).get("/api/v1/dashboard/global")
+    assert r.status_code == 200, r.content
+    rows = {row["consultant_name"]: row for row in r.json()["by_consultant"]}
+
+    assert set(rows) == {"Council Direct", "Via Sub-Consultants"}
+    assert "Alpha Co" not in rows and "Beta Co" not in rows
+    assert rows["Council Direct"]["collected"] == 1000
+    assert rows["Via Sub-Consultants"]["collected"] == 10000  # 4000 + 6000, names not distinguishable
+    assert rows["Via Sub-Consultants"]["status"] is None
+
+    # Same data, COUNCIL_ADMIN still sees the full named breakdown.
+    r_admin = authed_api_client(admin).get("/api/v1/dashboard/global")
+    admin_names = {row["consultant_name"] for row in r_admin.json()["by_consultant"]}
+    assert admin_names == {"Council Direct", "Alpha Co", "Beta Co"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stakeholder_cannot_list_payers_bills_payments_or_consultants(scoped, authed_api_client, make_user):
+    stakeholder = make_user(scoped["council"], username="dsh-stakeholder-2", access_level=AppRole.GLOBAL_VIEW)
+    client = authed_api_client(stakeholder)
+    for path in ("/api/v1/payers", "/api/v1/bills", "/api/v1/payments", "/api/v1/receipts", "/api/v1/consultants"):
+        r = client.get(path)
+        assert r.status_code == 403, f"{path} should 403 a GLOBAL_VIEW caller, got {r.status_code}: {r.content}"

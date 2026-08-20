@@ -39,7 +39,9 @@ from apps.tenancy.context import find_across_active_councils
     )
 )
 class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    # GLOBAL_VIEW deliberately excluded — payments carry payer full_name/payer_ref
+    # and posted_by_name, exactly what a stakeholder account must not see.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
@@ -116,7 +118,8 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
 
 class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = ReceiptSerializer
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)]
+    # GLOBAL_VIEW deliberately excluded — same reasoning as PaymentViewSet.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
 
     def get_queryset(self):
         qs = Receipt.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")

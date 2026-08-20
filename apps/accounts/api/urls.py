@@ -7,12 +7,14 @@ from apps.accounts.api.views import (
     LoginView,
     LogoutView,
     MeView,
+    StakeholderViewSet,
     SubConsultantViewSet,
 )
 
 router = DefaultRouter(trailing_slash=False)
 router.register(r"consultants", SubConsultantViewSet, basename="consultant")
 router.register(r"agents", FieldAgentViewSet, basename="agent")
+router.register(r"stakeholders", StakeholderViewSet, basename="stakeholder")
 
 auth_urlpatterns = [
     path("auth/login", LoginView.as_view(), name="auth-login"),

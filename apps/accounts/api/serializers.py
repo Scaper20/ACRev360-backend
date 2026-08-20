@@ -12,25 +12,63 @@ class MeSerializer(serializers.ModelSerializer):
     access_level = serializers.CharField(read_only=True)
     role_name = serializers.CharField(source="role.name", read_only=True, default=None)
     council_code = serializers.CharField(source="council.council_code", read_only=True, default=None)
+    # Denormalized rather than a second /consultants/{id} call — a
+    # CONSULTANT-role user can't list SubConsultantViewSet at all (see its
+    # get_permissions()), so this is the only way their own dashboard can
+    # show who they are without a dedicated "my consultant" endpoint.
+    consultant_name = serializers.CharField(source="consultant.consultant_name", read_only=True, default=None)
+    consultant_commission_rate = serializers.DecimalField(source="consultant.commission_rate", max_digits=5, decimal_places=2, read_only=True, default=None)
+    consultant_status = serializers.CharField(source="consultant.status", read_only=True, default=None)
 
     class Meta:
         model = AppUser
         fields = [
             "id", "username", "full_name", "email", "phone",
             "council", "council_code", "role", "role_name", "consultant", "access_level",
+            "consultant_name", "consultant_commission_rate", "consultant_status",
         ]
         read_only_fields = fields
 
 
 class SubConsultantSerializer(serializers.ModelSerializer):
+    # Optional — onboarding a firm with no login yet is still valid (matches
+    # FieldAgentSerializer's shape, but here the login is for one manager of
+    # the firm, not the firm itself, hence the manager_ prefix).
+    manager_username = serializers.CharField(write_only=True, required=False)
+    manager_password = serializers.CharField(write_only=True, required=False)
+    manager_full_name = serializers.CharField(write_only=True, required=False)
+    has_login = serializers.SerializerMethodField()
+
     class Meta:
         model = SubConsultant
-        fields = ["id", "consultant_name", "contract_ref", "commission_rate", "status", "created_at"]
-        read_only_fields = ["id", "status", "created_at"]
+        fields = [
+            "id", "consultant_name", "contract_ref", "commission_rate", "status", "created_at",
+            "manager_username", "manager_password", "manager_full_name", "has_login",
+        ]
+        read_only_fields = ["id", "status", "created_at", "has_login"]
+
+    def get_has_login(self, obj):
+        return obj.users.exists()
+
+    def validate(self, attrs):
+        if attrs.get("manager_username") and not attrs.get("manager_full_name"):
+            raise serializers.ValidationError({"manager_full_name": "Required when manager_username is given."})
+        return attrs
 
 
 class SubConsultantStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=SubConsultant.STATUS_CHOICES)
+
+
+class StakeholderSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField()
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = AppUser
+        fields = ["id", "username", "full_name", "phone", "password", "is_active", "date_joined"]
+        read_only_fields = ["id", "is_active", "date_joined"]
 
 
 class FieldAgentSerializer(serializers.ModelSerializer):

@@ -233,6 +233,31 @@ class DashboardGlobalView(APIView):
                 "status": status_map.get(raw_name),
             })
 
+        # A stakeholder may see that sub-consultants collect revenue and
+        # roughly how much, but not which one is which or how each is
+        # individually performing — that's the exact identifying detail
+        # PayerViewSet/BillViewSet/PaymentViewSet/SubConsultantViewSet are
+        # withheld from GLOBAL_VIEW for. Roll every named consultant into one
+        # anonymous line instead of a per-consultant breakdown.
+        if request.user.access_level == AppRole.GLOBAL_VIEW:
+            direct = next((r for r in rows if r["consultant_name"] == "Council Direct"), None)
+            named = [r for r in rows if r["consultant_name"] != "Council Direct"]
+            anonymized = []
+            if direct is not None:
+                anonymized.append(direct)
+            if named:
+                collected = sum(r["collected"] for r in named)
+                billed = sum(r["billed"] for r in named)
+                anonymized.append({
+                    "consultant_name": "Via Sub-Consultants",
+                    "collected": collected,
+                    "billed": billed,
+                    "collection_rate": round(collected / billed * 100) if billed else None,
+                    "commission_accrued": sum(r["commission_accrued"] for r in named),
+                    "status": None,
+                })
+            rows = anonymized
+
         by_ward = (
             payments.values("bill__payer__ward__ward_name")
             .annotate(collected=Sum("amount"))
