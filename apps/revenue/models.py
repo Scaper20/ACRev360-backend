@@ -215,3 +215,27 @@ class ConsultantPortfolio(CouncilScopedModel):
 
     def __str__(self):
         return f"{self.consultant} -> {self.council_revenue_item}"
+
+
+class AgentPortfolio(CouncilScopedModel):
+    """Which revenue items (optionally ward-scoped) a field agent may handle —
+    a further, optional narrowing of their own consultant's ConsultantPortfolio,
+    not an independent grant. An agent with no rows here still has their whole
+    consultant's portfolio (see CouncilRevenueItemViewSet.get_queryset()); an
+    agent with at least one row is restricted to exactly those. Assigning
+    requires the item to already be in the agent's consultant's active
+    portfolio — see FieldAgentViewSet.portfolio(). Ending an assignment sets
+    `effective_to` rather than deleting — history kept."""
+
+    agent = models.ForeignKey("accounts.FieldAgent", on_delete=models.CASCADE, related_name="portfolio")
+    council_revenue_item = models.ForeignKey(CouncilRevenueItem, on_delete=models.PROTECT, related_name="agent_portfolio_entries")
+    ward = models.ForeignKey(WardZone, on_delete=models.PROTECT, null=True, blank=True, related_name="agent_portfolio_entries")
+    effective_from = models.DateField(auto_now_add=True)
+    effective_to = models.DateField(null=True, blank=True)
+
+    class Meta:
+        db_table = "agent_portfolio"
+        ordering = ["-effective_from"]
+
+    def __str__(self):
+        return f"{self.agent} -> {self.council_revenue_item}"

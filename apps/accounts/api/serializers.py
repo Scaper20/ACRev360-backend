@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.accounts.models import AppUser, FieldAgent, SubConsultant
-from apps.revenue.models import ConsultantPortfolio
+from apps.revenue.models import AgentPortfolio, ConsultantPortfolio
 
 
 class LogoutRequestSerializer(serializers.Serializer):
@@ -91,4 +91,19 @@ class ConsultantPortfolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConsultantPortfolio
         fields = ["id", "consultant", "council_revenue_item", "ward", "effective_from", "effective_to"]
-        read_only_fields = ["id", "effective_from", "effective_to"]
+        # consultant is set by the view from the URL (SubConsultantViewSet.portfolio),
+        # not client input — read-only here, same reasoning as AgentPortfolioSerializer's
+        # own `agent` field below. Was previously required input with no way to
+        # satisfy it (the view never puts it in request.data), so every assignment
+        # 400'd before ever reaching serializer.save() — pre-existing bug, caught
+        # while adding the same field to AgentPortfolioSerializer.
+        read_only_fields = ["id", "consultant", "effective_from", "effective_to"]
+
+
+class AgentPortfolioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentPortfolio
+        fields = ["id", "agent", "council_revenue_item", "ward", "effective_from", "effective_to"]
+        # agent is set by the view from the URL (FieldAgentViewSet.portfolio),
+        # not client input.
+        read_only_fields = ["id", "agent", "effective_from", "effective_to"]

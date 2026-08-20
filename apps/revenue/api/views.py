@@ -12,7 +12,7 @@ from apps.revenue.api.serializers import (
     RevenueCategorySerializer,
     RevenueItemTemplateSerializer,
 )
-from apps.revenue.models import CouncilRevenueItem, RevenueCategory, RevenueItemTemplate
+from apps.revenue.models import AgentPortfolio, CouncilRevenueItem, RevenueCategory, RevenueItemTemplate
 from apps.revenue.services import BandingError, change_rate, replace_rate_bands
 
 READ_ONLY_LEVELS = [AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW]
@@ -36,7 +36,38 @@ class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
-        return CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True).order_by("harmonised_code")
+        qs = CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True).order_by("harmonised_code")
+        # Unlike payers/bills/payments (scoped via common.scoping.portfolio_filter,
+        # which walks a payer's enumerated_by__consultant_id), a revenue item has
+        # no payer to walk through — its portfolio membership is the direct
+        # ConsultantPortfolio join instead. COUNCIL_ADMIN/AGENT/GLOBAL_VIEW stay
+        # unscoped: an item's existence/rate isn't payer- or consultant-identifying
+        # the way a name is, so GLOBAL_VIEW keeping this is deliberate, matching
+        # DashboardSummaryView/DashboardGlobalView's aggregate-only boundary.
+        if self.request.user.access_level == AppRole.CONSULTANT:
+            qs = qs.filter(
+                portfolio_entries__consultant_id=self.request.user.consultant_id,
+                portfolio_entries__effective_to__isnull=True,
+            ).distinct()
+        elif self.request.user.access_level == AppRole.AGENT:
+            # AgentPortfolio is an *optional* further narrowing (see its
+            # docstring) — an agent with no rows there isn't locked out, they
+            # just inherit their whole consultant's portfolio (or the full
+            # catalog if council-direct), same as before this ever existed.
+            has_own_portfolio = AgentPortfolio.objects.filter(
+                agent__user_id=self.request.user.id, effective_to__isnull=True,
+            ).exists()
+            if has_own_portfolio:
+                qs = qs.filter(
+                    agent_portfolio_entries__agent__user_id=self.request.user.id,
+                    agent_portfolio_entries__effective_to__isnull=True,
+                ).distinct()
+            elif self.request.user.consultant_id is not None:
+                qs = qs.filter(
+                    portfolio_entries__consultant_id=self.request.user.consultant_id,
+                    portfolio_entries__effective_to__isnull=True,
+                ).distinct()
+        return qs
 
     @extend_schema(request=ChangeRateSerializer, responses=CouncilRevenueItemSerializer)
     @action(detail=True, methods=["post"], url_path="rate", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])

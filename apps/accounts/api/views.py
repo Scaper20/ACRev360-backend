@@ -12,6 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.accounts.api.serializers import (
+    AgentPortfolioSerializer,
     ConsultantPortfolioSerializer,
     FieldAgentSerializer,
     LogoutRequestSerializer,
@@ -25,7 +26,7 @@ from apps.accounts.tokens import AppTokenObtainPairSerializer
 from apps.audit.services import audit
 from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
-from apps.revenue.models import ConsultantPortfolio
+from apps.revenue.models import AgentPortfolio, ConsultantPortfolio
 
 
 class AgentActivityResponseSerializer(serializers.Serializer):
@@ -220,6 +221,66 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             council_id=user.council_id, actor=user, action="AGENT_ONBOARDED", entity_type="FIELD_AGENT",
             entity_id=agent.id, detail={"agent_code": agent.agent_code},
         )
+
+    @extend_schema(methods=["GET"], responses=AgentPortfolioSerializer(many=True))
+    @extend_schema(methods=["POST"], request=AgentPortfolioSerializer, responses=AgentPortfolioSerializer)
+    @action(detail=True, methods=["get", "post"], pagination_class=None)
+    def portfolio(self, request, pk=None):
+        """Which revenue items this specific agent may handle — an optional
+        further narrowing of their own consultant's ConsultantPortfolio (see
+        AgentPortfolio's docstring). get_queryset() already scopes a
+        CONSULTANT caller to their own agents, so no extra ownership check is
+        needed here beyond get_object() itself — a consultant reaching this
+        for another firm's agent 404s before this method body ever runs."""
+        agent = self.get_object()
+
+        if request.method == "GET":
+            entries = agent.portfolio.filter(effective_to__isnull=True)
+            return Response(AgentPortfolioSerializer(entries, many=True).data)
+
+        serializer = AgentPortfolioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        item = serializer.validated_data["council_revenue_item"]
+        consultant_id = agent.user.consultant_id
+        if consultant_id is None:
+            return Response(
+                {"error": "This agent is council-direct — item assignment only applies to a consultant's own agents"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # "out of their given ones" — an agent can only be handed a subset of
+        # what their own consultant is actually allowed to work, not anything
+        # from the council's wider chart of revenue.
+        in_consultant_portfolio = ConsultantPortfolio.objects.filter(
+            consultant_id=consultant_id, council_revenue_item=item, effective_to__isnull=True,
+        ).exists()
+        if not in_consultant_portfolio:
+            return Response(
+                {"error": "This item isn't in the agent's own consultant's portfolio"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        entry = serializer.save(council_id=agent.council_id, agent=agent)
+        audit(
+            council_id=agent.council_id, actor=request.user, action="AGENT_PORTFOLIO_ASSIGNED", entity_type="FIELD_AGENT",
+            entity_id=agent.id, detail={"council_revenue_item_id": entry.council_revenue_item_id},
+        )
+        return Response(AgentPortfolioSerializer(entry).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("portfolio_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        request=None,
+        responses=AgentPortfolioSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path=r"portfolio/(?P<portfolio_id>[0-9]+)/end")
+    def end_portfolio(self, request, pk=None, portfolio_id=None):
+        agent = self.get_object()
+        entry = AgentPortfolio.objects.get(pk=portfolio_id, agent=agent)
+        entry.effective_to = timezone.localdate()
+        entry.save(update_fields=["effective_to"])
+        audit(
+            council_id=agent.council_id, actor=request.user, action="AGENT_PORTFOLIO_REVOKED", entity_type="FIELD_AGENT",
+            entity_id=agent.id, detail={"portfolio_id": entry.id},
+        )
+        return Response(AgentPortfolioSerializer(entry).data)
 
     @extend_schema(responses=AgentActivityResponseSerializer)
     @action(detail=True, methods=["get"])
