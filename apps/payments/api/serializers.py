@@ -44,11 +44,12 @@ class ReversePaymentSerializer(serializers.Serializer):
 
 class ReceiptSerializer(serializers.ModelSerializer):
     bill_ref = serializers.CharField(source="payment.bill.bill_ref", read_only=True)
+    full_name = serializers.CharField(source="payment.bill.payer.full_name", read_only=True)
     amount = serializers.DecimalField(source="payment.amount", max_digits=14, decimal_places=2, read_only=True)
 
     class Meta:
         model = Receipt
-        fields = ["id", "receipt_ref", "payment", "bill_ref", "amount", "qr_token", "verified_count", "created_at"]
+        fields = ["id", "receipt_ref", "payment", "bill_ref", "full_name", "amount", "qr_token", "verified_count", "created_at"]
         read_only_fields = fields
 
 

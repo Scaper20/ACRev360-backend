@@ -77,14 +77,19 @@ class FieldAgentSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     phone = serializers.CharField(write_only=True, required=False, allow_blank=True)
     consultant_id = serializers.IntegerField(read_only=True, source="user.consultant_id")
+    # Separate from the write-only `full_name`/`phone` above (those set the
+    # linked AppUser at creation and are popped from validated_data by
+    # perform_create) — these are the read side, for display/search.
+    agent_full_name = serializers.CharField(read_only=True, source="user.full_name")
+    agent_phone = serializers.CharField(read_only=True, source="user.phone")
 
     class Meta:
         model = FieldAgent
         fields = [
             "id", "agent_code", "assigned_ward", "device_imei", "status",
-            "full_name", "username", "password", "phone", "consultant_id",
+            "full_name", "username", "password", "phone", "consultant_id", "agent_full_name", "agent_phone",
         ]
-        read_only_fields = ["id", "agent_code", "status", "consultant_id"]
+        read_only_fields = ["id", "agent_code", "status", "consultant_id", "agent_full_name", "agent_phone"]
 
 
 class ConsultantPortfolioSerializer(serializers.ModelSerializer):

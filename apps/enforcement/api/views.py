@@ -1,4 +1,6 @@
-from drf_spectacular.utils import extend_schema
+from django.db.models import Q
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -16,6 +18,9 @@ class DebtRefreshResponseSerializer(serializers.Serializer):
     updated = serializers.IntegerField()
 
 
+@extend_schema_view(
+    list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by bill reference or payer name")])
+)
 class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = DebtCaseSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
@@ -23,7 +28,11 @@ class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     def get_queryset(self):
         qs = DebtCase.objects.filter(council_id=self.request.user.council_id).order_by("-opened_at")
-        return portfolio_filter(qs, self.request, payer_path="bill__payer")
+        qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(Q(bill__bill_ref__icontains=q) | Q(bill__payer__full_name__icontains=q))
+        return qs
 
     @extend_schema(request=None, responses=DebtRefreshResponseSerializer)
     @action(detail=False, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])

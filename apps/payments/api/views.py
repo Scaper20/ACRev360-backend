@@ -116,6 +116,11 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         return Response(PaymentSerializer(payment).data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by receipt ref, bill ref or payer name")]
+    )
+)
 class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = ReceiptSerializer
     # GLOBAL_VIEW deliberately excluded — same reasoning as PaymentViewSet.
@@ -123,7 +128,13 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     def get_queryset(self):
         qs = Receipt.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
-        return portfolio_filter(qs, self.request, payer_path="payment__bill__payer")
+        qs = portfolio_filter(qs, self.request, payer_path="payment__bill__payer")
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(
+                Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q) | Q(payment__bill__payer__full_name__icontains=q)
+            )
+        return qs
 
 
 _VerifyReceiptResponseSerializer = inline_serializer(

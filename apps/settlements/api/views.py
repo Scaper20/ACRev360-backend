@@ -1,4 +1,5 @@
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -15,6 +16,9 @@ from apps.settlements.models import CommissionSettlement
 from apps.settlements.services import compute_settlements
 
 
+@extend_schema_view(
+    list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by consultant name")])
+)
 class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CommissionSettlementSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
@@ -25,6 +29,9 @@ class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
         qs = CommissionSettlement.objects.filter(council_id=user.council_id).order_by("-period_start")
         if user.access_level == AppRole.CONSULTANT:
             qs = qs.filter(consultant_id=user.consultant_id)
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(consultant__consultant_name__icontains=q)
         return qs
 
     @extend_schema(request=ComputeSettlementsSerializer, responses=CommissionSettlementSerializer(many=True))

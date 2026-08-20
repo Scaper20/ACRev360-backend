@@ -75,6 +75,9 @@ class MeView(generics.RetrieveAPIView):
         return self.request.user
 
 
+@extend_schema_view(
+    list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by consultant name or contract reference")])
+)
 class SubConsultantViewSet(viewsets.ModelViewSet):
     serializer_class = SubConsultantSerializer
     http_method_names = ["get", "post", "head", "options"]
@@ -93,7 +96,11 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
 
     def get_queryset(self):
-        return SubConsultant.objects.filter(council_id=self.request.user.council_id).order_by("consultant_name")
+        qs = SubConsultant.objects.filter(council_id=self.request.user.council_id).order_by("consultant_name")
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
+        return qs
 
     def perform_create(self, serializer):
         data = serializer.validated_data
@@ -189,6 +196,9 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         return Response(ConsultantPortfolioSerializer(entry).data)
 
 
+@extend_schema_view(
+    list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by agent code or agent name")])
+)
 class FieldAgentViewSet(viewsets.ModelViewSet):
     serializer_class = FieldAgentSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
@@ -200,6 +210,9 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         qs = FieldAgent.objects.filter(council_id=user.council_id)
         if user.access_level == AppRole.CONSULTANT:
             qs = qs.filter(user__consultant_id=user.consultant_id)
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(models.Q(agent_code__icontains=q) | models.Q(user__full_name__icontains=q))
         return qs.order_by("agent_code")
 
     def perform_create(self, serializer):

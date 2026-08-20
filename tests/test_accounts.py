@@ -325,3 +325,35 @@ def test_can_reassign_item_to_consultant_after_revoking(scoped, authed_api_clien
 
     reassigned = admin_client.post(f"/api/v1/consultants/{consultant.id}/portfolio", {"council_revenue_item": item.id}, format="json")
     assert reassigned.status_code == 201, reassigned.content  # the old row is now effective_to-set, so this isn't a duplicate
+
+
+@pytest.mark.django_db(transaction=True)
+def test_consultant_search_matches_name_and_contract_ref(scoped, authed_api_client, make_consultant):
+    make_consultant(scoped["council"], name="Findable Revenue Partners", contract_ref="CR-FIND")
+    make_consultant(scoped["council"], name="Other Co", contract_ref="CR-OTHER")
+    client = authed_api_client(scoped["admin"])
+
+    by_name = client.get("/api/v1/consultants?q=Findable")
+    assert {r["consultant_name"] for r in by_name.json()["results"]} == {"Findable Revenue Partners"}
+
+    by_ref = client.get("/api/v1/consultants?q=CR-FIND")
+    assert {r["consultant_name"] for r in by_ref.json()["results"]} == {"Findable Revenue Partners"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_agent_search_matches_code_and_name(scoped, authed_api_client, make_field_agent, make_user):
+    findable_user = make_user(scoped["council"], username="acc-search-findable", access_level=AppRole.AGENT)
+    make_field_agent(scoped["council"], findable_user, agent_code="AGT-FINDME-1")
+    other_user = make_user(scoped["council"], username="acc-search-other", access_level=AppRole.AGENT)
+    make_field_agent(scoped["council"], other_user, agent_code="AGT-OTHER-1")
+    # AppUser.create_user doesn't set full_name via make_user — set it directly for the name-search half.
+    findable_user.full_name = "Zainab Findable"
+    findable_user.save(update_fields=["full_name"])
+
+    client = authed_api_client(scoped["admin"])
+    by_code = client.get("/api/v1/agents?q=FINDME")
+    assert {r["agent_code"] for r in by_code.json()["results"]} == {"AGT-FINDME-1"}
+
+    by_name = client.get("/api/v1/agents?q=Zainab")
+    assert {r["agent_code"] for r in by_name.json()["results"]} == {"AGT-FINDME-1"}
+    assert by_name.json()["results"][0]["agent_full_name"] == "Zainab Findable"
