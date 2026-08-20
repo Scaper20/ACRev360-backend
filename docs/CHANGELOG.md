@@ -96,6 +96,72 @@ forgotten.
   comes out as a raw float instead of DRF's usual `"10000.00"` string. The declarative
   nested-field form gets both right for free, and `many=True` over a related manager
   calls `.all()` automatically, same as `lines` already does elsewhere in this file.
+- **Neither `@extend_schema` on a `GenericAPIView` method override, nor the class-level
+  `@extend_schema_view(update=extend_schema(...))` form, corrects drf-spectacular's
+  inferred response type for that method.** Tried both on `MeView.update()` (a
+  `RetrieveUpdateAPIView` with a `get_serializer_class()` that branches request-serializer
+  by HTTP method) — confirmed via two full rebuild+regenerate cycles each that the
+  generated schema still shows the *request* serializer's shape as the *response* type.
+  drf-spectacular appears to resolve a `GenericAPIView` method-override's response from
+  `get_serializer_class()` itself, ahead of either override mechanism — unlike an
+  `@action`-decorated ViewSet method, where `@extend_schema_view` is known to work
+  elsewhere in this codebase. If a future `GenericAPIView.update()`/`.create()` override
+  needs a different response type than its request serializer, don't spend a cycle on
+  `@extend_schema` first — go straight to a manual override in
+  `packages/api/src/overrides.ts` (see `UpdateProfileResponse`, #8).
+
+---
+
+## 2026-08-20 — Self-service profile editing and password change
+
+**Ask:** "user account management" scoped down to two concrete things — "Profile
+Editing, Password Changing" — following on from the payer bill history / arrears work
+above.
+
+**Added:**
+- `PATCH /api/v1/auth/me` — a logged-in user can update their own `full_name`/`email`/
+  `phone` via `UpdateProfileSerializer`, deliberately narrower than `MeSerializer`:
+  `username`/`council`/`role`/`consultant`/`access_level` and the denormalized
+  `agent_*`/`consultant_*` fields all stay admin-managed. `MeView.update()` responds
+  with the full `MeSerializer` shape (not just the three written fields), so the
+  frontend can update its identity state from this one response instead of a second
+  `GET /auth/me` round trip.
+- `POST /api/v1/auth/change-password` — verifies `current_password` via
+  `check_password()`, then runs the new password through Django's
+  `validate_password()`/`AUTH_PASSWORD_VALIDATORS`. Worth knowing: this is the *first*
+  place in the codebase those validators actually run — every account (including the
+  shared `acrev360-2026` demo password) is provisioned via `AppUser.objects.
+  create_user()`, which doesn't call `validate_password()`. A self-chosen password is
+  the one case where it's the user's own judgment rather than an admin's, hence the
+  check here even though nothing upstream has one.
+- Portal: the topbar's name/avatar block (`AppShell`'s `.who`) is now a button (only
+  when `onProfileClick` is passed — omitted elsewhere, e.g. not yet wired into the field
+  PWA) opening a new `MyProfileModal` with both forms. `AuthContext` gained `setUser()`
+  so the profile save can apply the PATCH response directly.
+- Attempted to fix the `PATCH /auth/me` response-type schema mismatch at the source with
+  `@extend_schema` (both method- and class-level forms) — neither worked; see the new
+  recurring-theme note above. Used the established frontend-override fallback instead
+  (`packages/api/src/overrides.ts` #8, `UpdateProfileResponse`).
+
+**Files:** backend — `apps/accounts/api/serializers.py` (`UpdateProfileSerializer`,
+`ChangePasswordSerializer`), `apps/accounts/api/views.py` (`MeView.update()`,
+`ChangePasswordView`), `apps/accounts/api/urls.py`, `tests/test_accounts.py` (+6 tests,
+134/134 passing). Frontend — `apps/portal/src/layout/MyProfileModal.tsx` (new),
+`apps/portal/src/layout/ProtectedLayout.tsx`, `apps/portal/src/auth/AuthContext.tsx`,
+`packages/ui/src/components/AppShell.{tsx,css}`, `packages/api/src/overrides.ts`.
+Verified live: profile save round-trips correctly (topbar still shows full
+name/role/access_level after a save, proving the full `Me` shape came back despite the
+generated type claiming otherwise); wrong-current-password rejected with 400 and fields
+preserved; mismatched confirm-password caught client-side with no request sent.
+Deliberately did *not* live-test the password-change success path against the shared
+`admin` demo account (would've required changing then reverting a credential other
+flows — `LoginPage.tsx`'s quick-login, future QA runs — depend on staying at
+`acrev360-2026`); that path is covered by `test_user_can_change_their_own_password`
+instead.
+
+**Gotchas:** the `@extend_schema`/`@extend_schema_view` limitation above is the main
+one. Also: this is portal-only for now — field agents have no equivalent UI in
+`apps/field`, an open scoping question not yet raised with the user.
 
 ---
 
