@@ -139,6 +139,42 @@ def test_sync_payment_against_cancelled_bill_is_rejected_not_500(scoped, authed_
     assert not Payment.objects.filter(bill=bill).exists()
 
 
+@pytest.mark.django_db(transaction=True)
+def test_sync_payment_against_bill_outside_agents_ward_is_rejected(scoped, authed_api_client, make_payer):
+    # Audit finding: the agent's own worklist is ward-scoped, but nothing
+    # stopped a sync record from naming a bill_id for a payer in a *different*
+    # ward — something this agent's app never actually showed them.
+    other_ward_payer = make_payer(scoped["council"], scoped["ward_b"], scoped["admin"], name="Other Ward Payer", phone="08030000015")
+    bill = issue_bill(council_id=scoped["council"].id, payer=other_ward_payer, lines=[{"council_revenue_item": scoped["item"], "quantity": 1}], actor=scoped["admin"])
+
+    r = authed_api_client(scoped["agent_user"]).post(
+        "/api/v1/mobile/sync",
+        {"records": [{"client_id": "c-pay-wrong-ward", "entity_type": "PAYMENT", "payload": {"bill_id": bill.id, "amount": "5000.00", "channel_code": "OTC"}}]},
+        format="json",
+    )
+    assert r.status_code == 200, r.content
+    assert len(r.json()["rejected"]) == 1
+    assert not Payment.objects.filter(bill=bill).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_payer_targeting_a_different_ward_is_rejected(scoped, authed_api_client):
+    r = authed_api_client(scoped["agent_user"]).post(
+        "/api/v1/mobile/sync",
+        {"records": [{
+            "client_id": "c-payer-wrong-ward", "entity_type": "PAYER",
+            "payload": {
+                "payer_type": "INDIVIDUAL", "full_name": "Wrong Ward Payer", "phone": "08030000016",
+                "address": "Elsewhere", "ward": scoped["ward_b"].id,
+            },
+        }]},
+        format="json",
+    )
+    assert r.status_code == 200, r.content
+    assert len(r.json()["rejected"]) == 1
+    assert not Payer.objects.filter(phone="08030000016").exists()
+
+
 # --- sync: payers ---
 
 @pytest.mark.django_db(transaction=True)

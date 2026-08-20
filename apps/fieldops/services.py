@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q, Sum
 from django.db.models.functions import Coalesce
 
@@ -59,24 +59,49 @@ def replay_sync_record(*, council_id, agent, actor, client_id, record_type, payl
     never reprocessed — it's returned as-is. A correction after a CONFLICT/
     REJECTED needs a new client_id, standard idempotency-key semantics; this
     isn't a place to retry-with-different-input under the same key.
+
+    Two defensive layers found in audit, not by design from the start:
+    - A batch retried before its first response arrives (exactly the flaky-
+      connection scenario this whole app exists for) can have two requests
+      racing on the same client_id. Both would pass the "does it exist yet"
+      check, both would call post_payment()/create_payer(), and only then
+      collide on MobileSyncRecord's unique constraint. Catching that inside
+      a nested atomic() means the loser's side effects roll back to that
+      savepoint (not the whole request) and it returns the winner's actual
+      outcome — instead of an uncaught IntegrityError 500ing the whole batch.
+    - _replay_payment/_replay_payer only anticipated specific failure modes
+      (PaymentRejected, DuplicatePayer, BillingError). A malformed record
+      from a genuinely corrupted local queue (this app is explicitly built
+      to survive a killed app / dying battery mid-write) could throw
+      anything else — caught broadly here so one bad record can't take the
+      rest of the batch down with it.
     """
     existing = MobileSyncRecord.objects.filter(council_id=council_id, client_id=client_id).first()
     if existing is not None:
         return _bucket_for(existing.status), existing
 
-    if record_type == MobileSyncRecord.PAYMENT:
-        status_, result_ref, detail = _replay_payment(council_id=council_id, actor=actor, payload=payload)
-    else:
-        status_, result_ref, detail = _replay_payer(council_id=council_id, actor=actor, payload=payload)
+    try:
+        if record_type == MobileSyncRecord.PAYMENT:
+            status_, result_ref, detail = _replay_payment(council_id=council_id, agent=agent, actor=actor, payload=payload)
+        else:
+            status_, result_ref, detail = _replay_payer(council_id=council_id, agent=agent, actor=actor, payload=payload)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
+        status_, result_ref, detail = MobileSyncRecord.REJECTED, "", {"error": f"Could not process this record: {exc}"}
 
-    sync_record = MobileSyncRecord.objects.create(
-        council_id=council_id, client_id=client_id, record_type=record_type, agent=agent,
-        status=status_, result_ref=result_ref, detail=detail,
-    )
+    try:
+        with transaction.atomic():
+            sync_record = MobileSyncRecord.objects.create(
+                council_id=council_id, client_id=client_id, record_type=record_type, agent=agent,
+                status=status_, result_ref=result_ref, detail=detail,
+            )
+    except IntegrityError:
+        existing = MobileSyncRecord.objects.get(council_id=council_id, client_id=client_id)
+        return _bucket_for(existing.status), existing
+
     return _bucket_for(status_), sync_record
 
 
-def _replay_payment(*, council_id, actor, payload):
+def _replay_payment(*, council_id, agent, actor, payload):
     from apps.payments.api.serializers import PostPaymentSerializer
 
     serializer = PostPaymentSerializer(data=payload)
@@ -84,9 +109,18 @@ def _replay_payment(*, council_id, actor, payload):
         return MobileSyncRecord.REJECTED, "", {"error": serializer.errors}
     data = serializer.validated_data
 
-    bill = Bill.objects.filter(pk=data["bill_id"], council_id=council_id).first()
+    bill = Bill.objects.filter(pk=data["bill_id"], council_id=council_id).select_related("payer").first()
     if bill is None:
         return MobileSyncRecord.REJECTED, "", {"error": f"Bill {data['bill_id']} not found"}
+    # Mirrors get_worklist()'s own ward scoping — an agent's worklist only
+    # ever shows their own ward's payers, so a payment against a bill
+    # outside it couldn't have come from anything this app actually showed
+    # them. Audit finding: the same gap exists via POST /payments directly
+    # (reachable by AGENT role, not just this sync path) — flagged
+    # separately rather than fixed here, since that endpoint is shared with
+    # COUNCIL_ADMIN/CONSULTANT, for whom "any bill" is correct.
+    if agent.assigned_ward_id is None or bill.payer.ward_id != agent.assigned_ward_id:
+        return MobileSyncRecord.REJECTED, "", {"error": f"{bill.bill_ref} is not in your assigned ward"}
     channel, _ = PaymentChannel.objects.get_or_create(code=data["channel_code"])
     terminal = None
     if data.get("terminal_id") is not None:
@@ -103,7 +137,7 @@ def _replay_payment(*, council_id, actor, payload):
     return MobileSyncRecord.ACCEPTED, payment.payment_ref, {}
 
 
-def _replay_payer(*, council_id, actor, payload):
+def _replay_payer(*, council_id, agent, actor, payload):
     from apps.registry.api.serializers import CreatePayerSerializer
 
     # geo isn't a CreatePayerSerializer field — Payer carries no geo columns,
@@ -111,6 +145,12 @@ def _replay_payer(*, council_id, actor, payload):
     # unrecognized key doesn't even get the chance to matter either way.
     geo = payload.get("geo") or {}
     body = {k: v for k, v in payload.items() if k != "geo"}
+
+    # Same ward boundary as _replay_payment above, checked before validation
+    # so a mismatched ward doesn't waste a DuplicatePayer check against data
+    # the agent had no business submitting in the first place.
+    if agent.assigned_ward_id is None or str(body.get("ward")) != str(agent.assigned_ward_id):
+        return MobileSyncRecord.REJECTED, "", {"error": "Payer's ward must match your assigned ward"}
 
     serializer = CreatePayerSerializer(data=body)
     if not serializer.is_valid():
