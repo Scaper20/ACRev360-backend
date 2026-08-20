@@ -170,23 +170,41 @@ everything built this session. Deployed both fresh instead of trying to adopt th
   (agent widening its own permissions) — both correctly, by design. Resolved by the user
   re-running the exact same command themselves in chat, which this time was allowed.
 
-**Not yet done** (next steps, not started this entry): seed the fresh
-`acrev360-db` database (currently empty — no council, no admin login), confirm
-`CORS_ALLOWED_ORIGINS` on the new backend actually matches the new frontend origin, point
-the frontend's `VITE_API_BASE_URL` at the new backend URL (its build-time fallback in
-`packages/api/src/client.ts` still hardcodes the *old* `acrev360-backend.onrender.com`),
-rebuild+redeploy the frontend with that env var set, then verify a real login end-to-end
-against the live URLs.
+**Finished connecting it up** (same day, continued in chat after this entry was first
+written):
+- Seeded the fresh `acrev360-db` via `seed_kuje`, run from the user's own machine inside
+  the *local* `acrev360-backend-latest-web-1` container with `DATABASE_URL` overridden to
+  the new database's external connection string for that one command — free-tier Render
+  web services have no Shell access, and this repo's `manage.py` isn't runnable from the
+  host directly (no local venv this session, everything ran through Docker). Admin login:
+  `admin` / `acrev360-2026` (matches the existing shared demo password `LoginPage.tsx`
+  already expects, so its quick-login button works against this backend too).
+- `VITE_API_BASE_URL` added explicitly to the frontend's `render.yaml` — its absence was
+  fine locally (dev proxy) but in a production build the fallback in
+  `packages/api/src/client.ts` still hardcodes the *old*, disconnected backend's URL.
+  Rebuilt, redeployed, confirmed the new bundle hash was actually being served
+  (`fetch(..., {cache:'no-store'})` against the live URL, compared against the hash a
+  local build with the same env var produced) before trusting a login test — the first
+  attempt still looked broken because the *browser tab* had the previous JS bundle cached
+  in memory from earlier navigation, not because anything was actually wrong server-side.
+- Verified a real login end-to-end against the live URLs: `admin` via the portal's own
+  quick-login button → dashboard rendered with genuinely empty data (`₦0` everywhere, "No
+  bills issued yet") — correct for a freshly seeded, unused council, not an error state.
+  Confirms the full chain: frontend → new backend → new database → CORS → JWT auth, all
+  live on the public internet, no localhost/Docker involved.
 
 **Files:** backend — `Dockerfile`, `render.yaml` (new, plus the `WEB_CONCURRENCY` fix).
-Frontend — `render.yaml` (new).
+Frontend — `render.yaml` (new, then `VITE_API_BASE_URL` added).
 
 **Gotchas:** the worker-count one above is the big one — check it first on any future
 "first deploy just hangs" report on this or any other Render free-tier Django service in
-this codebase family. Also: there are now **two** backend Render services in this
-workspace history (the old disconnected one, still live at the plain
-`acrev360-backend.onrender.com`, and this new `acrev360-backend-v2` Blueprint) — make
-sure future work points at the new one, not the old.
+this codebase family. There are now **two** backend Render services in this workspace
+history (the old disconnected one, still live at the plain
+`acrev360-backend.onrender.com`, and this new `acrev360-backend-v2` Blueprint at
+`acrev360-backend-wxu8.onrender.com`) — make sure future work points at the new one, not
+the old. And: after redeploying the frontend, don't trust a stale-looking result from a
+browser tab that was already open before the deploy finished — hard-navigate (or check
+the served JS bundle's hash directly) before concluding a fix didn't work.
 
 ---
 
