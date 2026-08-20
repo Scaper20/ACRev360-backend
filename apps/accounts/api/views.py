@@ -158,6 +158,12 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
             return Response({"error": "Only council admin may assign a portfolio"}, status=status.HTTP_403_FORBIDDEN)
         serializer = ConsultantPortfolioSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        already_assigned = ConsultantPortfolio.objects.filter(
+            consultant=consultant, council_revenue_item=serializer.validated_data["council_revenue_item"],
+            ward=serializer.validated_data.get("ward"), effective_to__isnull=True,
+        ).exists()
+        if already_assigned:
+            return Response({"error": "This item is already assigned to this consultant"}, status=status.HTTP_400_BAD_REQUEST)
         entry = serializer.save(council_id=consultant.council_id, consultant=consultant)
         audit(
             council_id=consultant.council_id, actor=request.user, action="PORTFOLIO_ASSIGNED", entity_type="SUB_CONSULTANT",
@@ -258,6 +264,11 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
                 {"error": "This item isn't in the agent's own consultant's portfolio"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        already_assigned = AgentPortfolio.objects.filter(
+            agent=agent, council_revenue_item=item, ward=serializer.validated_data.get("ward"), effective_to__isnull=True,
+        ).exists()
+        if already_assigned:
+            return Response({"error": "This item is already assigned to this agent"}, status=status.HTTP_400_BAD_REQUEST)
         entry = serializer.save(council_id=agent.council_id, agent=agent)
         audit(
             council_id=agent.council_id, actor=request.user, action="AGENT_PORTFOLIO_ASSIGNED", entity_type="FIELD_AGENT",

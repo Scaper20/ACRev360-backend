@@ -212,6 +212,20 @@ class ConsultantPortfolio(CouncilScopedModel):
     class Meta:
         db_table = "consultant_portfolio"
         ordering = ["-effective_from"]
+        constraints = [
+            # nulls_distinct=False so two open grants for the same item both
+            # left at ward=NULL ("all wards") collide too, not just two rows
+            # naming the identical explicit ward — Postgres's default is to
+            # treat every NULL as distinct from every other NULL, which is
+            # exactly the gap that let a consultant end up with the same item
+            # granted twice.
+            models.UniqueConstraint(
+                fields=["consultant", "council_revenue_item", "ward"],
+                condition=models.Q(effective_to__isnull=True),
+                nulls_distinct=False,
+                name="uniq_open_consultant_portfolio_item_ward",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.consultant} -> {self.council_revenue_item}"
@@ -236,6 +250,16 @@ class AgentPortfolio(CouncilScopedModel):
     class Meta:
         db_table = "agent_portfolio"
         ordering = ["-effective_from"]
+        constraints = [
+            # See ConsultantPortfolio's identical constraint for why
+            # nulls_distinct=False matters here.
+            models.UniqueConstraint(
+                fields=["agent", "council_revenue_item", "ward"],
+                condition=models.Q(effective_to__isnull=True),
+                nulls_distinct=False,
+                name="uniq_open_agent_portfolio_item_ward",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.agent} -> {self.council_revenue_item}"

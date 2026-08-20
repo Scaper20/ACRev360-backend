@@ -273,3 +273,55 @@ def test_end_agent_portfolio_revokes_assignment(
 
     r_get = authed_api_client(manager).get(f"/api/v1/agents/{agent.id}/portfolio")
     assert r_get.json() == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cannot_assign_same_item_twice_to_agent(
+    scoped, authed_api_client, make_consultant, make_user, make_field_agent, make_revenue_item,
+):
+    council = scoped["council"]
+    consultant = make_consultant(council, name="No-Dupe Co")
+    manager = make_user(council, username="acc-nodupe-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+    agent_user = make_user(council, username="acc-nodupe-agent", access_level=AppRole.AGENT, consultant=consultant)
+    agent = make_field_agent(council, agent_user, agent_code="AGT-NODUPE-1")
+    item = make_revenue_item(council, code="ACCNODUPE", rate=1000)
+    ConsultantPortfolio.objects.create(council_id=council.id, consultant=consultant, council_revenue_item=item)
+
+    first = authed_api_client(manager).post(f"/api/v1/agents/{agent.id}/portfolio", {"council_revenue_item": item.id}, format="json")
+    assert first.status_code == 201, first.content
+
+    second = authed_api_client(manager).post(f"/api/v1/agents/{agent.id}/portfolio", {"council_revenue_item": item.id}, format="json")
+    assert second.status_code == 400, second.content
+    assert agent.portfolio.filter(effective_to__isnull=True).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cannot_assign_same_item_twice_to_consultant(scoped, authed_api_client, make_consultant, make_revenue_item):
+    consultant = make_consultant(scoped["council"], name="No-Dupe Consultant Co")
+    item = make_revenue_item(scoped["council"], code="ACCNODUPECONS", rate=1000)
+
+    first = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/portfolio", {"council_revenue_item": item.id}, format="json",
+    )
+    assert first.status_code == 201, first.content
+
+    second = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/portfolio", {"council_revenue_item": item.id}, format="json",
+    )
+    assert second.status_code == 400, second.content
+    assert consultant.portfolio.filter(effective_to__isnull=True).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_can_reassign_item_to_consultant_after_revoking(scoped, authed_api_client, make_consultant, make_revenue_item):
+    consultant = make_consultant(scoped["council"], name="Reassign Co")
+    item = make_revenue_item(scoped["council"], code="ACCREASSIGN", rate=1000)
+    admin_client = authed_api_client(scoped["admin"])
+
+    first = admin_client.post(f"/api/v1/consultants/{consultant.id}/portfolio", {"council_revenue_item": item.id}, format="json")
+    entry_id = first.json()["id"]
+    ended = admin_client.post(f"/api/v1/consultants/{consultant.id}/portfolio/{entry_id}/end")
+    assert ended.status_code == 200, ended.content
+
+    reassigned = admin_client.post(f"/api/v1/consultants/{consultant.id}/portfolio", {"council_revenue_item": item.id}, format="json")
+    assert reassigned.status_code == 201, reassigned.content  # the old row is now effective_to-set, so this isn't a duplicate
