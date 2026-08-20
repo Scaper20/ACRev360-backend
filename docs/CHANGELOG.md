@@ -51,6 +51,145 @@ forgotten.
   not local. To regenerate types against local backend changes, run
   `npx openapi-typescript http://localhost:8000/api/schema/ -o ./src/generated/schema.ts`
   from `packages/api` directly.
+- **`docker compose up -d web` reliably stalls at "Created" (never reaches "Started")
+  when run as a backgrounded/timed-out command**, even though the exact same command
+  succeeds immediately when run in the foreground right after. Hit repeatedly across one
+  session. If a rebuild+restart is backgrounded and the container is still "Created"
+  minutes later (`docker compose ps web`), don't keep waiting — just re-run
+  `docker compose up -d web` in the foreground; it starts in a few seconds.
+- **A serializer field documented as one schema can actually return a different one at
+  runtime** when the view's `create()` manually returns a different serializer than
+  `get_serializer_class()` (used for request validation) implies — drf-spectacular infers
+  the response from the latter. `POST /payments` is the known case (documented as
+  `PostPayment`, actually returns a full `Payment`) — see
+  `packages/api/src/overrides.ts`'s `PaymentRecord` for the fix. If a new endpoint's
+  response looks like it's typed as its own request body, this is almost certainly why —
+  check `overrides.ts` for an existing fix before adding a new manual cast.
+
+---
+
+## 2026-08-20 — Agent mobile app: apps/fieldops (backend) + apps/field (PWA)
+
+**Ask:** "agent mobile app now" — after a feature-list pass agreed the scope (ward-scoped
+worklist, payment collection, payer registration, offline queue+sync, status/tally,
+installable PWA), porting the old Flask prototype's `mobile/` app onto the current
+multi-council backend and the current React/TS frontend stack instead of rebuilding it
+as more vanilla JS.
+
+**Backend — new `apps/fieldops` app:**
+- `MobileSyncRecord` model — the idempotency ledger for offline sync. Keyed on the
+  client-generated `client_id` (`UniqueConstraint(council, client_id)`); every outcome
+  (ACCEPTED/CONFLICT/REJECTED) is stored once and a retried `client_id` short-circuits to
+  the stored result rather than reprocessing — standard idempotency-key semantics. A
+  CONFLICT/REJECTED record doesn't get retried under the same key; a correction needs a
+  new `client_id`, same as a fresh record.
+- `GET /api/v1/mobile/worklist` — ward-scoped `Payer` list (agent's own
+  `assigned_ward`), annotated with `outstanding` (summed non-terminal bill balance),
+  ordered desc. Deliberately **not** portfolio-scoped by revenue item — a payer owing on
+  a mix of items still belongs on the worklist so the agent can collect against whichever
+  they're assigned to; item scoping already happens correctly at the point that matters
+  (`GET /revenue-items`, via `CouncilRevenueItemViewSet.get_queryset()`'s existing AGENT
+  branch — this endpoint doesn't duplicate that). An agent with no `assigned_ward` gets an
+  empty list, not the whole council — an unset ward reads as a setup gap, not "see
+  everyone".
+- `POST /api/v1/mobile/sync` — batch-replays queued `PAYMENT`/`PAYER` records through
+  `payments.services.post_payment()` / `registry.services.create_payer()`, the *same*
+  functions the online path uses (`post_payment()`'s own docstring already listed
+  "offline sync replay" as a path it exists to cover). A `PAYER` record's `geo` key isn't
+  a `CreatePayerSerializer` field (`Payer` has no geo columns — `EnumeratedAsset` does) —
+  `_replay_payer` splits it out before validation and creates a `PREMISES`
+  `EnumeratedAsset` afterward if present. Response shape
+  (`{accepted:[], conflicts:[], rejected:[]}`, each row `{client_id, result_ref, detail}`)
+  deliberately matches the old prototype's own `/api/mobile/sync` so the offline-queue
+  logic's shape ports with minimal translation.
+- `MeSerializer` gained `agent_id`/`agent_code`/`assigned_ward_id`/`assigned_ward_name`
+  (denormalized from the reverse-OneToOne `field_agent`, same `default=None` pattern as
+  the existing `consultant_*` fields) — the mobile app's login/header/status views all
+  read agent identity from `/auth/me` rather than a dedicated endpoint.
+- `FieldAgentViewSet.activity` (existing action — its own docstring already flagged
+  "fieldops" as where this belonged) widened to `permission_classes=[COUNCIL_ADMIN,
+  CONSULTANT, AGENT]` plus a body-level ownership check, so an agent can read their own
+  today's-collections tally; `get_queryset()` now also scopes `AGENT` to `user_id=self`
+  (defense in depth — the ownership check alone would have been sufficient, but matches
+  how `CONSULTANT` is already scoped there).
+- `PaymentSerializer` gained `receipt_ref`/`qr_token` (denormalized from the 1:1
+  `Payment.receipt`) — the live-collection receipt screen needs the real verification
+  token, and the response schema was already wrong about what `POST /payments` returns
+  (see the new recurring-theme note above), so this was the natural place to also close
+  that gap for this specific caller rather than adding a second round trip.
+- Deliberately **not built**: a precomputed `agent_daily_return` rollup table (the old
+  prototype had one, for its own SQLite's sake) — this backend already computes
+  `today_total` *live* in `activity` via `Payment.objects.filter(...).aggregate(Sum(...))`,
+  and nothing else in this codebase uses a precomputed rollup for the same shape of data,
+  so adding one here would've been an unrequested extra abstraction with a sync-drift risk
+  the live query doesn't have.
+
+**Frontend — new `apps/field`:** login (rejects non-AGENT, inverse of the portal's own
+rule), `WorklistView` (search, cached to `localStorage` for offline render),
+`CollectView` (bill→channel→amount, live `POST /payments` when reachable, silently
+queues on failure — a genuine server rejection, e.g. terminal-state refusal, is shown as
+an error instead of queued), `RegisterView` (individual/business, GPS via
+`navigator.geolocation`, revenue-item checklist filtered to flat-rate items only —
+banded items need a bill screen this app doesn't have), `ReceiptView` (client-rendered
+QR, ported byte-for-byte from the old prototype's hash-seeded algorithm), `StatusView`
+(today's tally, queue state, manual sync). Offline queue (`lib/offlineQueue.ts`) is
+`localStorage`-backed, keyed by `crypto.randomUUID()` `client_id`s, auto-syncs on the
+`online` event, and keeps CONFLICT/REJECTED items visible (tagged, dismissible) rather
+than silently dropping them — only ACCEPTED items are removed. PWA: hand-written
+runtime-caching `sw.js` (not a fixed precache list — Vite's build output is
+content-hashed, so there's no fixed filename list to precache correctly across deploys)
++ `manifest.json` with inline-SVG icons.
+
+**Shared package changes** (both apps import `@acrev360/api`/`@acrev360/ui`):
+- `auth-store.ts`'s refresh-token storage is now swappable via `configureAuthStorage()` —
+  field calls it with `localStorage` before anything else runs (an installed PWA can be
+  backgrounded/killed by the OS well before a same-tab reload would happen; portal's
+  `sessionStorage` default is untouched, it never calls this).
+- `auth.ts`'s `login()` is now role-agnostic — it used to hard-reject `AGENT` (added when
+  `access_level` lockout first shipped, back when only the portal existed). That rule
+  moved to the portal's own `AuthContext.tsx` call site; field's `AuthContext.tsx` has the
+  literal inverse (rejects everything *except* `AGENT`) at its own call site. Caught
+  *before* it shipped broken — would have made every agent login fail immediately.
+- `revenue-items.ts` (new) — the banded-item-exclusion grouping logic, extracted from
+  `apps/portal/lib/revenueItems.tsx` since `apps/field` needed the identical rule
+  (flat-rate-only checklist) and apps can't import each other's `src/`. Pure data
+  shaping only (no `@acrev360/ui` dependency); portal's own module now wraps it with
+  `money()` formatting and JSX `render` nodes.
+
+**Also fixed while verifying this pass's own build:** the root `package.json`'s `build`
+script referenced a `build` script that doesn't exist in `packages/ui`/`packages/api` —
+both are consumed as TS source via project references, never had a separate build step,
+so this had never actually been run end-to-end before. Now just builds both apps
+directly.
+
+**Demo login:** `seed_demo_data` already seeds `agent01`..`agent08` (password
+`acrev360-2026`, real wards) — this was already anticipated and printed in the seed
+command's own sign-in summary, just waiting for this app to exist. `LoginScreen.tsx`
+gained a "Try the demo agent account" quick-login using `agent01`, matching the portal's
+own demo-account pattern.
+
+**Files:** backend — `apps/fieldops/*` (new), `apps/accounts/api/serializers.py`,
+`apps/accounts/api/views.py`, `apps/payments/api/serializers.py`, `config/api_urls.py`,
+`config/settings/base.py`, `tests/test_fieldops.py` (new), `tests/test_accounts.py`.
+123/123 backend tests passing. Frontend — `apps/field/*` (new),
+`packages/api/src/auth-store.ts`, `packages/api/src/auth.ts`,
+`packages/api/src/revenue-items.ts` (new), `packages/api/src/index.ts`,
+`apps/portal/src/auth/AuthContext.tsx`, `apps/portal/src/lib/revenueItems.tsx`,
+`package.json`. `tsc -b`, `vite build` and `vitest` all clean for every workspace.
+
+Verified live end-to-end against the local backend + seeded demo data: `agent01`
+login → ward-scoped worklist → collect a live payment → real receipt with working
+QR/ref → go offline → register a payer (queued, no network call) → back online →
+auto-sync fires → payer confirmed created server-side via a fresh RLS-scoped shell
+query → Status view's tally and "last synced" both correct. Zero console errors
+throughout.
+
+**Gotchas:** see the two new recurring-theme entries above (the `docker compose up -d`
+backgrounding stall, and the response-schema-vs-request-schema mismatch pattern) — both
+came from this pass. Also: if you add a third app to this monorepo that needs
+`@acrev360/api`'s auth, remember `configureAuthStorage()` must run before the app's first
+API call (call it at the very top of `main.tsx`, before anything renders) — it's not
+retroactive once `authStore` has already been read from.
 
 ---
 
