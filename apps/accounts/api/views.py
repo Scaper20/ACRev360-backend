@@ -108,6 +108,16 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         manager_password = data.pop("manager_password", None)
         manager_full_name = data.pop("manager_full_name", None)
 
+        # Pre-check rather than letting SubConsultant's uniq_contract_ref_per_council
+        # constraint raise: an uncaught IntegrityError isn't a DRF APIException, so
+        # it skips DRF's exception handler entirely and falls through to Django's
+        # generic 500 page — no detail to the client, and (with DEBUG off, as in
+        # this project's Docker setup) nothing in the server logs either. Found live
+        # onboarding a real consultant whose contract_ref collided with an existing
+        # one; same pattern as the already_assigned portfolio checks below.
+        if SubConsultant.objects.filter(council_id=self.request.user.council_id, contract_ref=data["contract_ref"]).exists():
+            raise serializers.ValidationError({"contract_ref": "This contract reference is already in use."})
+
         instance = serializer.save(council_id=self.request.user.council_id, status=SubConsultant.PENDING)
         audit(
             council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_ONBOARDED",

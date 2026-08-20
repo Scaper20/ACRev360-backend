@@ -57,6 +57,25 @@ def test_onboard_consultant_with_manager_fields_creates_linked_login(scoped, aut
 
 
 @pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_with_duplicate_contract_ref_is_rejected_not_500(scoped, authed_api_client):
+    # Audit finding, live: uniq_contract_ref_per_council's IntegrityError isn't a
+    # DRF APIException, so it skipped DRF's exception handler and 500'd with no
+    # detail at all (no response body, nothing in server logs with DEBUG off).
+    admin_client = authed_api_client(scoped["admin"])
+    first = admin_client.post(
+        "/api/v1/consultants", {"consultant_name": "First Co", "contract_ref": "CR-DUPE", "commission_rate": "30.00"}, format="json",
+    )
+    assert first.status_code == 201, first.content
+
+    second = admin_client.post(
+        "/api/v1/consultants", {"consultant_name": "Second Co", "contract_ref": "CR-DUPE", "commission_rate": "30.00"}, format="json",
+    )
+    assert second.status_code == 400, second.content
+    assert "contract_ref" in second.json()
+    assert not AppUser.objects.filter(consultant__consultant_name="Second Co").exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_onboard_consultant_manager_username_without_full_name_rejected(scoped, authed_api_client):
     r = authed_api_client(scoped["admin"]).post(
         "/api/v1/consultants",
