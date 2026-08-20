@@ -16,7 +16,12 @@ services:
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_ALLOWED_HOSTS
-        value: acrev360-backend.onrender.com
+        # The plain acrev360-backend.onrender.com subdomain was already taken
+        # (an older, disconnected service — not tracked as a Blueprint in
+        # this workspace) — Render assigned this -wxu8 suffix instead when
+        # this service was created. Update this if the service is ever
+        # recreated under a different assigned hostname.
+        value: acrev360-backend-wxu8.onrender.com
       - key: DJANGO_SECURE_SSL_REDIRECT
         value: "True"
       - key: DATABASE_URL
