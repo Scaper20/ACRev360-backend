@@ -147,6 +147,70 @@ forgotten.
 
 ---
 
+## 2026-08-22 — Deploy the field app to Render as a second static site
+
+**Ask:** "what is the url for the mobile app" — answer was "it doesn't have one, only ever
+run locally this session" — then "yes" to deploying it, matching the portal's own
+pattern from two days earlier.
+
+**Added:** a second `services:` entry in the frontend repo's existing `render.yaml`
+(`acrev360-field`, `runtime: static`, same shape as `acrev360-portal`'s — build command,
+publish path, `VITE_API_BASE_URL` pointed at the live backend, SPA rewrite for
+`BrowserRouter`). Both static sites now live under the one `acrev360-frontend` Blueprint,
+same as how the backend's single Blueprint already covers both its web service and
+database.
+
+**Live at:** `https://acrev360-field.onrender.com`.
+
+**Gotchas:** the Blueprint auto-deployed from the push with no manual dashboard step
+needed this time (unlike the very first backend/portal deploys, which needed the
+Blueprint created by hand through the dashboard) — adding a new service to an
+*already-connected* Blueprint just syncs on the next push. Propagation after "Deploy
+live" showed in Render's own events took noticeably longer than the portal's first
+deploy did (~10 minutes of consistent 404s with `x-render-routing: no-server` before it
+started resolving, versus the portal's ~90 seconds) — don't assume something's broken
+just because it's slower the second time; check Render's own Events tab for "Deploy
+live" before troubleshooting further, that's the authoritative signal, not how a curl
+check happens to look mid-propagation.
+
+---
+
+## 2026-08-22 — Recreate the QA-run's multi-band rate configuration on the live database
+
+**Ask:** "The revenue item with multiple band rates are no longer reflecting on the live
+app" — Contractors, Liquor Licensing, and Wrong Parking showed as plain flat-rate items
+on `https://acrev360-portal.onrender.com`, not the multi-band setup from the earlier QA
+test workflow.
+
+**Turned out to be:** not a bug. The live database (seeded via `seed_kuje` during the
+Render deployment work two days earlier) and the local Docker database (where the QA
+workflow's multi-band setup was originally done, by hand, through the admin UI) are two
+entirely separate databases — the live one never had this data, full stop. Confirmed via
+the live `RateBandsEditor` modal genuinely showing zero saved bands (not a rendering
+bug) before concluding this.
+
+**Fixed by:** pulling the exact band/tier configuration (labels, amounts, tier
+structure) directly from the local database via `manage.py shell` — `CouncilRevenueItem`
+→ `RateBand` → `RateTier`, filtered to `effective_to__isnull=True` — then recreating it
+on the live database through the real admin UI (`POST /api/v1/revenue-items/{id}/
+rate-bands`, the same endpoint a real admin's click would hit), scripted via the browser
+console rather than clicked by hand given the volume (13 bands, 35 tier/range/flat
+entries total across the three items). Verified the saved result matches the local
+source exactly, band-for-band, via each item's "Currently active" summary text.
+
+**Gotchas:** driving `RateBandsEditor`'s "Add band"/"Add tier" buttons via scripted
+`.click()` calls **multiplies unpredictably if fired in a tight synchronous loop**
+(3 clicks in one script once produced 4 bands; a cleanup loop meant to remove exactly
+that many then removed 21) — each add/remove button click needs to be its own separate
+tool call, with the resulting count verified in a *following* call, not the same one
+that fired the click (the DOM read happens before React's re-render flushes if done in
+the same script). Also: when reading values back out of a `TIERED` band's rows via
+`querySelectorAll('div.row')`, the label/mode/remove-band row is itself a `.row` and
+will be included — filter to rows with 2+ `<input>`s first, or tier data shifts by one
+and the last tier silently goes unfilled.
+
+---
+
 ## 2026-08-20 — Extend profile editing / password change to the field app
 
 **Ask:** "okay fix that" — following up on the open scoping question from the profile/
@@ -261,6 +325,26 @@ history (the old disconnected one, still live at the plain
 the old. And: after redeploying the frontend, don't trust a stale-looking result from a
 browser tab that was already open before the deploy finished — hard-navigate (or check
 the served JS bundle's hash directly) before concluding a fix didn't work.
+
+---
+
+## 2026-08-20 — Hide scrollbars globally
+
+**Ask:** "Can you remove all the scroll bars at the side of each container that can be
+scrolled? its an eyesore" — a visual-only request, scrolling itself should keep working.
+
+**Fixed:** one rule added to `packages/ui/src/base.css` (`scrollbar-width: none` +
+`::-webkit-scrollbar { display: none }` on `*`) — since `base.css` is imported once via
+`@acrev360/ui`'s `index.ts`, this covers every container in both the portal and the
+field app with a single change, not a per-component fix.
+
+**Files:** `packages/ui/src/base.css`.
+
+**Gotchas:** none — verified live that a genuinely overflowing page (Payer Registry) and
+the sidebar nav both lost their scrollbar with zero layout shift (checked
+`window.innerWidth` vs. `document.documentElement.clientWidth` — no gap, meaning no
+space was reserved for a bar that isn't rendering) while `scrollBy()` still moved the
+page, confirming scroll behavior itself was untouched.
 
 ---
 
