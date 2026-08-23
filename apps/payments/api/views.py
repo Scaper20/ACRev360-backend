@@ -127,7 +127,17 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
 
     def get_queryset(self):
-        qs = Receipt.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
+        # select_related for the to-one hops the serializer already walks
+        # (bill_ref, full_name, amount); prefetch_related for `lines` — a
+        # to-many hop off Bill, select_related can't cover that one. Neither
+        # existed before; ReceiptSerializer.lines (new) would otherwise add
+        # its own N+1 on top of ones already latent here.
+        qs = (
+            Receipt.objects.filter(council_id=self.request.user.council_id)
+            .select_related("payment__bill__payer")
+            .prefetch_related("payment__bill__lines")
+            .order_by("-created_at")
+        )
         qs = portfolio_filter(qs, self.request, payer_path="payment__bill__payer")
         q = self.request.query_params.get("q")
         if q:
