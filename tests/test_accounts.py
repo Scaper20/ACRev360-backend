@@ -499,3 +499,57 @@ def test_change_password_rejects_a_weak_new_password(scoped, authed_api_client):
 
     scoped["admin"].refresh_from_db()
     assert scoped["admin"].check_password("original-pw-123")  # unchanged
+
+
+@pytest.mark.django_db(transaction=True)
+def test_admin_onboarding_agent_without_consultant_is_rejected(scoped, authed_api_client):
+    """Council-direct agents (no consultant) are retired — admin must assign
+    one explicitly now, same as a consultant onboarding their own agent
+    always was assigned to themselves automatically."""
+    before = AppUser.objects.count()
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/agents", {"full_name": "No Consultant Agent", "username": "no-consultant-agent"}, format="json",
+    )
+    assert r.status_code == 400, r.content
+    assert AppUser.objects.count() == before
+
+
+@pytest.mark.django_db(transaction=True)
+def test_admin_onboarding_agent_with_consultant_succeeds(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Agent Assign Co")
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/agents",
+        {"full_name": "Assigned Agent", "username": "assigned-agent", "consultant_id": consultant.id},
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    assert AppUser.objects.get(username="assigned-agent").consultant_id == consultant.id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_admin_onboarding_agent_with_another_councils_consultant_is_rejected(scoped, authed_api_client, make_consultant, make_council):
+    other_council = make_council(code="ACC2")
+    with transaction.atomic():
+        set_council_context(other_council.id)
+        foreign_consultant = make_consultant(other_council, name="Foreign Co")
+    before = AppUser.objects.count()
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/agents",
+        {"full_name": "Cross Tenant Agent", "username": "cross-tenant-agent", "consultant_id": foreign_consultant.id},
+        format="json",
+    )
+    assert r.status_code == 400, r.content
+    assert AppUser.objects.count() == before
+
+
+@pytest.mark.django_db(transaction=True)
+def test_consultant_onboarding_agent_is_still_auto_assigned_to_self(scoped, authed_api_client, make_consultant, make_user):
+    """Unaffected by the admin-side requirement above — a consultant's own
+    onboarding flow never took consultant_id from the request at all."""
+    consultant = make_consultant(scoped["council"], name="Self Assign Co")
+    manager = make_user(scoped["council"], username="self-assign-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+    r = authed_api_client(manager).post(
+        "/api/v1/agents", {"full_name": "Own Agent", "username": "own-agent"}, format="json",
+    )
+    assert r.status_code == 201, r.content
+    assert AppUser.objects.get(username="own-agent").consultant_id == consultant.id

@@ -283,7 +283,21 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         data = serializer.validated_data
         agent_role, _ = AppRole.objects.get_or_create(name="FIELD_AGENT", defaults={"access_level": AppRole.AGENT})
-        consultant_id = user.consultant_id if user.access_level == AppRole.CONSULTANT else self.request.data.get("consultant_id")
+
+        if user.access_level == AppRole.CONSULTANT:
+            consultant_id = user.consultant_id
+        else:
+            # Council-direct agents (no consultant) are retired — every agent
+            # the council itself onboards must be assigned to one, same as a
+            # consultant onboarding their own agent always was. Validated
+            # here rather than left to the AppUser FK's own constraint, same
+            # "pre-check before it becomes an unhandled 500" reasoning as the
+            # duplicate contract_ref fix elsewhere in this codebase.
+            consultant_id = self.request.data.get("consultant_id")
+            if not consultant_id:
+                raise serializers.ValidationError({"consultant_id": "Every agent must be assigned to a consultant."})
+            if not SubConsultant.objects.filter(id=consultant_id, council_id=user.council_id, status=SubConsultant.ACTIVE).exists():
+                raise serializers.ValidationError({"consultant_id": "Not a valid active consultant for this council."})
 
         app_user = AppUser.objects.create_user(
             username=data.pop("username"),
