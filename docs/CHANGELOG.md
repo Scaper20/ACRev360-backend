@@ -147,6 +147,52 @@ forgotten.
 
 ---
 
+## 2026-08-23 — `reset_council_data` management command
+
+**Ask:** "clear the current database so we can start over ... the Council setup should be
+a default part of the project" — both local and live had accumulated a session's worth of
+QA data (test payers, a fake "Eradonetwork Integrated Services" consultant, its agents,
+bills/payments/receipts, 559 audit-log rows locally). Wanted a clean slate on both, without
+losing the real onboarding baseline (`seed_kuje`'s wards/revenue catalog/flat rates,
+`seed_rate_bands`'s gazette-derived bands, the admin login).
+
+**Built:** `apps/tenancy/management/commands/reset_council_data.py` — deletes every
+council-scoped transactional/demo row (`AuditLog`, `Reconciliation*`,
+`ChannelTransactionFeed`, `MobileSyncRecord`, `Payment`/`Receipt`, `Bill`/`BillLine`/
+`DebtCase`, `CommissionSettlement`, `POSTerminal`, `APIClient`, `Payer`/`Assessment`/
+`EnumeratedAsset`, non-admin `AppUser`s, `SubConsultant`) while never touching `Council`,
+`CouncilConfig`, `WardZone`, `RevenueCategory`/`RevenueItemTemplate`/`CouncilRevenueItem`,
+`RateSchedule`/`RateBand`/`RateTier`, `AppRole`, `PaymentChannel`, or the `COUNCIL_ADMIN`
+login — so re-running `seed_kuje`/`seed_rate_bands` is never needed, the baseline is just
+never deleted in the first place. Interactive by default (type the council code to
+confirm); `--yes` for non-interactive use. Deletion order is hand-derived from every
+`on_delete` in `apps/*/models.py` — several are `PROTECT` not `CASCADE` (e.g.
+`Payment.bill`, `AppUser.consultant`), so children have to go before the parents they'd
+otherwise block; see the file's own docstring for the exact order and why.
+
+**Files:** backend — new file, `apps/tenancy/management/commands/reset_council_data.py`.
+
+**Verified:** ran locally with `--yes` — 559 audit rows, 212 bills, 153 payers, 81
+payments/receipts, 7 sub-consultants, 22 non-admin logins all deleted cleanly, zero
+`ProtectedError`s. Re-queried after (inside a proper RLS-scoped transaction, not a bare
+shell query — see the RLS gotcha below): wards still 10, revenue items still 32, rate
+bands still 253, exactly one `AppUser` left (`admin`, `COUNCIL_ADMIN`). Live run not yet
+done as of this entry — no live `DATABASE_URL` available from this environment; same
+pattern as `seed_kuje`'s original live run, the user runs it themselves against the
+external connection string.
+
+**Gotchas:** counting rows *before* running this against any council-scoped table without
+wrapping the query in `apps.tenancy.context.council_context(...)` (or
+`set_council_context()` inside `transaction.atomic()`) will silently show 0 regardless of
+what's actually there — cost a false "already empty" read on the very first sanity check
+while building this command, exactly the trap the existing RLS recurring-theme entry
+above warns about. If a future "wipe X" command is added, budget for the same dependency-
+order exercise this one needed — the model layer has real `PROTECT` chains three and four
+tables deep (`Payment` → `Bill` → `Payer` → non-admin `AppUser` → `SubConsultant`) that
+aren't obvious from any single model file in isolation.
+
+---
+
 ## 2026-08-23 — Audit pass on Tier 1 + Tier 2 before deploying
 
 **Ask:** "run an audit first" — before pushing Tier 1/2 live, per the same "audit before
