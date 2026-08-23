@@ -147,6 +147,54 @@ forgotten.
 
 ---
 
+## 2026-08-23 — Audit pass on Tier 1 + Tier 2 before deploying
+
+**Ask:** "run an audit first" — before pushing Tier 1/2 live, per the same "audit before
+trusting build-time verification" discipline as the agent mobile app pass earlier this
+session. Re-read every changed file with fresh eyes rather than re-confirming what
+build-time testing already covered; found and fixed three real issues.
+
+**Found and fixed:**
+- **`WardsPage` rendered "Add Ward" unconditionally**, the one page in this codebase
+  that didn't gate an admin-only action behind `isAdmin` (every comparable page —
+  `StakeholdersPage`, `RevenueItemsPage` — already does). Not a security hole (`POST
+  /wards` was always admin-only enforced server-side), but the route itself has no
+  per-role guard either (only general authentication), so any logged-in user landing on
+  `/wards` directly would see a button that always 403s for them. Now gated, matching
+  every other admin-only affordance in the codebase.
+- **Both new consultant dropdowns (agent onboarding, payer assignment) listed every
+  consultant regardless of status.** `SubConsultantViewSet`'s list has no status filter,
+  and a consultant defaults to `PENDING` until explicitly activated — not a rare edge
+  case, every newly onboarded consultant starts here. Confirmed live against a real
+  `PENDING` consultant already in this database ("Riverside Compliance Group"): pickable
+  in both dropdowns, and picking it would always 400 from the backend's own ACTIVE-only
+  check (added in Tier 2). Filtered both to `status === 'ACTIVE'`.
+- **`ReceiptViewSet.get_queryset()` had no `select_related`/`prefetch_related` at all** —
+  every field the serializer already walked (`bill_ref`, `full_name`, `amount`) was
+  triggering its own query per receipt in a list, before this pass touched anything.
+  Tier 1's own `lines` field (new) added a to-many hop on top, making an existing N+1
+  measurably worse. Added `select_related("payment__bill__payer")` for the to-one hops
+  and `prefetch_related("payment__bill__lines")` for the to-many one.
+
+**Files:** backend — `apps/payments/api/views.py`. Frontend —
+`apps/portal/src/routes/{wards/WardsPage.tsx,agents/AgentsPage.tsx,
+payers/PayerFormModal.tsx}`. 142/142 backend tests, 19/19 frontend tests still passing
+after all three fixes.
+
+**Verified live:** confirmed the ungated button by hitting `/wards` directly as
+`consultant1` (no nav link, but reachable) before and after the fix; confirmed the
+PENDING-consultant filter against the real "Riverside Compliance Group" row in both
+dropdowns, before and after.
+
+**Gotchas:** none of the three were introduced fresh by Tier 1/2's *logic* — the
+ungated-button and PENDING-consultant issues are places new UI didn't follow an existing
+convention closely enough; the N+1 is a pre-existing gap that a new field happened to
+make one hop worse. Worth the reminder either way: when adding a new admin-gated control
+or a new relational field to a serializer, check the sibling pages/queries for the
+pattern they already established, not just whether the new code works in isolation.
+
+---
+
 ## 2026-08-23 — Tier 2 of the feature-request batch: consultant assignment, all-time settlements
 
 **Ask:** second slice of the same pre-planned batch (see Tier 1 above). Three items,
