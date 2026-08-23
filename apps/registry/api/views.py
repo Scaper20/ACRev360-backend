@@ -6,7 +6,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.accounts.models import AppRole
+from apps.accounts.models import AppRole, SubConsultant
 from apps.audit.services import audit
 from apps.billing.models import Assessment, Bill
 from apps.billing.services import BillingError
@@ -64,6 +64,20 @@ class PayerViewSet(
         data = dict(serializer.validated_data)
         revenue_item_ids = data.pop("revenue_item_ids", [])
         force = data.pop("force", False)
+        # Admin-only, same "silently ignore rather than error" handling as
+        # UpdateProfileSerializer gives other admin-managed fields a
+        # non-admin caller has no business setting.
+        assigned_consultant_id = data.pop("assigned_consultant_id", None)
+        enumerated_by = None
+        if assigned_consultant_id and request.user.access_level == AppRole.COUNCIL_ADMIN:
+            consultant = SubConsultant.objects.filter(
+                id=assigned_consultant_id, council_id=request.user.council_id, status=SubConsultant.ACTIVE,
+            ).first()
+            if consultant is None:
+                return Response({"error": "Not a valid active consultant for this council."}, status=status.HTTP_400_BAD_REQUEST)
+            enumerated_by = consultant.users.filter(is_active=True).first()
+            if enumerated_by is None:
+                return Response({"error": "This consultant has no linked login yet — cannot assign payers to it."}, status=status.HTTP_400_BAD_REQUEST)
 
         items = list(
             CouncilRevenueItem.objects.filter(id__in=revenue_item_ids, council_id=request.user.council_id)
@@ -71,7 +85,8 @@ class PayerViewSet(
 
         try:
             payer, draft_count = create_payer(
-                council_id=request.user.council_id, actor=request.user, revenue_item_ids=items, force=force, **data
+                council_id=request.user.council_id, actor=request.user, revenue_item_ids=items, force=force,
+                enumerated_by=enumerated_by, **data
             )
         except DuplicatePayer as exc:
             return Response(

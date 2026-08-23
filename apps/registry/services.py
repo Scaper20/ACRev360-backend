@@ -13,10 +13,18 @@ class DuplicatePayer(Exception):
 
 
 @transaction.atomic
-def create_payer(*, council_id, actor, revenue_item_ids=None, force=False, **fields) -> tuple[Payer, int]:
+def create_payer(*, council_id, actor, revenue_item_ids=None, force=False, enumerated_by=None, **fields) -> tuple[Payer, int]:
     """Individual and business registration are separate flows with distinct ID
     formats — see PRD.md §4.2. Also backs the offline mobile sync path (a payer
-    captured offline is created for real on sync, through this same function)."""
+    captured offline is created for real on sync, through this same function).
+
+    `enumerated_by` defaults to `actor` (whoever's actually making the call) —
+    the normal case, self-registration by a consultant/agent. An admin
+    registering on a consultant's behalf passes a different `enumerated_by`
+    explicitly (resolved by the view from the chosen consultant's own user),
+    since `enumerated_by` is what every portfolio-scoping check elsewhere in
+    the system (`common.scoping.portfolio_filter`) keys off — this is a real
+    ownership assignment, not just an audit-trail note."""
     phone = fields.get("phone")
     if phone and not force:
         existing = Payer.objects.filter(council_id=council_id, phone=phone).first()
@@ -32,7 +40,7 @@ def create_payer(*, council_id, actor, revenue_item_ids=None, force=False, **fie
     payer = Payer.objects.create(
         council_id=council_id,
         payer_ref=placeholder_ref(),
-        enumerated_by=actor,
+        enumerated_by=enumerated_by or actor,
         **fields,
     )
     prefix = "IND" if payer.payer_type == Payer.INDIVIDUAL else "C"

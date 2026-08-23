@@ -16,12 +16,18 @@ class PayerSerializer(serializers.ModelSerializer):
 class CreatePayerSerializer(serializers.ModelSerializer):
     revenue_item_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
     force = serializers.BooleanField(required=False, default=False, write_only=True)
+    # COUNCIL_ADMIN-only — assigns the payer to a consultant's portfolio at
+    # registration time. Ignored (not read) for any other caller; see
+    # PayerViewSet.create(). Not a plain FK field since the value actually
+    # stored is enumerated_by (an AppUser), not this SubConsultant id
+    # directly — the view resolves one from the other.
+    assigned_consultant_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = Payer
         fields = [
             "payer_type", "full_name", "phone", "address", "ward",
-            "nin_bvn_hash", "tin", "business_size", "revenue_item_ids", "force",
+            "nin_bvn_hash", "tin", "business_size", "revenue_item_ids", "force", "assigned_consultant_id",
         ]
 
 

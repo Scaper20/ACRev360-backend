@@ -56,6 +56,67 @@ def test_registering_payer_with_banded_item_400s_not_500s(scoped, authed_api_cli
     assert Payer.objects.count() == before
 
 
+@pytest.mark.django_db(transaction=True)
+def test_admin_can_assign_registered_payer_to_a_consultant(scoped, authed_api_client, make_consultant, make_user):
+    consultant = make_consultant(scoped["council"], name="Assignable Co")
+    manager = make_user(scoped["council"], username="assignable-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+    client = authed_api_client(scoped["admin"])
+    resp = client.post(
+        "/api/v1/payers",
+        {"payer_type": "INDIVIDUAL", "full_name": "Assigned Payer", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    payer = Payer.objects.get(id=resp.data["id"])
+    assert payer.enumerated_by_id == manager.id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_registering_payer_without_consultant_assignment_defaults_to_actor(scoped, authed_api_client):
+    """The normal case — no assigned_consultant_id given at all — must keep
+    working exactly as before: enumerated_by is whoever's actually posting."""
+    client = authed_api_client(scoped["admin"])
+    resp = client.post(
+        "/api/v1/payers",
+        {"payer_type": "INDIVIDUAL", "full_name": "Self Registered Payer", "ward": scoped["ward"].id},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    payer = Payer.objects.get(id=resp.data["id"])
+    assert payer.enumerated_by_id == scoped["admin"].id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_non_admin_cannot_assign_payer_to_a_different_consultant(scoped, authed_api_client, make_consultant, make_user):
+    """A consultant/agent passing assigned_consultant_id has no business doing
+    so — silently ignored, same handling UpdateProfileSerializer gives other
+    admin-managed fields a non-admin caller has no business setting."""
+    consultant = make_consultant(scoped["council"], name="Other Co")
+    caller_consultant = make_consultant(scoped["council"], name="Caller Co", contract_ref="CR-2")
+    caller = make_user(scoped["council"], username="caller-mgr", access_level=AppRole.CONSULTANT, consultant=caller_consultant)
+    client = authed_api_client(caller)
+    resp = client.post(
+        "/api/v1/payers",
+        {"payer_type": "INDIVIDUAL", "full_name": "Sneaky Assignment", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    payer = Payer.objects.get(id=resp.data["id"])
+    assert payer.enumerated_by_id == caller.id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_assigning_payer_to_consultant_with_no_login_is_rejected(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="No Login Co", contract_ref="CR-NL")
+    client = authed_api_client(scoped["admin"])
+    resp = client.post(
+        "/api/v1/payers",
+        {"payer_type": "INDIVIDUAL", "full_name": "Should Not Be Created", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+
+
 # ------------------------------------------------------------- money guards
 
 
