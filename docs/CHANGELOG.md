@@ -147,6 +147,61 @@ forgotten.
 
 ---
 
+## 2026-08-23 — Tier 2 of the feature-request batch: consultant assignment, all-time settlements
+
+**Ask:** second slice of the same pre-planned batch (see Tier 1 above). Three items,
+each independent of the others: council-direct agents retired, admin can assign a payer
+to a consultant, commission settlements can compute over all time.
+
+**Changed — council-direct agents retired:** admin's onboarding flow already read
+`consultant_id` straight from the raw request body (bypassing `FieldAgentSerializer`'s
+`read_only` restriction on that field — the same mechanism a consultant's own onboarding
+already relied on to auto-assign to themselves) — it just never validated or required
+it, so every admin-created agent silently became council-direct. Now: missing
+`consultant_id` from an admin 400s; a given id must resolve to an *active* `SubConsultant`
+in the *same council* (a cross-tenant assignment would otherwise have been possible —
+caught while adding this, not something previously exploited). The 4 existing
+council-direct agents in this database are left alone; the FK stays nullable, this is an
+application-layer requirement on new creates, not a migration.
+
+**Added — admin can assign a payer to a consultant:** `create_payer()` gained an
+optional `enumerated_by` override (defaults to `actor` — every other caller, self-
+registration by a consultant/agent, the offline-sync replay path, is unaffected).
+`CreatePayerSerializer` gained `assigned_consultant_id`, admin-only, silently ignored
+for any other caller (same "ignore, don't error" handling as other admin-managed fields
+elsewhere). The view resolves the chosen `SubConsultant` to its own linked user (rejects
+one with no login yet) and that becomes `enumerated_by` — confirmed this is what
+`common.scoping.portfolio_filter` and every other ownership check in the system actually
+keys off, so this is a real assignment, not just an audit-trail note.
+
+**Added — settlements "All time":** confirmed `period_start` is a genuinely required
+`DateField` on both the model and the request serializer — despite the frontend
+previously labeling it "(optional)" and sending `undefined` when left blank, which
+would have 400'd the instant someone actually tried that. Rather than making
+`period_start` nullable (a migration, for what's really a convenience default — it's
+part of the settlement row's own uniqueness constraint), "All time" just fills a safely
+early sentinel date (2000-01-01) through today. Frontend validation now actually matches
+what the backend requires.
+
+**Files:** backend — `apps/accounts/api/views.py`, `apps/registry/{services.py,
+api/serializers.py,api/views.py}`, `tests/{test_accounts.py,test_audit_fixes.py}` (+8
+tests, 142/142 passing). Frontend — `apps/portal/src/routes/{agents/AgentsPage.tsx,
+payers/PayerFormModal.tsx,settlements/SettlementsPage.tsx}`. 19/19 frontend tests
+passing.
+
+**Verified live, end to end:** onboarded an agent with no consultant selected (blocked
+client-side, no request fired) and then with one (created correctly, confirmed in the
+agent list); registered a payer assigned to a real consultant and confirmed directly
+against the database that `enumerated_by` resolved to that consultant's actual user, not
+just that the form didn't error; computed an all-time settlement and confirmed the
+`2000-01-01 – <today>` row appeared correctly alongside the existing period-scoped ones.
+
+**Gotchas:** none new beyond what's called out above (the cross-tenant consultant-id
+check, and the settlement-optional-but-actually-required mismatch) — both were latent
+before this pass, not introduced by it.
+
+---
+
 ## 2026-08-23 — Tier 1 of the feature-request batch: wards, bill-list refresh, document content
 
 **Ask:** first slice of a larger, pre-planned batch of 15 feature requests (see the
