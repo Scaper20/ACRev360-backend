@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from apps.billing.api.serializers import BillLineDetailSerializer
 from apps.payments.models import APIClient, PaymentChannel, POSTerminal, Payment, Receipt
 
 
@@ -54,10 +55,16 @@ class ReceiptSerializer(serializers.ModelSerializer):
     bill_ref = serializers.CharField(source="payment.bill.bill_ref", read_only=True)
     full_name = serializers.CharField(source="payment.bill.payer.full_name", read_only=True)
     amount = serializers.DecimalField(source="payment.amount", max_digits=14, decimal_places=2, read_only=True)
+    # What this payment was actually for — the bill's own line items, same
+    # nested-field pattern BillDetailSerializer already uses for `lines`.
+    # Payments are recorded at the bill level, not per-line, so this shows
+    # everything the bill covers rather than a per-naira allocation across
+    # lines (post_payment() has no such allocation to draw from).
+    lines = BillLineDetailSerializer(source="payment.bill.lines", many=True, read_only=True)
 
     class Meta:
         model = Receipt
-        fields = ["id", "receipt_ref", "payment", "bill_ref", "full_name", "amount", "qr_token", "verified_count", "created_at"]
+        fields = ["id", "receipt_ref", "payment", "bill_ref", "full_name", "amount", "lines", "qr_token", "verified_count", "created_at"]
         read_only_fields = fields
 
 
