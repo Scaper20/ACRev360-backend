@@ -10,7 +10,48 @@ structure and numbers are unambiguous are transcribed here:
   licensed establishment type. Source: split doc 09.
 - Communication Mast License (30010056): one unlabeled TIERED band
   (Large/Medium/Small) — the gazette gives one flat triple for the whole
-  item, no sub-classification. Source: split doc 02 (Category D cross-ref).
+  item, no sub-classification. Source: split doc 07, Category D (originally
+  mis-cited as "doc 02" — doc 02 is Control of Advertisement and has no
+  Category D at all; corrected during the 2026-08-23 full rework below).
+  Doc 11's own Category D duplicate is still skipped — its numbers are
+  corrupted in that copy ("Large :143,500,000.00" etc.), doc 07's is clean.
+- Mobile Advertisement (30010036): 7 FLAT bands, one per vehicle type —
+  each row's Mobile Advert + Mobile Sanitation + TV/Radio fee, summed (the
+  source's own "Total" column). Source: split doc 03.
+- Loading/Off Loading Control of Traffic (30010037): 7 FLAT bands, one per
+  vehicle type. Source: split doc 05's "LOADING AND OFF-LOADING" section
+  only — the same file's "MOTOR PARK ENTRY FEES" section (which would map
+  to 30010032 Motor Parks) was left out: several rows give two slash-
+  separated figures with no legend for what distinguishes them ("Lorries/
+  Luxurious: 1,000/1,500"), and two rows are percentage-of-collection fees
+  ("10% of Every Single Loading") that the flat/range/tiered rate-band
+  model has no way to represent at all. Not safe to hardcode either.
+- Regulated Premises (30010054): 42 RANGE bands — 14 establishment types
+  (Hotels, Guest Inn, Restaurant, Canteen, Joints/Bar, Bakery, Other Conf.,
+  Yoghurt & Other Dairies Food, Portable Water Factory, Food Preserving
+  Establishment, Food Related Warehouse, Food Hawkers, Food Related
+  Establishment, Other) × 3 size classes (Large/Medium/Small), each its own
+  band labeled "{Establishment} — {Size}" since a band can be RANGE or
+  TIERED but not both, and here every tier is itself a range, not a single
+  figure. Source: split doc 12, First Schedule. One correction: Guest Inn's
+  "Small" cell reads "10,000 - 5,000" (max before min) in the source — the
+  two figures were swapped when transcribing, not guessed at (5,000 and
+  10,000 are the same two numbers either way).
+- Foodstuff Regulation (30010053): 69 FLAT bands, transcribed from split
+  doc 12's Second Schedule (categories A-H, monthly rates by establishment
+  sub-type — a genuinely different, finer-grained list than the First
+  Schedule's 14 licence categories above, not a duplicate of them: e.g. a
+  "Restaurant" licence fee (First Schedule) is separate from a "Restaurant
+  (medium)" monthly rate (Second Schedule, Category E) for an already-
+  licensed premises). This resolved what the previous pass on this same
+  bye-law flagged as unusable — "three overlapping, partly self-
+  contradictory schedules" — because that description was of the *comingled*
+  original `KAC Gazette.xlsx` sheet; the dedicated split file makes clear
+  the First and Second Schedules are two distinct charges (a licence fee
+  and a recurring monthly rate), not the same thing priced two ways. The
+  Second Schedule is genuinely priced *monthly*, not annually like every
+  other item in this catalog — `seed_kuje.py`'s unit for this item was
+  changed from "Per Annum" to "Per Month" to match.
 - Building & Construction Materials Dealers (30010035): 16 RANGE bands.
   Source: split doc 04.
 - Trade License, Private Lockup Shops and Allied Matters (30010043): 84
@@ -41,16 +82,43 @@ structure and numbers are unambiguous are transcribed here:
   character in the source). This file's own Category D (Communication
   Mast) duplicate is skipped entirely — its numbers are corrupted in this
   copy ("Large :143,500,000.00" etc.) and a clean version is already seeded
-  from split doc 02/09 above.
+  from split doc 07 above.
 
-Deliberately NOT transcribed, per the split's own README and this command's
-earlier pass: Tenement Rate Collection (30010049) — no bye-law explicitly
-named this in the source; Regulated Premises (30010054) and Foodstuff
-Regulation (30010053) — the source gives Regulated Premises three
-overlapping, partly self-contradictory schedules (e.g. "Canteen" priced two
-incompatible ways). Real data, too ambiguous to responsibly hardcode — enter
-via the admin rate-band editor once confirmed against the council's actual
-current bye-law text.
+Still deliberately NOT transcribed, after this 2026-08-23 rework read through
+every remaining split doc (01, 03, 05, 07, 12) against the 32-item catalog:
+
+- Tenement Rate Collection (30010049) — still no bye-law unambiguously
+  named this. Doc 07 (Business Premises Levy by Category)'s own Category E
+  (Residential: Duplex/Flat/Bungalow/etc., RANGE bands) looked like a
+  possible match, but doc 07's Categories A/B/C carry the same
+  establishment names and closely-matching figures as doc 11's Community
+  Development Levy Categories A/B/C (already seeded above, e.g. both give
+  "Construction Companies" multinational as 1,500,000-3,000,000) — strong
+  evidence docs 07 and 11 are two transcriptions of the same underlying
+  levy schedule (both are among the README's "no bye-law title given, from
+  an un-named SCHEDULE section" files), not two distinct levies. Seeding
+  doc 07's Category E under 30010049 risked double-counting a residential
+  charge that may just be Community Development Levy's own Category E
+  under a different name. Left alone rather than guessing.
+- Environmental Sanitation and Premise Inspection (30010033) — doc 01's
+  Schedule A is 48 rows of waste-management *offence fines*, not a
+  chargeable inspection fee; this rate-band model has no representation
+  for a penalty schedule (that's `apps.enforcement`'s job, and it works in
+  bill ageing/escalation stages, not fixed fine amounts). Doc 01's Schedule
+  C (Certificate of Fitness for Habitation) is a real fee schedule, but for
+  a concept not in the current 32-item catalog at all, at a scale (up to
+  ₦100,000,000 for a multinational company) worth the council confirming
+  before it's entered anywhere — not assumed correct and silently added as
+  a new item in a seed script.
+- Tender Fees, under Contractors (30010048/doc 08) — unchanged from the
+  previous pass, see above: 2 of 4 figures are corrupted.
+- Motor Park entry fees, under Motor Parks (30010032/doc 05) — unchanged
+  from the previous absence, see the Loading/Off Loading Control of Traffic
+  bullet above.
+
+Real, ambiguous, or incomplete data — the discipline throughout this file is
+not to guess a number. Enter any of the above via the admin rate-band editor
+once confirmed against the council's actual current bye-law text.
 """
 
 from django.core.management.base import BaseCommand
@@ -359,6 +427,94 @@ COMMUNITY_LEVY_FLAT = [
     ("Individual (Adult)", 1000),
 ]
 
+# (label, total) — Mobile Advert + Mobile Sanitation + TV/Radio fee, summed
+# per vehicle type (the source's own "Total" column).
+MOBILE_ADVERT_FLAT = [
+    ("Industrial Motorcycle", 4500),
+    ("Car/Buses/vans/pickups", 17000),
+    ("Dyna Delivery Vans/J5", 25000),
+    ("Tipp er\\Lonies", 30000),
+    ("Trailers", 35000),
+    ("Cranes", 45000),
+    ("Earth moving equipment", 45000),
+]
+
+# (label, fee) — "LOADING AND OFF-LOADING" section only; see this file's
+# module docstring for why "MOTOR PARK ENTRY FEES" (same source doc) isn't
+# seeded here.
+LOADING_OFFLOADING_FLAT = [
+    ("Lorries/Tippers", 15000),
+    ("Car/Buses /Vans/Pick-ups", 5000),
+    ("Dyna Delivery Van/J5", 10000),
+    ("Luxurious Buses", 20000),
+    ("Trailers", 20000),
+    ("Cranes", 25000),
+    ("Earth-Moving Equipment", 25000),
+]
+
+# (establishment, large_min, large_max, medium_min, medium_max, small_min, small_max)
+# First Schedule — licence fees. Each size tier becomes its own RANGE band
+# ("{establishment} — {size}"); see module docstring for why (a band can't
+# be both RANGE and TIERED, and every tier here is itself a range).
+REGULATED_PREMISES_RANGES = [
+    ("HOTELS", 100000, 160000, 40000, 70000, 10000, 30000),
+    ("GUEST INN", 20000, 30000, 15000, 20000, 5000, 10000),
+    ("RESTAURANT", 30000, 70000, 10000, 30000, 5000, 10000),
+    ("CANTEEN", 5000, 10000, 3000, 7000, 2000, 3000),
+    ("JOINTS/BAR", 20000, 50000, 15000, 30000, 3000, 10000),
+    ("BAKERY", 50000, 100000, 30000, 50000, 10000, 25000),
+    ("OTHER CONF.", 15000, 20000, 5000, 10000, 1000, 5000),
+    ("YOGHURT & OTHER DAIRIES FOOD", 100000, 150000, 50000, 70000, 10000, 50000),
+    ("PORTABLE WATER FACTORY", 120000, 250000, 100000, 150000, 50000, 100000),
+    ("FOOD PRESERVING ESTABLISHMENT", 70000, 100000, 15000, 60000, 5000, 10000),
+    ("FOOD RELATED WAREHOUSE", 50000, 80000, 20000, 50000, 5000, 15000),
+    ("FOOD HAWERS", 3000, 5000, 2000, 3000, 1000, 2000),
+    ("FOOD RELATEDESTABLISHEMENT", 20000, 40000, 10000, 30000, 2000, 10000),
+    ("OTHER", 5000, 10000, 3000, 5000, 500, 1500),
+]
+
+# (label, monthly_rate) — Second Schedule, Categories A-H (a monthly
+# regulation rate per food/beverage-related establishment sub-type, distinct
+# from the First Schedule's licence-to-operate fee above — see module
+# docstring). 69 entries, verified against the source with zero duplicate
+# labels.
+FOODSTUFF_REGULATION_FLAT = [
+    ("Ice Cream Stall", 5000), ("Soft Drink Store (50 crates and above)", 5000),
+    ("Snack shop/ bar (small)", 5000), ("Public Eating House (small)", 5000),
+    ("Food Coolers (2 or more)", 5000), ("Food Cooler", 5000),
+    ("Food Stuffs/Provision shop (small)", 5000), ("Provision Stall (Medium)", 5000),
+    ("Provision Stall (small)", 5000),
+    ("Soft Drink Shop (less than 5 crates)", 4000), ("Drink Shop (100 crates and above)", 7500),
+    ("Food Cream Tricycles", 4000), ("Ice Cream Tricycles", 4000),
+    ("Electric Oven", 150000), ("Mud Oven (medium)", 100000), ("Mud Oven (small)", 100000),
+    ("Ram Seller (Temporary)", 20000), ("Ram Seller (small)", 15000),
+    ("Food Processing Factories (small)", 10000), ("Private Slaughter House (medium)", 10000),
+    ("Public Eating House (Large)", 15000), ("Public Fating House (medium)", 10000),
+    ("Aerated Water Factories (small)", 10000), ("Canteen", 10000),
+    ("Bread Van (large)", 10000), ("Meat Van (large)", 15000), ("Snack Kitchen", 10000),
+    ("Snack Shop/Bar", 10000), ("Foodstuff shop/ store (Large)", 10000),
+    ("Foodstuff Shop Provision Stall (Large)", 10000), ("Cold Storage (Medium more than one)", 15000),
+    ("Freezer", 10000), ("Cold Storage (small) one Freezer", 10000),
+    ("Restaurant (medium)", 10000), ("Snack Tricycle", 10000),
+    ("Butcher Shop (Market per Stall)", 15000), ("Corn Mill (small scale)", 7000),
+    ("Nevadan (Small)", 5000), ("Food Stuff (Medium)", 5000), ("Ice Cream Shop", 5000),
+    ("Meat Van (small)", 5000), ("Snack Shop/Bar (Medium)", 5000),
+    ("Food Stuff (Medium Store)", 5000), ("Ice Cream/Popcorn Production", 5000),
+    ("Foodstuff Milling Machine", 5000), ("Provision Stall (Large)", 10000),
+    ("Pepper Grinding Machine (Machine only)", 5000), ("Pepper Grinding Machine (2 Machines)", 7000),
+    ("Aerated Water Factory/Depot (Large)", 50000), ("Breweries Depot", 20000),
+    ("Cold Room (Standard)", 20000), ("Cold Room (Large)", 30000), ("Distilleries", 20000),
+    ("Food Processing Factories (Medium)", 20000), ("Ice Cream Faculties", 20000),
+    ("Public Eating House, Restaurant", 30000), ("Internal Standard", 20000),
+    ("Super Markets (large)", 20000), ("Staff Canteen (small)", 10000),
+    ("Aerated Water Factory (Medium)", 75000), ("Departmental Stores", 12500),
+    ("Food Warehouse (Standard)", 20000),
+    ("Cold Room (Medium) Cold Storage", 10000), ("Food Processing Factories (Large)", 25000),
+    ("Private Slaughter House (Large)", 10000), ("Rice, Milk and Tinned Food, Water", 10000),
+    ("Staff Canteen (Medium)", 10000), ("Rice/Hill Cassava COrn Grinding Mill", 5000),
+    ("Ingredient Grinding Mill", 5000),
+]
+
 
 class Command(BaseCommand):
     help = "Seed real gazette-derived rate bands for the unambiguous KAC Gazette schedules."
@@ -402,6 +558,24 @@ class Command(BaseCommand):
             self._tiered(label, tiers) for label, tiers in COMMUNITY_LEVY_TIERED
         ] + [
             self._flat(label, amount) for label, amount in COMMUNITY_LEVY_FLAT
+        ])
+        self._seed(council, "30010036", "Mobile Advert", [
+            self._flat(label, amount) for label, amount in MOBILE_ADVERT_FLAT
+        ])
+        self._seed(council, "30010037", "Loading/Off Loading Control of Traffic", [
+            self._flat(label, amount) for label, amount in LOADING_OFFLOADING_FLAT
+        ])
+        self._seed(council, "30010054", "Regulated Premises", [
+            band
+            for establishment, l_mn, l_mx, m_mn, m_mx, s_mn, s_mx in REGULATED_PREMISES_RANGES
+            for band in (
+                self._range(f"{establishment} — Large", l_mn, l_mx),
+                self._range(f"{establishment} — Medium", m_mn, m_mx),
+                self._range(f"{establishment} — Small", s_mn, s_mx),
+            )
+        ])
+        self._seed(council, "30010053", "Foodstuff Regulation", [
+            self._flat(label, amount) for label, amount in FOODSTUFF_REGULATION_FLAT
         ])
 
     @staticmethod

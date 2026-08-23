@@ -50,7 +50,7 @@ REVENUE_ITEMS = [
     ("30010050", "Private Sector Participation Refuse Operation (PSPRO)", "Per Annum", "Fees and Charges", 15000),
     ("30010051", "Liquor Licensing", "Per Annum", "Licences and Permits", 50000),
     ("30010052", "Wrong Parking, Corporate Parking Permit/License", "Per Annum", "Fees and Charges", 10000),
-    ("30010053", "Foodstuff Regulation", "Per Annum", "Fees and Charges", 10000),
+    ("30010053", "Foodstuff Regulation", "Per Month", "Fees and Charges", 10000),
     ("30010054", "Regulated Premises", "Per Annum", "Fees and Charges", 30000),
     ("30010055", "Registration Fee", "Per Registration", "Registration and Professional Fees", 5000),
     ("30010056", "Communication Mast License", "Per Annum", "Licences and Permits", 1000000),
@@ -92,7 +92,15 @@ class Command(BaseCommand):
         categories = {c.name: c for c in RevenueCategory.objects.all()}
 
         for code, name, unit, _cat, _rate in REVENUE_ITEMS:
-            RevenueItemTemplate.objects.get_or_create(
+            # update_or_create, not get_or_create: RevenueItemTemplate is
+            # global (shared across councils, not council-scoped), so it
+            # survives a `reset_council_data --full` even though the council
+            # itself doesn't. get_or_create would silently keep serving a
+            # stale unit_of_charge/item_name from any earlier seed run
+            # instead of picking up a rework to REVENUE_ITEMS above — bit
+            # 30010053's "Per Annum" -> "Per Month" change on the very first
+            # re-seed after this file was reworked.
+            RevenueItemTemplate.objects.update_or_create(
                 harmonised_code=code,
                 defaults={"item_name": name, "unit_of_charge": unit, "category": categories[_cat]},
             )

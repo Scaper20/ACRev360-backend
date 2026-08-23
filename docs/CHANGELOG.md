@@ -147,6 +147,96 @@ forgotten.
 
 ---
 
+## 2026-08-23 — Full gazette rework, `--full` reset, and starter-data seeding
+
+**Ask:** "go through all the gazette items, through this do a full rework of all the
+revenue items including those with different band rates. When youre done reset the
+database and create a fresh council, consultant and agent account, all under each
+accordingly and seed it with 10 payers with different properties each. Drop the login
+credentials when done."
+
+**Gazette rework:** re-read every one of the 12 split bye-law files (`docs/reference/KAC
+Gazette - Split by Bye-Law/`) against the 32-item catalog, not just the 7 files the
+original `seed_rate_bands.py` pass had used. Found real, unambiguous source data for 4
+more items that were previously flat/illustrative-only:
+- **Mobile Advert** (30010036) — 7 FLAT bands by vehicle type, doc 03.
+- **Loading/Off Loading Control of Traffic** (30010037) — 7 FLAT bands by vehicle type,
+  doc 05 (its "Motor Park Entry" section was left out — see Gotchas).
+- **Regulated Premises** (30010054) — 42 RANGE bands (14 establishments × Large/Medium/
+  Small, each its own band since a band can't be both RANGE and TIERED), doc 12 First
+  Schedule.
+- **Foodstuff Regulation** (30010053) — 69 FLAT bands, doc 12 Second Schedule. This
+  resolves what the *previous* pass flagged as unusably ambiguous ("three overlapping,
+  partly self-contradictory schedules") — that read was of the old comingled
+  `KAC Gazette.xlsx` sheet; the dedicated split file makes clear the First and Second
+  Schedules are two distinct charges (a licence fee vs. a recurring monthly rate), not
+  the same thing priced two ways. Its unit changed from "Per Annum" to "Per Month" to
+  match what the source actually charges.
+
+Also fixed a wrong citation inherited from the previous pass: Communication Mast's
+Large/Medium/Small triple was cited as coming from "doc 02" (Control of Advertisement,
+which has no such section at all) — the real source is doc 07, Category D. The values
+were already correct; only the docstring was wrong.
+
+Full reasoning for every item touched or deliberately left alone — including why
+Tenement Rate Collection is still unbanded (doc 07's residential section looks like it
+may just be a re-transcription of doc 11's Community Development Levy, not a distinct
+levy) and why Environmental Sanitation's Certificate of Fitness fees (up to
+₦100,000,000) weren't added as a new item — is in `seed_rate_bands.py`'s module
+docstring, same discipline as the original pass: don't guess a number.
+
+**`reset_council_data --full`:** the existing reset command deliberately never touches
+the council/wards/revenue-item catalog — exactly wrong for *this* ask, since the whole
+point was to make the reworked rates/bands actually take effect. Added `--full`, which
+also deletes `RateSchedule` (before `CouncilRevenueItem` — `PROTECT`, doesn't cascade),
+`CouncilRevenueItem` (cascades `RateBand`/`RateTier`), `WardZone`, every remaining
+`AppUser` (the admin login), and finally the `Council` row itself. Re-onboarding
+(`seed_kuje` + `seed_rate_bands`) is needed afterward — this is the whole point.
+
+**Found and fixed while testing the fresh reseed:** `seed_kuje.py` used
+`RevenueItemTemplate.objects.get_or_create(...)` for the global (not council-scoped)
+template rows. `get_or_create` only applies its `defaults` on first creation — since
+`--full` correctly never touches `RevenueItemTemplate` (it's shared across councils, not
+this council's data), a second `seed_kuje` run after a `--full` reset silently kept
+serving the *old* "Per Annum" unit for Foodstuff Regulation instead of picking up the
+rework above. Changed to `update_or_create`, so the template's fields always match
+`REVENUE_ITEMS` in the script, regardless of seeding history.
+
+**`seed_starter_data`** (new): one consultant (`Heritage Fiscal Partners`, ACTIVE, login
+`consultant1`), one field agent under that consultant — never council-direct, matching
+the Tier 2 rule (`agent01`) — and ten hand-specified (not randomly generated, unlike
+`seed_demo_data`'s 100) payers, each deliberately different: 5 individual / 5 business
+across all four business sizes, 8 of the 9 wards, a mix of KYC statuses, some with an
+email on file and some without, some enumerated by the admin and some by the consultant,
+some with revenue items already enumerated and some without. No bills/payments/
+settlements — just clean accounts to click through.
+
+**Files:** backend — `apps/tenancy/management/commands/{seed_kuje.py,
+reset_council_data.py, seed_starter_data.py (new)}`,
+`apps/revenue/management/commands/seed_rate_bands.py`.
+
+**Verified:** full local cycle — `reset_council_data --full --yes` → `seed_kuje` →
+`seed_rate_bands` → `seed_starter_data`, twice (the second time after the
+`update_or_create` fix). All 12 banded items seeded with exactly the expected band
+counts and zero validation errors (no duplicate labels, no reversed ranges — one real
+source error, Guest Inn's "Small" cell reading max-before-min, was caught and corrected
+during transcription, not guessed at). 147/147 backend tests still pass. Live in the
+browser: logged in as the fresh admin, confirmed the consultant/agent/10 payers, and
+spot-checked two of the new items' full band lists (Foodstuff Regulation's 69 FLAT bands
+and Regulated Premises' 42 RANGE bands) against the source — exact match on every label
+and figure.
+
+**Gotchas:** doc 05's "Motor Park Entry Fees" section (would map to 30010032 Motor
+Parks) was deliberately left unseeded — several rows give two slash-separated figures
+with no legend for what distinguishes them, and two rows are percentage-of-collection
+fees the flat/range/tiered band model has no way to represent at all. If a future pass
+is tempted to fill this in, that's real source ambiguity, not an oversight. Postgres
+sequences aren't reset by any of this — a fresh `--full` reseed's payer/bill/etc. ref
+numbers continue from wherever the old data left off, not from 1. Cosmetic only, not a
+bug.
+
+---
+
 ## 2026-08-23 — Tier 3: receipt delivery via email/SMS
 
 **Ask:** "just proceed with tier 3" (minus consultant contract/KYC document upload, which
