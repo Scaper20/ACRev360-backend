@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
+from apps.audit.services import audit
 from apps.billing.models import Bill
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
@@ -22,6 +23,7 @@ from apps.payments.api.serializers import (
     ReversePaymentSerializer,
 )
 from apps.payments.models import APIClient, PaymentChannel, POSTerminal, Payment, Receipt
+from apps.payments.notifications import send_receipt
 from apps.payments.services import PaymentRejected, post_payment, reverse_payment
 from apps.tenancy.context import find_across_active_councils
 
@@ -116,6 +118,31 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         return Response(PaymentSerializer(payment).data)
 
 
+def _send_receipt_channel_result_serializer(name):
+    # A fresh instance per use — DRF fields are bound (mutated) in place by
+    # their parent serializer, so reusing one instance for both "email" and
+    # "sms" below silently collapsed them into a single field in the
+    # generated schema (both bindings landed on the one shared object).
+    return inline_serializer(
+        name,
+        {
+            "attempted": serializers.BooleanField(),
+            "sent": serializers.BooleanField(required=False),
+            "reason": serializers.CharField(required=False),
+            "error": serializers.CharField(required=False),
+        },
+    )
+
+
+_SendReceiptResponseSerializer = inline_serializer(
+    "SendReceiptResponse",
+    {
+        "email": _send_receipt_channel_result_serializer("SendReceiptEmailResult"),
+        "sms": _send_receipt_channel_result_serializer("SendReceiptSmsResult"),
+    },
+)
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by receipt ref, bill ref or payer name")]
@@ -125,6 +152,11 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = ReceiptSerializer
     # GLOBAL_VIEW deliberately excluded — same reasoning as PaymentViewSet.
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # Numeric-only URL matching, same as PaymentViewSet/PayerViewSet/APIClientViewSet —
+    # a non-numeric id 404s cleanly at routing instead of reaching get_object().
+    # (drf-spectacular types path-param ids as string regardless of this; every
+    # frontend call site already wraps the id in String(...) to match.)
+    lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         # select_related for the to-one hops the serializer already walks
@@ -145,6 +177,20 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q) | Q(payment__bill__payer__full_name__icontains=q)
             )
         return qs
+
+    @extend_schema(request=None, responses=_SendReceiptResponseSerializer)
+    @action(detail=True, methods=["post"])
+    def send(self, request, pk=None):
+        """Emails/SMSes the receipt to whatever contact info the payer has on
+        file. Neither channel is required to succeed — see
+        apps.payments.notifications.send_receipt for why."""
+        receipt = self.get_object()
+        result = send_receipt(receipt)
+        audit(
+            council_id=receipt.council_id, actor=request.user, action="RECEIPT_SENT", entity_type="RECEIPT",
+            entity_id=receipt.id, detail={"receipt_ref": receipt.receipt_ref, **result},
+        )
+        return Response(result)
 
 
 _VerifyReceiptResponseSerializer = inline_serializer(

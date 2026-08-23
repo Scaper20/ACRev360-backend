@@ -192,3 +192,12 @@ WEBHOOK_STRICT_SIGNATURES = env.bool("WEBHOOK_STRICT_SIGNATURES", default=True)
 WEBHOOK_ENCRYPTION_KEY = env(
     "WEBHOOK_ENCRYPTION_KEY", default="s2r1ljZp8AW0DE6VWxIBAETFnDKbiMG16KNhI5sCLYE="
 )
+
+# --- Receipt delivery (email/SMS) -----------------------------------------
+# Both default to "" — apps.payments.notifications treats an unset key as
+# "not configured" and reports that back per-channel rather than raising, so
+# the feature degrades gracefully until real accounts/keys exist for both.
+RESEND_API_KEY = env("RESEND_API_KEY", default="")
+RESEND_FROM_EMAIL = env("RESEND_FROM_EMAIL", default="receipts@acrev360.app")
+TERMII_API_KEY = env("TERMII_API_KEY", default="")
+TERMII_SENDER_ID = env("TERMII_SENDER_ID", default="ACRev360")

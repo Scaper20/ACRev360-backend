@@ -7,7 +7,7 @@ class PayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payer
         fields = [
-            "id", "payer_ref", "payer_type", "full_name", "phone", "address", "ward",
+            "id", "payer_ref", "payer_type", "full_name", "phone", "email", "address", "ward",
             "nin_bvn_hash", "tin", "business_size", "kyc_status", "created_at",
         ]
         read_only_fields = ["id", "payer_ref", "kyc_status", "created_at"]
@@ -26,7 +26,7 @@ class CreatePayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payer
         fields = [
-            "payer_type", "full_name", "phone", "address", "ward",
+            "payer_type", "full_name", "phone", "email", "address", "ward",
             "nin_bvn_hash", "tin", "business_size", "revenue_item_ids", "force", "assigned_consultant_id",
         ]
 

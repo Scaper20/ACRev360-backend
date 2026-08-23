@@ -147,6 +147,78 @@ forgotten.
 
 ---
 
+## 2026-08-23 — Tier 3: receipt delivery via email/SMS
+
+**Ask:** "just proceed with tier 3" (minus consultant contract/KYC document upload, which
+stays parked — both need Cloudflare R2 and the user said to forget doc upload for now).
+That leaves exactly one Tier 3 item: "sending receipt to payer mail/number", from the
+original 15-item feature list.
+
+**Built:**
+- `Payer.email` (new `EmailField(blank=True)`, migration `registry/0003_payer_email.py`) —
+  the model only had `phone` before. Wired into `CreatePayerSerializer`/`PayerSerializer`
+  and `PayerFormModal.tsx` (new optional field between Phone and NIN/BVN).
+- `apps/payments/notifications.py` — `send_receipt_email()` (Resend) and
+  `send_receipt_sms()` (Termii), both plain synchronous `requests.post` calls, **not**
+  Celery tasks — this backend's only deployed Render service is the web process, no
+  worker, no Redis, so anything queued through Celery in production would just never
+  run (`CELERY_BROKER_URL` silently defaults to `redis://localhost:6379/0`, which
+  doesn't exist there). Each channel is independent and never raises: missing API key →
+  `{"attempted": false, "reason": "...  not configured"}`, missing contact field → same
+  shape with "no email/phone on file", a failed HTTP call → `{"attempted": true, "sent":
+  false, "error": "..."}`. New settings `RESEND_API_KEY`/`RESEND_FROM_EMAIL`/
+  `TERMII_API_KEY`/`TERMII_SENDER_ID`, all default `""`/safe placeholders — unset means
+  "not configured," not a crash.
+- `POST /api/v1/receipts/{id}/send` (`ReceiptViewSet.send`) — sends to whatever contact
+  info the payer actually has, audits as `RECEIPT_SENT`. Frontend: "Send Receipt" button
+  on the receipt detail modal (`ReceiptsPage.tsx`), toast summarizes both channels'
+  outcomes (e.g. "Email sent · SMS skipped — no phone on file").
+- Added `requests==2.32.3` to `requirements/base.txt` — no HTTP client existed in this
+  codebase before now (Resend/Termii are both plain REST APIs).
+
+**Two real bugs caught by `tsc -b` after regenerating the frontend schema, before either
+shipped:**
+1. `_SendReceiptResponseSerializer`'s `email`/`sms` fields both pointed at the *same*
+   `inline_serializer(...)` instance. DRF fields are bound (mutated) in place by their
+   parent serializer — the second `.bind()` call silently clobbered the first, and the
+   generated OpenAPI schema (and therefore the frontend's codegen'd types) ended up with
+   only one field, typed `sms`. Fixed by giving each field its own instance
+   (`_send_receipt_channel_result_serializer(name)` factory, called twice).
+2. `ReceiptViewSet` was the only viewset among `Payment`/`Payer`/`APIClient` missing
+   `lookup_value_regex = r"[0-9]+"`. Turned out **not** to be why `id` typed as `string`
+   in the generated schema (confirmed: `PaymentViewSet.reverse`'s `id` types as `string`
+   too, regex or not — drf-spectacular just always types detail-route path params as
+   string). Added anyway for routing consistency with the other numeric-pk viewsets; the
+   actual fix for the `tsc` error was matching this codebase's established call
+   convention (every existing detail-route call site already wraps the id in
+   `String(...)` — `ReceiptsPage.tsx`'s new call needed the same).
+
+**Files:** backend — `apps/registry/{models.py,migrations/0003_payer_email.py,
+api/serializers.py}`, `apps/payments/{notifications.py (new),api/views.py}`,
+`config/settings/base.py`, `requirements/base.txt`, `.env.example`,
+`tests/test_receipt_delivery.py` (new, 5 tests). Frontend —
+`apps/portal/src/routes/{payers/PayerFormModal.tsx,receipts/ReceiptsPage.tsx}`,
+`packages/api/src/generated/schema.ts` (regenerated).
+
+**Verified:** 147/147 backend tests (5 new, mocking `requests.post` for the
+success/failure paths, real "not configured"/"no contact info" paths for the rest — no
+live Resend/Termii keys exist yet). `tsc -b && vite build` clean. Full live click-through
+in the dev browser: registered a payer with a real email → issued a bill → recorded a
+payment → opened the resulting receipt → clicked Send Receipt → confirmed the actual
+network request/response (`POST /api/v1/receipts/{id}/send` → both channels correctly
+reported "not configured," since no local API keys are set) → confirmed the toast
+rendered the right text. Cleaned up the verification data afterward via
+`reset_council_data`.
+
+**Gotchas:** Both providers remain genuinely unconfigured everywhere (local and live) —
+this ships the full feature, but nothing actually sends until the user creates Resend and
+Termii accounts and sets the four new env vars (locally in `.env`, live via Render's
+dashboard, same pattern as `WEBHOOK_ENCRYPTION_KEY`). Termii expects Nigerian numbers in
+`234...` form, not local `0...` — `_normalize_ng_phone()` handles the conversion; don't
+pass a raw `payer.phone` straight through to a future Termii call elsewhere without it.
+
+---
+
 ## 2026-08-23 — `reset_council_data` management command
 
 **Ask:** "clear the current database so we can start over ... the Council setup should be

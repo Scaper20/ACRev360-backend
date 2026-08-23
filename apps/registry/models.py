@@ -31,6 +31,7 @@ class Payer(CouncilScopedModel):
     payer_type = models.CharField(max_length=16, choices=PAYER_TYPE_CHOICES)
     full_name = models.CharField(max_length=200)
     phone = models.CharField(max_length=32, blank=True)
+    email = models.EmailField(blank=True)
     address = models.CharField(max_length=255, blank=True)
     ward = models.ForeignKey(WardZone, on_delete=models.PROTECT, related_name="payers")
 
