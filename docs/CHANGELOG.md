@@ -147,6 +147,62 @@ forgotten.
 
 ---
 
+## 2026-08-23 — Tier 1 of the feature-request batch: wards, bill-list refresh, document content
+
+**Ask:** first slice of a larger, pre-planned batch of 15 feature requests (see the
+strategy discussion in chat — not written up as its own changelog entry since it was
+pure planning, no code changed). Tier 1 was scoped as small and independent: Wards,
+the bills-list-refresh bug, and giving the Notice/Bill/Receipt distinct, correct content.
+
+**Added — Wards:** `POST /api/v1/wards` has been admin-only-writable since it was
+originally built, but no frontend UI anywhere ever called it — every ward in the system
+so far came from `seed_kuje`. New `WardsPage.tsx` under Administration nav (admin-only,
+matching the endpoint's own permission).
+
+**Fixed — bills not appearing until a manual refresh:** confirmed real, and confirmed
+isolated to exactly one place. Checked every create-flow in the portal for the same
+missing-invalidation pattern (payers, agents, consultants, stakeholders, revenue items,
+payments, debt, reconciliation, channels) — all of them correctly call
+`invalidateQueries` already. Only `NewBillModal` didn't.
+
+**Changed — Notice/Bill/Receipt content**, per explicit clarification in chat (the
+consultant-name-on-documents idea from the original ask was dropped; this is what
+replaced it):
+- **Demand Notice**: shows only what's owed. It already computed its grand total as
+  `bill.balance` (net), but the line items above it are gross original amounts — when a
+  bill's been partially paid, those don't sum to the grand total with nothing explaining
+  why. Added an explicit "Less: Amount Already Paid" row so the arithmetic is honest.
+- **Demand Bill**: previously this was really just a second copy of the Notice — same
+  "DEMAND NOTICE FOR YEAR..." framing, a Debit/Credit/Balance table with Credit
+  hardcoded to `money2(0)` on every row (never real payment data). Added a genuine
+  Initial Amount / Amount Paid / Balance Due breakdown, both in the main footer and the
+  two per-copy summaries.
+- **Receipt**: previously showed a bare total + bill reference, nothing about what was
+  actually paid for. `ReceiptSerializer` gained `lines` (backend — nested
+  `BillLineDetailSerializer` over `payment.bill.lines`, same pattern as `superseded_bills`
+  elsewhere in this file); the portal's receipt detail modal now lists them under "Paid
+  For". Payments apply at the bill level, not per-line, so this shows everything the
+  bill covers rather than inventing a per-naira allocation across lines — deliberate,
+  not a shortcut.
+
+**Files:** backend — `apps/payments/api/serializers.py`. Frontend —
+`apps/portal/src/routes/wards/WardsPage.tsx` (new), `apps/portal/src/{App.tsx,nav.ts,
+layout/ProtectedLayout.tsx}`, `apps/portal/src/routes/bills/NewBillModal.tsx`,
+`apps/portal/src/routes/print/{DemandBillPrint.tsx,DemandNoticePrint.tsx}`,
+`apps/portal/src/routes/receipts/ReceiptsPage.tsx`. 134/134 backend tests, 19/19
+frontend tests passing.
+
+**Verified live, end to end:** created a ward through the new page; issued a real bill
+and confirmed it appeared in the list with no reload; part-paid that bill and confirmed
+the Notice, Bill print, and Receipt all showed correct, mutually consistent figures
+(₦20,000 initial → ₦12,000 paid → ₦8,000 owed, everywhere it should).
+
+**Gotchas:** none new. `bill.total_amount`/`amount_paid`/`balance` were already exposed
+by `PublicBillLookupSerializer` (the endpoint both print pages use) — no backend change
+needed for the print-document fixes, only for the receipt's `lines` field.
+
+---
+
 ## 2026-08-22 — Deploy the field app to Render as a second static site
 
 **Ask:** "what is the url for the mobile app" — answer was "it doesn't have one, only ever
