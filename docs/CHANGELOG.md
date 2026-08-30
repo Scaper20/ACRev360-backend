@@ -147,6 +147,84 @@ forgotten.
 
 ---
 
+## 2026-08-30 — Fix: same revenue item could appear twice on one bill
+
+**Ask:** part of a full feature-implementation audit — "the same item appearing twice in
+one bill" (your own clarification of "redundancy in revenue items for bills").
+
+**Found:** confirmed real, two ways, both with zero protection: `issue_bill()` looped
+over every submitted line independently with no duplicate check, and `add_bill_line()`
+never checked whether the bill already had a line for that item before creating another.
+Either path — building a new bill with the same item picked twice, or using an
+already-issued bill's "Add line" for an item already on it — produced two visibly
+separate `BillLine` rows for what should read as one.
+
+**Fixed:** your call was to merge (combine quantity + amount into the existing line)
+rather than reject outright. Two assessments for the exact **same item + same band +
+same tier** now fold into one line; a **different** band/tier for the same item (e.g.
+two different Liquor Licensing establishment types) is still a genuinely distinct charge
+and is never merged. The superseded assessment is marked `CANCELLED`, not deleted — same
+audit-trail discipline as `delete_bill_line`. Applied in three places: `issue_bill()`'s
+own submitted lines, `issue_bill()`'s `bill_all_drafts` sweep against those same lines,
+and `add_bill_line()` against an already-issued bill's existing lines. `NewBillModal`'s
+local draft-list preview now merges the same way before submission, so what's shown
+before "Issue Bill" matches what's actually created — except for RANGE bands, which are
+deliberately left unmerged client-side (see Gotchas).
+
+**Files:** backend — `apps/billing/services.py`, `tests/test_bill_line_merging.py` (new,
+6 tests). Frontend — `apps/portal/src/routes/bills/NewBillModal.tsx`.
+
+**Verified:** 153/153 backend tests (6 new). Live in the browser: added "Registration of
+Marriages, Births and Death" to a new bill twice (qty 1, then qty 2) — preview correctly
+showed one line at qty 3/₦15,000 before submitting, and the issued bill had exactly one
+line at that amount. Then added the same item again to that already-issued bill — still
+one line, now ₦20,000, not a second row.
+
+**Gotchas:** a RANGE band's amount is a manually-chosen figure per addition, not a fixed
+per-unit rate — two additions of the same band can legitimately want different charged
+amounts (two different dealers assessed at different points in the same range).
+Pre-merging those client-side into one quantity×override would silently change the
+total the moment the two overrides differ, so `NewBillModal`'s local merge explicitly
+skips any line carrying an `amountOverride`. The **backend** still merges RANGE-band
+duplicates correctly when the bill is submitted, since it sums each line's own
+already-validated `amount` rather than re-deriving one from a single stored override —
+only the client-side *preview* has this exception.
+
+---
+
+## 2026-08-30 — Fix: `acrev360-field` could never actually reach the backend
+
+**Ask:** "could you login and create the consultant and field agent both cascading under
+the admin" — done live through the real admin UI (Heritage Fiscal Partners, `KAC/RC/2026/002`,
+activated; field agent Amina Bello under it). Verifying the new agent login surfaced a
+real, pre-existing bug, unrelated to anything created this session.
+
+**Found:** `acrev360-field` (the field-agent static site, deployed back on 2026-08-22 —
+see that date's CHANGELOG entry) has never actually been able to reach the backend.
+`CORS_ALLOWED_ORIGINS` (backend, `sync: false` in `render.yaml` — dashboard-only,
+not git-tracked) held only `https://acrev360-portal.onrender.com`. The field app's own
+origin was never added when it was deployed, so every fetch from it — login included —
+failed as an opaque `Failed to fetch` in the browser, with nothing in either service's
+server logs (a CORS rejection is enforced client-side by the browser refusing to expose
+the response, not a server error). Confirmed directly: `curl -X OPTIONS .../auth/login
+-H "Origin: https://acrev360-field.onrender.com"` came back with no
+`Access-Control-Allow-Origin` header at all.
+
+**Fixed:** appended `,https://acrev360-field.onrender.com` to `CORS_ALLOWED_ORIGINS` via
+the Render dashboard (Environment tab → Save, rebuild, and deploy — the only way to
+change a `sync: false` var; no code change, no commit). Confirmed live: the OPTIONS
+preflight now returns the field app's origin in `Access-Control-Allow-Origin`, and
+`agent01` signs in for real (reaches the actual worklist/collect/register/status
+interface, not just the login screen).
+
+**Gotchas:** any *future* static site added to this Blueprint needs its own origin added
+to this same var — it is not inferred from `render.yaml`'s own service list, and nothing
+currently checks for this at deploy time. A new site's login would fail exactly this way
+— `Failed to fetch`, no server-side error anywhere — until someone thinks to check CORS
+specifically. Worth a deploy-checklist item if a third frontend is ever added.
+
+---
+
 ## 2026-08-23 — Full gazette rework, `--full` reset, and starter-data seeding
 
 **Ask:** "go through all the gazette items, through this do a full rework of all the
