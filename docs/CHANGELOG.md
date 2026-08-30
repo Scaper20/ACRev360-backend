@@ -144,6 +144,51 @@ forgotten.
   keys()).then(ks => Promise.all(ks.map(k => caches.delete(k))))`. Check this
   first if a change to `apps/field` "isn't showing up" locally — don't assume
   the build is broken.
+- **`render.yaml` in this repo is shared by two separate live Render services on two
+  separate accounts** — the original `acrev360-backend.onrender.com` (Scaper20's,
+  already live before this session's own deploy work started) and a second one this
+  session created that had to take the `-wxu8` suffix because the plain name was
+  already taken. Any env var in this file that's a real hostname/URL (`DJANGO_ALLOWED_HOSTS`
+  is the one that's actually bitten so far) needs **both** services' values, comma-separated
+  — not just whichever one you're currently testing against. A single-host version of this
+  file reached `master` once already and 400'd every request to the other service (Django's
+  `ALLOWED_HOSTS` check rejects any request whose `Host:` header isn't on the list) with no
+  crash, no traceback — just silent request-level rejection. See the entry below.
+
+---
+
+## 2026-08-31 — Fix: `render.yaml` merge broke Scaper20's live deploy (`ALLOWED_HOSTS`)
+
+**Found:** merging `claude/updates` into `master` (PR #2) broke Scaper20's live backend
+deployment. Root-caused via git history, not Render dashboard access (none available this
+session): `render.yaml`'s `DJANGO_ALLOWED_HOSTS` was edited early in `claude/updates`
+(`8951372`) to `acrev360-backend-wxu8.onrender.com` — a fix for *this session's own*
+separate Render service, made necessary because the plain hostname was already taken by
+Scaper20's pre-existing live one. That edit rode along through every subsequent commit and
+landed on `master` with the PR, replacing the plain hostname his service actually runs on.
+If his service syncs env vars from this file (the normal behavior for a Render
+Blueprint-managed service), its `ALLOWED_HOSTS` would now list a host it doesn't serve on —
+Django returns a flat 400 on every request whose `Host:` header doesn't match, with the
+container otherwise perfectly healthy. Ruled out the other two candidates in the same
+merge (`apps/fieldops/migrations/0001_initial.py` — additive new-app tables;
+`apps/registry/migrations/0003_payer_email.py` — a `blank=True` `EmailField` with no
+`null=True`, which Django backfills as `''` on existing rows automatically, not the
+NOT-NULL failure it looks like at a glance) — neither is a plausible break.
+
+**Fixed:** `DJANGO_ALLOWED_HOSTS` now lists both hostnames, comma-separated
+(`env.list()` already splits on commas — `config/settings/prod.py`) — safe regardless of
+which service's Blueprint sync actually reads this file.
+
+**Files:** `render.yaml`.
+
+**Verified:** not yet live-confirmed against Scaper20's actual service — no dashboard
+access this session. Confirming this was really the cause (vs. something else) needs his
+Environment tab showing `ALLOWED_HOSTS` synced to the old single-host value, and/or his
+request logs showing 400s with "Invalid HTTP_HOST header" rather than a crash/traceback.
+
+**Gotchas:** see the new recurring-theme bullet above — this file is genuinely shared
+infrastructure for two independent deployments, not a single-owner config. Before changing
+any hostname/URL-shaped value in here again, check whether it needs to stay a list.
 
 ---
 

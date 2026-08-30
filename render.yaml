@@ -16,12 +16,18 @@ services:
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_ALLOWED_HOSTS
-        # The plain acrev360-backend.onrender.com subdomain was already taken
-        # (an older, disconnected service — not tracked as a Blueprint in
-        # this workspace) — Render assigned this -wxu8 suffix instead when
-        # this service was created. Update this if the service is ever
-        # recreated under a different assigned hostname.
-        value: acrev360-backend-wxu8.onrender.com
+        # Two hosts, comma-separated (env.list() splits on commas — see
+        # config/settings/prod.py) because this render.yaml is shared by two
+        # separate Render services on two separate accounts: the original
+        # acrev360-backend.onrender.com (already live before this file's
+        # -wxu8 line existed — do not remove it) and a second service that
+        # had to take the -wxu8 suffix because the plain name was already
+        # taken when it was created. A version of this file with only the
+        # -wxu8 host previously got merged to master and broke the first
+        # service's ALLOWED_HOSTS check (every request 400'd) — see
+        # docs/CHANGELOG.md. Listing both keeps either service's sync safe
+        # regardless of which one actually reads this file.
+        value: acrev360-backend.onrender.com,acrev360-backend-wxu8.onrender.com
       - key: DJANGO_SECURE_SSL_REDIRECT
         value: "True"
       - key: DATABASE_URL
