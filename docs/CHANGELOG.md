@@ -147,6 +147,51 @@ forgotten.
 
 ---
 
+## 2026-08-30 — Fix: same revenue item could appear twice on one bill
+
+**Ask:** part of a full feature-implementation audit — "the same item appearing twice in
+one bill" (your own clarification of "redundancy in revenue items for bills").
+
+**Found:** confirmed real, two ways, both with zero protection: `issue_bill()` looped
+over every submitted line independently with no duplicate check, and `add_bill_line()`
+never checked whether the bill already had a line for that item before creating another.
+Either path — building a new bill with the same item picked twice, or using an
+already-issued bill's "Add line" for an item already on it — produced two visibly
+separate `BillLine` rows for what should read as one.
+
+**Fixed:** your call was to merge (combine quantity + amount into the existing line)
+rather than reject outright. Two assessments for the exact **same item + same band +
+same tier** now fold into one line; a **different** band/tier for the same item (e.g.
+two different Liquor Licensing establishment types) is still a genuinely distinct charge
+and is never merged. The superseded assessment is marked `CANCELLED`, not deleted — same
+audit-trail discipline as `delete_bill_line`. Applied in three places: `issue_bill()`'s
+own submitted lines, `issue_bill()`'s `bill_all_drafts` sweep against those same lines,
+and `add_bill_line()` against an already-issued bill's existing lines. `NewBillModal`'s
+local draft-list preview now merges the same way before submission, so what's shown
+before "Issue Bill" matches what's actually created — except for RANGE bands, which are
+deliberately left unmerged client-side (see Gotchas).
+
+**Files:** backend — `apps/billing/services.py`, `tests/test_bill_line_merging.py` (new,
+6 tests). Frontend — `apps/portal/src/routes/bills/NewBillModal.tsx`.
+
+**Verified:** 153/153 backend tests (6 new). Live in the browser: added "Registration of
+Marriages, Births and Death" to a new bill twice (qty 1, then qty 2) — preview correctly
+showed one line at qty 3/₦15,000 before submitting, and the issued bill had exactly one
+line at that amount. Then added the same item again to that already-issued bill — still
+one line, now ₦20,000, not a second row.
+
+**Gotchas:** a RANGE band's amount is a manually-chosen figure per addition, not a fixed
+per-unit rate — two additions of the same band can legitimately want different charged
+amounts (two different dealers assessed at different points in the same range).
+Pre-merging those client-side into one quantity×override would silently change the
+total the moment the two overrides differ, so `NewBillModal`'s local merge explicitly
+skips any line carrying an `amountOverride`. The **backend** still merges RANGE-band
+duplicates correctly when the bill is submitted, since it sums each line's own
+already-validated `amount` rather than re-deriving one from a single stored override —
+only the client-side *preview* has this exception.
+
+---
+
 ## 2026-08-30 — Fix: `acrev360-field` could never actually reach the backend
 
 **Ask:** "could you login and create the consultant and field agent both cascading under

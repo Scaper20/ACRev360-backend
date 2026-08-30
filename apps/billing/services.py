@@ -149,6 +149,29 @@ def issue_bill(
         )
         assessments.extend(drafts)
 
+    # Two assessments landing on this same new bill for the exact same (item,
+    # band, tier) — whether both came from explicit lines, or one from a
+    # line and one swept in via bill_all_drafts — become one billed line
+    # with combined quantity/amount, not two visibly duplicate rows. See
+    # add_bill_line's identical merge for an already-issued bill.
+    merged: dict[tuple, Assessment] = {}
+    superseded = []
+    for assessment in assessments:
+        key = (assessment.council_revenue_item_id, assessment.rate_band_id, assessment.rate_tier_id)
+        kept = merged.get(key)
+        if kept is None:
+            merged[key] = assessment
+        else:
+            kept.quantity += assessment.quantity
+            kept.amount += assessment.amount
+            superseded.append(assessment)
+    assessments = list(merged.values())
+    for assessment in assessments:
+        assessment.save(update_fields=["quantity", "amount"])
+    for assessment in superseded:
+        assessment.status = Assessment.CANCELLED
+        assessment.save(update_fields=["status"])
+
     if not assessments and not roll_arrears:
         raise BillingError("A bill needs at least one line, bill_all_drafts, or roll_arrears")
 
@@ -213,6 +236,34 @@ def add_bill_line(*, bill, council_revenue_item, quantity, actor, rate_band=None
         rate_tier=rate_tier,
         amount_override=amount_override,
     )
+
+    # Same item already on this bill under the exact same band/tier (a
+    # different band/tier for the same item is a genuinely distinct charge —
+    # e.g. two different Liquor Licensing establishment types — and is never
+    # merged) folds into that existing line instead of creating a visibly
+    # duplicate row. The assessment just created above is superseded, not
+    # deleted — same "cancel, don't erase" discipline as delete_bill_line.
+    existing_line = bill.lines.filter(
+        assessment__council_revenue_item=council_revenue_item, assessment__rate_band=rate_band, assessment__rate_tier=rate_tier,
+    ).first()
+    if existing_line is not None:
+        existing_assessment = existing_line.assessment
+        existing_assessment.quantity += assessment.quantity
+        existing_assessment.amount += assessment.amount
+        existing_assessment.save(update_fields=["quantity", "amount"])
+        existing_line.line_amount = existing_assessment.amount
+        existing_line.save(update_fields=["line_amount"])
+
+        assessment.status = Assessment.CANCELLED
+        assessment.save(update_fields=["status"])
+
+        recompute_bill(bill)
+        audit(
+            council_id=bill.council_id, actor=actor, action="BILL_LINE_MERGED", entity_type="BILL", entity_id=bill.id,
+            detail={"line_id": existing_line.id, "added_quantity": str(assessment.quantity), "added_amount": str(assessment.amount), "new_line_amount": str(existing_line.line_amount)},
+        )
+        return existing_line
+
     assessment.status = Assessment.BILLED
     assessment.save(update_fields=["status"])
     line = BillLine.objects.create(bill=bill, assessment=assessment, line_amount=assessment.amount)
