@@ -238,6 +238,38 @@ back-to-back, and fixing one says nothing about the other.
 
 ---
 
+## 2026-08-31 — Fix: `Dockerfile`'s own `WEB_CONCURRENCY` fallback still hardcoded 3
+
+**Found:** resuming Scaper20's service from suspension and cancelling one frozen deploy got
+it to a fresh deploy attempt — which then reproduced the *exact* symptom already documented
+above at `8951372`: one "Booting worker with pid: N" logged, then silence forever, health
+check never passing. Re-reading this repo's own Dockerfile turned up why the already-shipped
+fix for that incident didn't actually close the door on it: `--workers ${WEB_CONCURRENCY:-1}`
+(then `:-3`) only *reads* `WEB_CONCURRENCY` correctly when Render actually injects it — the
+fallback used whenever it isn't present was still the literal `3` that caused the original
+OOM-kill, self-inconsistent with the very comment above it quoting Render's own recommended
+value of 1. Never triggers on an environment where Render sets the var normally; silently
+reproduces the identical hang on any environment where it doesn't.
+
+**Fixed:** fallback default changed `3` → `1`, matching what the comment already said Render
+recommends. Can't regress an environment where `WEB_CONCURRENCY` is actually set (that path
+is unchanged); closes the failure mode entirely for one where it isn't.
+
+**Files:** `Dockerfile`.
+
+**Verified:** not yet confirmed this was the actual cause on his service specifically — no
+log access to confirm whether `WEB_CONCURRENCY` was genuinely absent from his environment
+versus something else producing the same one-worker-then-silence symptom. The fix is safe to
+ship regardless (see above), but if his next deploy hangs at the identical point after this
+lands, the cause is something other than this fallback and needs his actual memory/log data
+to diagnose further, not another guess from outside.
+
+**Gotchas:** a `${VAR:-default}` fallback needs to actually match the safe value, not just be
+present — writing *a* default isn't the same as writing the *right* one, and a comment
+explaining the right value doesn't make the code honor it.
+
+---
+
 ## 2026-08-30 — Fix: same revenue item could appear twice on one bill
 
 **Ask:** part of a full feature-implementation audit — "the same item appearing twice in

@@ -23,7 +23,7 @@ USER appuser
 EXPOSE 8000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-# Shell form (not exec-array) so ${PORT:-8000}/${WEB_CONCURRENCY:-3} expand —
+# Shell form (not exec-array) so ${PORT:-8000}/${WEB_CONCURRENCY:-1} expand —
 # Render assigns PORT at runtime and expects the container to bind to it;
 # docker-compose.yml overrides this CMD with a fixed port/worker count for
 # local dev, so that path is unaffected. WEB_CONCURRENCY must be respected,
@@ -35,4 +35,12 @@ ENTRYPOINT ["./docker-entrypoint.sh"]
 # traceback, since the kernel kills it — the deploy just hung forever after
 # with the port never becoming reachable). Confirmed live: three consecutive
 # deploys reproduced the identical hang at the identical point.
-CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-3}
+#
+# The fallback default itself was still 3 until this line — self-inconsistent
+# with the very log line this comment quotes (Render recommends 1 on free
+# tier). Harmless whenever Render actually injects WEB_CONCURRENCY (the
+# fallback never triggers), but silently reproduces the exact OOM-kill above
+# on any environment where it isn't set. Confirmed live on a second, separate
+# Render account/service: identical symptom — one "Booting worker" line
+# logged, then silence forever, health check never passing.
+CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-1}
