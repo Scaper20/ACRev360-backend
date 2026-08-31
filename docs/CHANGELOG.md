@@ -192,6 +192,52 @@ any hostname/URL-shaped value in here again, check whether it needs to stay a li
 
 ---
 
+## 2026-08-31 — Follow-up: his service is Render-suspended, not just 400ing; frontend repointed to his backend
+
+**Found:** checked `https://acrev360-backend.onrender.com` live (every path, not just
+`/health`) before assuming the `ALLOWED_HOSTS` fix above was the whole story — it currently
+serves Render's own platform-level "This service has been suspended by its owner" page, not
+a Django 400. That's Render intercepting at the edge, before the request ever reaches the
+container; it needs Scaper20 (or whoever holds that Render account) to resume the service
+from his own dashboard. Pushing the `ALLOWED_HOSTS` fix doesn't touch this — it's a separate,
+platform-level block on top of the config bug, not caused by it (though the config bug landing
+first is a plausible reason he suspended it in the first place, if he saw the resulting
+breakage and paused it rather than debugging it live).
+
+**Decision:** you asked to consolidate — point both your database and your deployed frontend
+at his backend deployment instead of running this session's own separate `-wxu8` one.
+Repointed `ACRev360-frontend`'s `VITE_API_BASE_URL` (both `acrev360-portal` and
+`acrev360-field`) from the `-wxu8` host to the plain one. A database doesn't get "pointed"
+independently of its backend — `DATABASE_URL` is wired 1:1 to whichever web service reads it
+— so this repoint is the actual mechanism: once the frontend talks to his backend, all
+reads/writes land in his Postgres, and this session's own `-wxu8` backend+database become
+unused. Committed on `ACRev360-frontend`'s `claude/updates` (not `master` — `render.yaml`
+doesn't exist on that repo's `master` at all yet, so Render's Blueprint for the live
+`acrev360-portal`/`acrev360-field` services must already be watching `claude/updates`
+directly).
+
+**Still open before this actually works end-to-end, once his service is resumed and this
+is pushed:**
+- His `CORS_ALLOWED_ORIGINS` (`sync: false` in his backend's `render.yaml` — a per-service
+  dashboard value, invisible from here) needs to actually list the frontend's real deployed
+  origin, or the browser blocks every response even with `ALLOWED_HOSTS` and the suspension
+  both resolved.
+- His database needs a seeded council + admin login for the app to be usable once pointed
+  there — unconfirmed from this session; no dashboard/shell access to his service to check.
+
+**Files:** `ACRev360-frontend/render.yaml`.
+
+**Verified:** suspension page confirmed live on two separate paths (`/api/v1/health`,
+`/api/docs/` both resolve to the same suspension page) — not a one-off blip. Nothing else
+verifiable from this session without his Render dashboard.
+
+**Gotchas:** don't assume a "fixed" config change actually resolves a live-service problem
+without re-checking the service's *current* real state first — the `ALLOWED_HOSTS` bug and
+the suspension are two independent blockers that happened to land on the same service
+back-to-back, and fixing one says nothing about the other.
+
+---
+
 ## 2026-08-30 — Fix: same revenue item could appear twice on one bill
 
 **Ask:** part of a full feature-implementation audit — "the same item appearing twice in
