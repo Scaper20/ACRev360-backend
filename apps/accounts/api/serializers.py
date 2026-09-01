@@ -83,14 +83,22 @@ class SubConsultantSerializer(serializers.ModelSerializer):
     manager_password = serializers.CharField(write_only=True, required=False)
     manager_full_name = serializers.CharField(write_only=True, required=False)
     has_login = serializers.SerializerMethodField()
+    is_contract_expired = serializers.BooleanField(read_only=True)
+    # Which ward the firm's own registration Payer is filed under — required
+    # so SubConsultantViewSet.perform_create can auto-issue the registration
+    # bill (a Payer always needs a ward). Not stored on SubConsultant itself.
+    registration_ward_id = serializers.IntegerField(write_only=True)
+    registration_payer_ref = serializers.CharField(source="registration_payer.payer_ref", read_only=True, default=None)
 
     class Meta:
         model = SubConsultant
         fields = [
-            "id", "consultant_name", "contract_ref", "commission_rate", "status", "created_at",
+            "id", "consultant_name", "contract_ref", "commission_rate", "status",
+            "contract_start_date", "contract_end_date", "is_contract_expired", "created_at",
             "manager_username", "manager_password", "manager_full_name", "has_login",
+            "registration_ward_id", "registration_payer", "registration_payer_ref",
         ]
-        read_only_fields = ["id", "status", "created_at", "has_login"]
+        read_only_fields = ["id", "status", "created_at", "has_login", "is_contract_expired", "registration_payer"]
 
     def get_has_login(self, obj):
         return obj.users.exists()
@@ -98,6 +106,10 @@ class SubConsultantSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs.get("manager_username") and not attrs.get("manager_full_name"):
             raise serializers.ValidationError({"manager_full_name": "Required when manager_username is given."})
+        start = attrs.get("contract_start_date")
+        end = attrs.get("contract_end_date")
+        if start and end and start > end:
+            raise serializers.ValidationError({"contract_end_date": "Must be on or after contract_start_date."})
         return attrs
 
 
@@ -105,7 +117,28 @@ class SubConsultantStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=SubConsultant.STATUS_CHOICES)
 
 
+class SubConsultantContractDatesSerializer(serializers.Serializer):
+    contract_start_date = serializers.DateField(required=False, allow_null=True)
+    contract_end_date = serializers.DateField(required=False, allow_null=True)
+
+
 class StakeholderSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField()
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = AppUser
+        fields = ["id", "username", "full_name", "phone", "password", "is_active", "date_joined"]
+        read_only_fields = ["id", "is_active", "date_joined"]
+
+
+class RevenueOfficerSerializer(serializers.ModelSerializer):
+    """Read-only, single-consultant-scoped oversight account — see
+    SubConsultantViewSet.revenue_officers. Same onboarding payload shape as
+    StakeholderSerializer, kept separate since it's a distinct role tied to
+    one consultant rather than a council-wide GLOBAL_VIEW account."""
+
     full_name = serializers.CharField()
     username = serializers.CharField()
     password = serializers.CharField(write_only=True, required=False)

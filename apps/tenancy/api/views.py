@@ -6,8 +6,8 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
 from apps.common.permissions import access_level_permission
-from apps.tenancy.api.serializers import CouncilSerializer, OnboardCouncilSerializer, WardZoneSerializer
-from apps.tenancy.models import WardZone
+from apps.tenancy.api.serializers import CouncilSerializer, DepartmentSerializer, OnboardCouncilSerializer, WardZoneSerializer
+from apps.tenancy.models import Department, WardZone
 from apps.tenancy.services import onboard_council
 
 
@@ -23,6 +23,26 @@ class WardZoneViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return WardZone.objects.filter(council_id=self.request.user.council_id)
+
+    def perform_create(self, serializer):
+        serializer.save(council_id=self.request.user.council_id)
+
+
+class DepartmentViewSet(viewsets.ModelViewSet):
+    """List/create/edit council departments for grouping revenue items under —
+    see CouncilRevenueItemViewSet.department for the assignment side."""
+
+    serializer_class = DepartmentSerializer
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.request.method in ("POST", "PATCH"):
+            return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
+        return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW, AppRole.REVENUE_OFFICER)()]
+
+    def get_queryset(self):
+        return Department.objects.filter(council_id=self.request.user.council_id)
 
     def perform_create(self, serializer):
         serializer.save(council_id=self.request.user.council_id)

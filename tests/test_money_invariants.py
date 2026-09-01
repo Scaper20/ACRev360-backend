@@ -106,8 +106,16 @@ def test_bill_detail_lists_which_prior_bills_were_consolidated(scoped, authed_ap
 
     r = authed_api_client(admin).get(f"/api/v1/bills/{consolidated.id}/detail")
     assert r.status_code == 200, r.content
-    superseded = {row["bill_ref"]: row["amount"] for row in r.json()["superseded_bills"]}
-    assert superseded == {bill_a.bill_ref: "10000.00", bill_b.bill_ref: "7000.00"}
+    rows = {row["bill_ref"]: row for row in r.json()["superseded_bills"]}
+    assert {ref: row["amount"] for ref, row in rows.items()} == {bill_a.bill_ref: "10000.00", bill_b.bill_ref: "7000.00"}
+
+    # Line-item detail behind each superseded bill's lump amount — see item 6
+    # of the frontend's backend requirements doc: roll_arrears never touches
+    # a superseded bill's own BillLines, so they were always there to expose.
+    assert [line["harmonised_code"] for line in rows[bill_a.bill_ref]["lines"]] == ["MNYITEM"]
+    assert rows[bill_a.bill_ref]["lines"][0]["line_amount"] == "10000.00"
+    assert [line["harmonised_code"] for line in rows[bill_b.bill_ref]["lines"]] == ["MNYITEM3"]
+    assert rows[bill_b.bill_ref]["lines"][0]["line_amount"] == "7000.00"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -118,7 +126,11 @@ def test_public_bill_lookup_also_lists_superseded_bills(scoped, api_client):
 
     r = api_client.get(f"/api/v1/bills/{consolidated.bill_ref}")
     assert r.status_code == 200, r.content
-    assert r.json()["superseded_bills"] == [{"bill_ref": original.bill_ref, "amount": "10000.00"}]
+    superseded = r.json()["superseded_bills"]
+    assert len(superseded) == 1
+    assert superseded[0]["bill_ref"] == original.bill_ref
+    assert superseded[0]["amount"] == "10000.00"
+    assert [line["harmonised_code"] for line in superseded[0]["lines"]] == ["MNYITEM"]
 
 
 @pytest.mark.django_db(transaction=True)

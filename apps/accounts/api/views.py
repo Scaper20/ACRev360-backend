@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -18,7 +18,9 @@ from apps.accounts.api.serializers import (
     FieldAgentSerializer,
     LogoutRequestSerializer,
     MeSerializer,
+    RevenueOfficerSerializer,
     StakeholderSerializer,
+    SubConsultantContractDatesSerializer,
     SubConsultantSerializer,
     SubConsultantStatusSerializer,
     UpdateProfileSerializer,
@@ -26,9 +28,21 @@ from apps.accounts.api.serializers import (
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.accounts.tokens import AppTokenObtainPairSerializer
 from apps.audit.services import audit
+from apps.billing.models import Bill
+from apps.billing.services import BillingError, issue_bill
 from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
-from apps.revenue.models import AgentPortfolio, ConsultantPortfolio
+from apps.registry.models import Payer
+from apps.registry.services import create_payer
+from apps.revenue.models import AgentPortfolio, ConsultantPortfolio, CouncilRevenueItem, RateBand
+from apps.tenancy.models import WardZone
+
+# The revenue item + band that stand in for "consultant firm registration" —
+# see SubConsultantViewSet.perform_create. Confirmed against the seeded
+# Contractors item's existing flat-rate "Consultancy" band rather than adding
+# a new item.
+CONSULTANT_REGISTRATION_ITEM_CODE = "30010048"
+CONSULTANT_REGISTRATION_BAND_LABEL = "Consultancy"
 
 
 class AgentActivityResponseSerializer(serializers.Serializer):
@@ -149,11 +163,13 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
         return qs
 
+    @transaction.atomic
     def perform_create(self, serializer):
         data = serializer.validated_data
         manager_username = data.pop("manager_username", None)
         manager_password = data.pop("manager_password", None)
         manager_full_name = data.pop("manager_full_name", None)
+        registration_ward_id = data.pop("registration_ward_id")
 
         # Pre-check rather than letting SubConsultant's uniq_contract_ref_per_council
         # constraint raise: an uncaught IntegrityError isn't a DRF APIException, so
@@ -164,6 +180,27 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         # one; same pattern as the already_assigned portfolio checks below.
         if SubConsultant.objects.filter(council_id=self.request.user.council_id, contract_ref=data["contract_ref"]).exists():
             raise serializers.ValidationError({"contract_ref": "This contract reference is already in use."})
+
+        ward = WardZone.objects.filter(id=registration_ward_id, council_id=self.request.user.council_id).first()
+        if ward is None:
+            raise serializers.ValidationError({"registration_ward_id": "Not a valid ward for this council."})
+
+        # Resolved before creating anything — a misconfigured council (no
+        # Contractors item/Consultancy band seeded) should fail the whole
+        # onboarding up front, not leave a consultant+payer created with no
+        # registration bill to show for it.
+        try:
+            registration_item = CouncilRevenueItem.objects.get(
+                council_id=self.request.user.council_id, harmonised_code=CONSULTANT_REGISTRATION_ITEM_CODE,
+            )
+            registration_band = registration_item.active_bands.get(label=CONSULTANT_REGISTRATION_BAND_LABEL)
+        except (CouncilRevenueItem.DoesNotExist, RateBand.DoesNotExist):
+            raise serializers.ValidationError({
+                "contract_ref": (
+                    f"This council has no '{CONSULTANT_REGISTRATION_ITEM_CODE} — {CONSULTANT_REGISTRATION_BAND_LABEL}' "
+                    "revenue item configured — cannot bill consultant registration."
+                ),
+            })
 
         instance = serializer.save(council_id=self.request.user.council_id, status=SubConsultant.PENDING)
         audit(
@@ -183,20 +220,114 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
                 entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"username": manager_username},
             )
 
+        # The firm as a payer, billed for its own registration — see item 7 of
+        # the frontend's backend requirements doc. enumerated_by defaults to
+        # the onboarding admin, same as any other admin-enumerated payer.
+        payer, _ = create_payer(
+            council_id=instance.council_id, actor=self.request.user,
+            payer_type=Payer.BUSINESS, full_name=instance.consultant_name, ward=ward,
+        )
+        instance.registration_payer = payer
+        instance.save(update_fields=["registration_payer"])
+        try:
+            bill = issue_bill(
+                council_id=instance.council_id, payer=payer,
+                lines=[{"council_revenue_item": registration_item, "rate_band": registration_band}],
+                actor=self.request.user,
+            )
+        except BillingError as exc:
+            raise serializers.ValidationError({"contract_ref": str(exc)})
+        audit(
+            council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_REGISTRATION_BILLED",
+            entity_type="SUB_CONSULTANT", entity_id=instance.id,
+            detail={"payer_ref": payer.payer_ref, "bill_ref": bill.bill_ref, "total_amount": str(bill.total_amount)},
+        )
+
     @extend_schema(request=SubConsultantStatusSerializer, responses=SubConsultantSerializer)
     @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
     def status_change(self, request, pk=None):
         consultant = self.get_object()
         serializer = SubConsultantStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data["status"]
+
+        # Hard rule: a consultant can't go live while their own registration
+        # bill is still outstanding — see item 7 of the frontend's backend
+        # requirements doc. Consultants onboarded before registration_payer
+        # existed have none set, so this never retroactively blocks them.
+        if new_status == SubConsultant.ACTIVE and consultant.registration_payer_id:
+            has_balance = Bill.objects.filter(
+                payer_id=consultant.registration_payer_id, status__in=[Bill.ISSUED, Bill.PART_PAID, Bill.OVERDUE],
+            ).exists()
+            if has_balance:
+                return Response(
+                    {"error": "This consultant's registration bill still has a balance — it must be paid before activation."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         old_status = consultant.status
-        consultant.status = serializer.validated_data["status"]
+        consultant.status = new_status
         consultant.save(update_fields=["status", "updated_at"])
         audit(
             council_id=consultant.council_id, actor=request.user, action="CONSULTANT_STATUS_CHANGED",
             entity_type="SUB_CONSULTANT", entity_id=consultant.id, detail={"old_status": old_status, "new_status": consultant.status},
         )
         return Response(SubConsultantSerializer(consultant).data)
+
+    @extend_schema(request=SubConsultantContractDatesSerializer, responses=SubConsultantSerializer)
+    @action(detail=True, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def contract_dates(self, request, pk=None):
+        consultant = self.get_object()
+        serializer = SubConsultantContractDatesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        start = data["contract_start_date"] if "contract_start_date" in data else consultant.contract_start_date
+        end = data["contract_end_date"] if "contract_end_date" in data else consultant.contract_end_date
+        if start and end and start > end:
+            raise serializers.ValidationError({"contract_end_date": "Must be on or after contract_start_date."})
+
+        consultant.contract_start_date = start
+        consultant.contract_end_date = end
+        consultant.save(update_fields=["contract_start_date", "contract_end_date", "updated_at"])
+        audit(
+            council_id=consultant.council_id, actor=request.user, action="CONSULTANT_CONTRACT_DATES_CHANGED",
+            entity_type="SUB_CONSULTANT", entity_id=consultant.id,
+            detail={"contract_start_date": str(start) if start else None, "contract_end_date": str(end) if end else None},
+        )
+        return Response(SubConsultantSerializer(consultant).data)
+
+    @extend_schema(methods=["GET"], responses=RevenueOfficerSerializer(many=True))
+    @extend_schema(methods=["POST"], request=RevenueOfficerSerializer, responses=RevenueOfficerSerializer)
+    @action(detail=True, methods=["get", "post"], url_path="revenue-officers", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def revenue_officers(self, request, pk=None):
+        """Onboards (or lists) REVENUE_OFFICER logins scoped to this one
+        consultant — read-only accounts that get the exact same portfolio
+        visibility as the consultant's own manager (see common.scoping.
+        portfolio_filter), enforced by staying off every mutation endpoint's
+        permission_classes rather than by anything checked here."""
+        consultant = self.get_object()
+
+        if request.method == "GET":
+            officers = AppUser.objects.filter(consultant=consultant, role__access_level=AppRole.REVENUE_OFFICER).order_by("full_name")
+            return Response(RevenueOfficerSerializer(officers, many=True).data)
+
+        serializer = RevenueOfficerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        officer_role, _ = AppRole.objects.get_or_create(name="REVENUE_OFFICER", defaults={"access_level": AppRole.REVENUE_OFFICER})
+        instance = AppUser.objects.create_user(
+            username=data.pop("username"),
+            password=data.pop("password", "acrev360-2026"),
+            full_name=data.pop("full_name"),
+            phone=data.pop("phone", ""),
+            council_id=consultant.council_id, role=officer_role, consultant=consultant,
+        )
+        audit(
+            council_id=consultant.council_id, actor=request.user, action="REVENUE_OFFICER_ONBOARDED",
+            entity_type="SUB_CONSULTANT", entity_id=consultant.id, detail={"username": instance.username},
+        )
+        return Response(RevenueOfficerSerializer(instance).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(methods=["GET"], responses=ConsultantPortfolioSerializer(many=True))
     @extend_schema(methods=["POST"], request=ConsultantPortfolioSerializer, responses=ConsultantPortfolioSerializer)
@@ -285,6 +416,13 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         agent_role, _ = AppRole.objects.get_or_create(name="FIELD_AGENT", defaults={"access_level": AppRole.AGENT})
 
         if user.access_level == AppRole.CONSULTANT:
+            # Previously unchecked — a PENDING (or SUSPENDED) consultant
+            # manager could self-onboard field agents through this branch
+            # even though the council-admin-driven branch below always
+            # required ACTIVE. Closing that gap: "must be ACTIVE" now holds
+            # regardless of who's doing the onboarding.
+            if not SubConsultant.objects.filter(id=user.consultant_id, status=SubConsultant.ACTIVE).exists():
+                raise serializers.ValidationError({"consultant_id": "Your consultant firm must be ACTIVE before onboarding field agents."})
             consultant_id = user.consultant_id
         else:
             # Council-direct agents (no consultant) are retired — every agent

@@ -43,8 +43,17 @@ from apps.tenancy.context import find_across_active_councils
 class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     # GLOBAL_VIEW deliberately excluded — payments carry payer full_name/payer_ref
     # and posted_by_name, exactly what a stakeholder account must not see.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # REVENUE_OFFICER is included here (list/retrieve) but excluded again in
+    # get_permissions() below for create — read-only, same portfolio as
+    # CONSULTANT (see common.scoping.portfolio_filter). `reverse` already
+    # declares its own narrower COUNCIL_ADMIN-only permission_classes.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = Payment.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
@@ -151,12 +160,20 @@ _SendReceiptResponseSerializer = inline_serializer(
 class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = ReceiptSerializer
     # GLOBAL_VIEW deliberately excluded — same reasoning as PaymentViewSet.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # REVENUE_OFFICER is included here (list) but excluded again in
+    # get_permissions() below for `send` — read-only, same portfolio as
+    # CONSULTANT (see common.scoping.portfolio_filter).
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     # Numeric-only URL matching, same as PaymentViewSet/PayerViewSet/APIClientViewSet —
     # a non-numeric id 404s cleanly at routing instead of reaching get_object().
     # (drf-spectacular types path-param ids as string regardless of this; every
     # frontend call site already wraps the id in String(...) to match.)
     lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.action != "list":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)()]
+        return super().get_permissions()
 
     def get_queryset(self):
         # select_related for the to-one hops the serializer already walks

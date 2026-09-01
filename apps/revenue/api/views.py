@@ -1,9 +1,11 @@
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
+from apps.audit.services import audit
 from apps.common.permissions import access_level_permission
 from apps.revenue.api.serializers import (
     ChangeRateSerializer,
@@ -11,11 +13,14 @@ from apps.revenue.api.serializers import (
     ReplaceRateBandsSerializer,
     RevenueCategorySerializer,
     RevenueItemTemplateSerializer,
+    SetDepartmentSerializer,
 )
 from apps.revenue.models import AgentPortfolio, CouncilRevenueItem, RevenueCategory, RevenueItemTemplate
 from apps.revenue.services import BandingError, change_rate, replace_rate_bands
+from apps.tenancy.models import Department
 
-READ_ONLY_LEVELS = [AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW]
+READ_ONLY_LEVELS = [AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW, AppRole.REVENUE_OFFICER]
+_PORTFOLIO_SCOPED_LEVELS = (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)
 
 
 class RevenueCategoryViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -37,6 +42,9 @@ class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin
 
     def get_queryset(self):
         qs = CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True).order_by("harmonised_code")
+        department_param = self.request.query_params.get("department")
+        if department_param:
+            qs = qs.filter(department_id=department_param)
         # Unlike payers/bills/payments (scoped via common.scoping.portfolio_filter,
         # which walks a payer's enumerated_by__consultant_id), a revenue item has
         # no payer to walk through — its portfolio membership is the direct
@@ -44,7 +52,7 @@ class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin
         # unscoped: an item's existence/rate isn't payer- or consultant-identifying
         # the way a name is, so GLOBAL_VIEW keeping this is deliberate, matching
         # DashboardSummaryView/DashboardGlobalView's aggregate-only boundary.
-        if self.request.user.access_level == AppRole.CONSULTANT:
+        if self.request.user.access_level in _PORTFOLIO_SCOPED_LEVELS:
             qs = qs.filter(
                 portfolio_entries__consultant_id=self.request.user.consultant_id,
                 portfolio_entries__effective_to__isnull=True,
@@ -93,4 +101,24 @@ class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin
         except BandingError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         item.refresh_from_db()
+        return Response(CouncilRevenueItemSerializer(item).data)
+
+    @extend_schema(request=SetDepartmentSerializer, responses=CouncilRevenueItemSerializer)
+    @action(detail=True, methods=["post"], url_path="department", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    def department(self, request, pk=None):
+        """Only COUNCIL_ADMIN may (re)assign which department an item belongs
+        to — pass department_id: null to clear it."""
+        item = self.get_object()
+        serializer = SetDepartmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        department_id = serializer.validated_data["department_id"]
+        if department_id is None:
+            item.department = None
+        else:
+            item.department = get_object_or_404(Department, pk=department_id, council_id=request.user.council_id)
+        item.save(update_fields=["department"])
+        audit(
+            council_id=request.user.council_id, actor=request.user, action="REVENUE_ITEM_DEPARTMENT_CHANGED",
+            entity_type="COUNCIL_REVENUE_ITEM", entity_id=item.id, detail={"department_id": department_id},
+        )
         return Response(CouncilRevenueItemSerializer(item).data)

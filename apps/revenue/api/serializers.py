@@ -40,18 +40,27 @@ class CouncilRevenueItemSerializer(serializers.ModelSerializer):
     current_rate = serializers.DecimalField(source="current_rate.rate_amount", max_digits=14, decimal_places=2, read_only=True, default=None)
     rate_id = serializers.IntegerField(source="current_rate.id", read_only=True, default=None)
     rate_bands = RateBandSerializer(source="active_bands", many=True, read_only=True)
+    department_name = serializers.CharField(source="department.department_name", read_only=True, default=None)
 
     class Meta:
         model = CouncilRevenueItem
         fields = [
             "id", "template", "harmonised_code", "item_name", "category", "category_name",
             "unit_of_charge", "is_active", "current_rate", "rate_id", "rate_bands",
+            "department", "department_name",
         ]
-        read_only_fields = ["id", "current_rate", "rate_id", "rate_bands"]
+        # department is set only via the dedicated `department` action (see
+        # CouncilRevenueItemViewSet) — read-only here, same reasoning as
+        # current_rate/rate_id above.
+        read_only_fields = ["id", "current_rate", "rate_id", "rate_bands", "department", "department_name"]
 
 
 class ChangeRateSerializer(serializers.Serializer):
     rate_amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0)
+
+
+class SetDepartmentSerializer(serializers.Serializer):
+    department_id = serializers.IntegerField(allow_null=True)
 
 
 class RateTierEntrySerializer(serializers.Serializer):

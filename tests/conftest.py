@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.payments.models import POSTerminal
 from apps.registry.models import Payer
-from apps.revenue.models import CouncilRevenueItem, RateSchedule, RevenueCategory, RevenueItemTemplate
+from apps.revenue.models import CouncilRevenueItem, RateBand, RateSchedule, RevenueCategory, RevenueItemTemplate
 from apps.tenancy.context import set_council_context
 from apps.tenancy.models import Council, CouncilConfig, WardZone
 
@@ -80,6 +80,23 @@ def make_payer(db):
             council=council, payer_ref=f"C-{Payer.objects.filter(council=council).count() + 1:07d}",
             payer_type=Payer.BUSINESS, full_name=name, phone=phone, ward=ward, enumerated_by=actor,
         )
+
+    return _make
+
+
+@pytest.fixture
+def make_registration_item(db, make_revenue_item):
+    """Seeds the 'Contractors — Consultancy' item/band SubConsultantViewSet.
+    perform_create bills consultant registration against — see
+    CONSULTANT_REGISTRATION_ITEM_CODE/_BAND_LABEL in apps.accounts.api.views."""
+
+    def _make(council, rate=120000):
+        item = make_revenue_item(council, code="30010048", name="Contractors", rate=rate)
+        RateBand.objects.create(
+            council_revenue_item=item, label="Consultancy", rate_mode=RateBand.FLAT,
+            flat_amount=rate, effective_from=datetime.date.today(),
+        )
+        return item
 
     return _make
 

@@ -67,13 +67,22 @@ class IssueBillResponseSerializer(BillSerializer):
 class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     # GLOBAL_VIEW deliberately excluded — bills carry payer full_name/payer_ref,
     # exactly what a stakeholder account must not see (aggregate totals only,
-    # via DashboardSummaryView/DashboardGlobalView).
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # via DashboardSummaryView/DashboardGlobalView). REVENUE_OFFICER is
+    # included here (list/retrieve/bill_detail) but explicitly excluded again
+    # in get_permissions() below for POST/DELETE — read-only, same portfolio
+    # as CONSULTANT (see common.scoping.portfolio_filter).
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
         if self.request.method == "DELETE":
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
+        # self.action, not self.request.method — add_line is also a POST, with
+        # its own narrower COUNCIL_ADMIN-only permission_classes on the
+        # @action itself; branching on method here would silently override
+        # that to this wider list instead of falling through to it.
+        if self.action == "create":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)()]
         return super().get_permissions()
 
     def get_serializer_class(self):
@@ -160,6 +169,11 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
     @action(detail=True, methods=["get"], url_path="detail")
     def bill_detail(self, request, pk=None):
         bill = self.get_object()
+        bill = Bill.objects.prefetch_related(
+            "lines__assessment__council_revenue_item", "lines__assessment__rate_band", "lines__assessment__rate_tier",
+            "supersedes__lines__assessment__council_revenue_item",
+            "supersedes__lines__assessment__rate_band", "supersedes__lines__assessment__rate_tier",
+        ).get(pk=bill.pk)
         return Response(BillDetailSerializer(bill).data)
 
     @extend_schema(request=AddLineSerializer, responses=BillLineDetailSerializer)
@@ -229,7 +243,14 @@ class PublicBillLookupView(APIView):
             return Response({"error": "Bill not found"}, status=status.HTTP_404_NOT_FOUND)
 
         with council_context(council.id):
-            bill = Bill.objects.select_related("payer", "payer__ward").filter(bill_ref=bill_ref).first()
+            bill = (
+                Bill.objects.select_related("payer", "payer__ward")
+                .prefetch_related(
+                    "supersedes__lines__assessment__council_revenue_item",
+                    "supersedes__lines__assessment__rate_band", "supersedes__lines__assessment__rate_tier",
+                )
+                .filter(bill_ref=bill_ref).first()
+            )
             if bill is None:
                 return Response({"error": "Bill not found"}, status=status.HTTP_404_NOT_FOUND)
 

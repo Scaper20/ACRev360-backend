@@ -38,12 +38,21 @@ class PayerViewSet(
 ):
     # GLOBAL_VIEW deliberately excluded — the payer registry is names, phone
     # numbers and KYC status, exactly what a stakeholder account must not see.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # REVENUE_OFFICER is included here (list/retrieve) but excluded again in
+    # get_permissions() below for create/kyc_status/DELETE — read-only, same
+    # portfolio as CONSULTANT (see common.scoping.portfolio_filter).
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
         if self.request.method == "DELETE":
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
+        # self.action, not self.request.method — kyc_status is also a POST,
+        # with its own narrower COUNCIL_ADMIN-only permission_classes on the
+        # @action itself; branching on method here would silently override
+        # that to this wider list instead of falling through to it.
+        if self.action == "create":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)()]
         return super().get_permissions()
 
     def get_serializer_class(self):

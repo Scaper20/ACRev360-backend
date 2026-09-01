@@ -58,6 +58,9 @@ class CouncilRevenueItem(CouncilScopedModel):
     category = models.ForeignKey(RevenueCategory, on_delete=models.PROTECT, related_name="council_items")
     unit_of_charge = models.CharField(max_length=64)
     is_active = models.BooleanField(default=True)
+    department = models.ForeignKey(
+        "tenancy.Department", on_delete=models.PROTECT, null=True, blank=True, related_name="revenue_items"
+    )
 
     class Meta:
         db_table = "council_revenue_item"

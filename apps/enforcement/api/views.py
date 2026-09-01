@@ -23,7 +23,11 @@ class DebtRefreshResponseSerializer(serializers.Serializer):
 )
 class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = DebtCaseSerializer
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+    # ListModelMixin only (no create) — `refresh`/`escalate` below already
+    # declare their own narrower COUNCIL_ADMIN-only permission_classes, so
+    # REVENUE_OFFICER landing here only ever reaches `list`, scoped the same
+    # as CONSULTANT via common.scoping.portfolio_filter.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):

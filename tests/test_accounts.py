@@ -7,21 +7,30 @@ bill, payment or sub-consultant's name. See StakeholderViewSet's docstring.
 Also covers FieldAgentViewSet.portfolio — a consultant assigning a subset of
 their own ConsultantPortfolio to a specific agent they onboarded.
 """
+import datetime
+
 import pytest
 from django.db import transaction
 
-from apps.accounts.models import AppRole, AppUser
+from apps.accounts.models import AppRole, AppUser, SubConsultant
+from apps.billing.models import Bill
+from apps.billing.services import issue_bill
+from apps.payments.models import PaymentChannel
+from apps.payments.services import post_payment
 from apps.revenue.models import ConsultantPortfolio
 from apps.tenancy.context import set_council_context
 
 
 @pytest.fixture
-def scoped(make_council, make_ward, make_user):
+def scoped(make_council, make_ward, make_user, make_registration_item):
     council = make_council(code="ACC")
     with transaction.atomic():
         set_council_context(council.id)
         ward = make_ward(council)
         admin = make_user(council, username="acc-admin")
+        # SubConsultantViewSet.perform_create bills every new consultant's
+        # registration against this — see CONSULTANT_REGISTRATION_ITEM_CODE.
+        make_registration_item(council)
         yield {"council": council, "ward": ward, "admin": admin}
 
 
@@ -29,7 +38,7 @@ def scoped(make_council, make_ward, make_user):
 def test_onboard_consultant_without_manager_fields_creates_no_login(scoped, authed_api_client):
     r = authed_api_client(scoped["admin"]).post(
         "/api/v1/consultants",
-        {"consultant_name": "No Login Co", "contract_ref": "CR-NL", "commission_rate": "30.00"},
+        {"consultant_name": "No Login Co", "contract_ref": "CR-NL", "commission_rate": "30.00", "registration_ward_id": scoped["ward"].id},
         format="json",
     )
     assert r.status_code == 201, r.content
@@ -44,6 +53,7 @@ def test_onboard_consultant_with_manager_fields_creates_linked_login(scoped, aut
         {
             "consultant_name": "Manager Co", "contract_ref": "CR-M", "commission_rate": "25.00",
             "manager_username": "managerco1", "manager_full_name": "Manager of Manager Co",
+            "registration_ward_id": scoped["ward"].id,
         },
         format="json",
     )
@@ -63,12 +73,16 @@ def test_onboard_consultant_with_duplicate_contract_ref_is_rejected_not_500(scop
     # detail at all (no response body, nothing in server logs with DEBUG off).
     admin_client = authed_api_client(scoped["admin"])
     first = admin_client.post(
-        "/api/v1/consultants", {"consultant_name": "First Co", "contract_ref": "CR-DUPE", "commission_rate": "30.00"}, format="json",
+        "/api/v1/consultants",
+        {"consultant_name": "First Co", "contract_ref": "CR-DUPE", "commission_rate": "30.00", "registration_ward_id": scoped["ward"].id},
+        format="json",
     )
     assert first.status_code == 201, first.content
 
     second = admin_client.post(
-        "/api/v1/consultants", {"consultant_name": "Second Co", "contract_ref": "CR-DUPE", "commission_rate": "30.00"}, format="json",
+        "/api/v1/consultants",
+        {"consultant_name": "Second Co", "contract_ref": "CR-DUPE", "commission_rate": "30.00", "registration_ward_id": scoped["ward"].id},
+        format="json",
     )
     assert second.status_code == 400, second.content
     assert "contract_ref" in second.json()
@@ -79,7 +93,10 @@ def test_onboard_consultant_with_duplicate_contract_ref_is_rejected_not_500(scop
 def test_onboard_consultant_manager_username_without_full_name_rejected(scoped, authed_api_client):
     r = authed_api_client(scoped["admin"]).post(
         "/api/v1/consultants",
-        {"consultant_name": "Bad Co", "contract_ref": "CR-B", "commission_rate": "30.00", "manager_username": "badco1"},
+        {
+            "consultant_name": "Bad Co", "contract_ref": "CR-B", "commission_rate": "30.00", "manager_username": "badco1",
+            "registration_ward_id": scoped["ward"].id,
+        },
         format="json",
     )
     assert r.status_code == 400, r.content
@@ -553,3 +570,268 @@ def test_consultant_onboarding_agent_is_still_auto_assigned_to_self(scoped, auth
     )
     assert r.status_code == 201, r.content
     assert AppUser.objects.get(username="own-agent").consultant_id == consultant.id
+
+
+# --- gap fix: a PENDING consultant manager could previously self-onboard agents ---
+
+@pytest.mark.django_db(transaction=True)
+def test_pending_consultant_manager_cannot_onboard_agent(scoped, authed_api_client, make_user, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Pending Co", contract_ref="CR-PEND", status=SubConsultant.PENDING)
+    manager = make_user(scoped["council"], username="acc-pend-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+
+    r = authed_api_client(manager).post(
+        "/api/v1/agents", {"full_name": "Blocked Agent", "username": "blocked-agent"}, format="json",
+    )
+    assert r.status_code == 400, r.content
+    assert not AppUser.objects.filter(username="blocked-agent").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_active_consultant_manager_can_still_onboard_agent(scoped, authed_api_client, make_user, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Active Onboard Co", contract_ref="CR-ACTIVEOB", status=SubConsultant.ACTIVE)
+    manager = make_user(scoped["council"], username="acc-active-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+
+    r = authed_api_client(manager).post(
+        "/api/v1/agents", {"full_name": "Allowed Agent", "username": "allowed-agent"}, format="json",
+    )
+    assert r.status_code == 201, r.content
+
+
+# --- contract dates + expiry flag (item 1) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_with_contract_dates(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Dated Co", "contract_ref": "CR-DATED", "commission_rate": "30.00",
+            "registration_ward_id": scoped["ward"].id,
+            "contract_start_date": "2026-01-01", "contract_end_date": "2026-12-31",
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    body = r.json()
+    assert body["contract_start_date"] == "2026-01-01"
+    assert body["contract_end_date"] == "2026-12-31"
+    assert body["is_contract_expired"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_rejects_contract_end_before_start(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Backwards Co", "contract_ref": "CR-BACK", "commission_rate": "30.00",
+            "registration_ward_id": scoped["ward"].id,
+            "contract_start_date": "2026-12-31", "contract_end_date": "2026-01-01",
+        },
+        format="json",
+    )
+    assert r.status_code == 400, r.content
+
+
+@pytest.mark.django_db(transaction=True)
+def test_is_contract_expired_true_once_end_date_has_passed(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Expired Co", contract_ref="CR-EXP")
+    consultant.contract_end_date = datetime.date(2020, 1, 1)
+    consultant.save(update_fields=["contract_end_date"])
+
+    r = authed_api_client(scoped["admin"]).get("/api/v1/consultants")
+    row = next(row for row in r.json()["results"] if row["id"] == consultant.id)
+    assert row["is_contract_expired"] is True
+
+
+@pytest.mark.django_db(transaction=True)
+def test_contract_dates_action_updates_dates(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Editable Co", contract_ref="CR-EDIT")
+    r = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/contract_dates",
+        {"contract_start_date": "2026-02-01", "contract_end_date": "2027-02-01"},
+        format="json",
+    )
+    assert r.status_code == 200, r.content
+    assert r.json()["contract_start_date"] == "2026-02-01"
+    assert r.json()["contract_end_date"] == "2027-02-01"
+
+    consultant.refresh_from_db()
+    assert consultant.contract_start_date == datetime.date(2026, 2, 1)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_contract_dates_action_rejects_end_before_already_set_start(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Partial Co", contract_ref="CR-PARTIAL")
+    first = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/contract_dates", {"contract_start_date": "2026-06-01"}, format="json",
+    )
+    assert first.status_code == 200, first.content
+
+    second = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/contract_dates", {"contract_end_date": "2026-01-01"}, format="json",
+    )
+    assert second.status_code == 400, second.content
+
+
+@pytest.mark.django_db(transaction=True)
+def test_contract_dates_action_is_council_admin_only(scoped, authed_api_client, make_user, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Guarded Co", contract_ref="CR-GUARD")
+    manager = make_user(scoped["council"], username="acc-guard-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+    r = authed_api_client(manager).post(
+        f"/api/v1/consultants/{consultant.id}/contract_dates", {"contract_start_date": "2026-06-01"}, format="json",
+    )
+    assert r.status_code == 403, r.content
+
+
+# --- consultants onboarded as payers, billed for registration (item 7) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_creates_registration_payer_and_bill(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Billable Co", "contract_ref": "CR-BILL", "commission_rate": "30.00",
+            "registration_ward_id": scoped["ward"].id,
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    body = r.json()
+    assert body["registration_payer_ref"] is not None
+
+    consultant = SubConsultant.objects.get(id=body["id"])
+    assert consultant.registration_payer is not None
+    assert consultant.registration_payer.full_name == "Billable Co"
+    bill = Bill.objects.get(payer=consultant.registration_payer)
+    assert bill.total_amount == 120000
+
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_without_registration_ward_rejected(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {"consultant_name": "No Ward Co", "contract_ref": "CR-NOWARD", "commission_rate": "30.00"},
+        format="json",
+    )
+    assert r.status_code == 400, r.content
+    assert "registration_ward_id" in r.json()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_status_change_to_active_blocked_while_registration_bill_unpaid(scoped, authed_api_client):
+    onboard = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Unpaid Co", "contract_ref": "CR-UNPAID", "commission_rate": "30.00",
+            "registration_ward_id": scoped["ward"].id,
+        },
+        format="json",
+    )
+    consultant_id = onboard.json()["id"]
+
+    activate = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant_id}/status_change", {"status": "ACTIVE"}, format="json",
+    )
+    assert activate.status_code == 400, activate.content
+    assert SubConsultant.objects.get(id=consultant_id).status == SubConsultant.PENDING
+
+
+@pytest.mark.django_db(transaction=True)
+def test_status_change_to_active_allowed_once_registration_bill_paid(scoped, authed_api_client):
+    onboard = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Paid Co", "contract_ref": "CR-PAID", "commission_rate": "30.00",
+            "registration_ward_id": scoped["ward"].id,
+        },
+        format="json",
+    )
+    consultant = SubConsultant.objects.get(id=onboard.json()["id"])
+    bill = Bill.objects.get(payer=consultant.registration_payer)
+
+    channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.POS)
+    post_payment(council_id=scoped["council"].id, bill=bill, channel=channel, amount=bill.total_amount, posted_by=scoped["admin"])
+
+    activate = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/status_change", {"status": "ACTIVE"}, format="json",
+    )
+    assert activate.status_code == 200, activate.content
+    assert activate.json()["status"] == "ACTIVE"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_status_change_to_active_unaffected_for_consultant_with_no_registration_payer(scoped, authed_api_client, make_consultant):
+    """A consultant onboarded before registration_payer existed (or created
+    directly, as fixtures do) has none set — the new balance check must not
+    retroactively block it."""
+    consultant = make_consultant(scoped["council"], name="Legacy Co", contract_ref="CR-LEGACY", status=SubConsultant.PENDING)
+    r = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/status_change", {"status": "ACTIVE"}, format="json",
+    )
+    assert r.status_code == 200, r.content
+
+
+# --- revenue officer role (item 3) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_revenue_officer_scoped_to_consultant(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Officer Co", contract_ref="CR-OFFICER")
+    r = authed_api_client(scoped["admin"]).post(
+        f"/api/v1/consultants/{consultant.id}/revenue-officers",
+        {"username": "revoff1", "full_name": "Revenue Officer One"},
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    user = AppUser.objects.get(username="revoff1")
+    assert user.access_level == AppRole.REVENUE_OFFICER
+    assert user.consultant_id == consultant.id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_revenue_officer_onboarding_is_council_admin_only(scoped, authed_api_client, make_user, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Guarded Officer Co", contract_ref="CR-GUARDOFF")
+    manager = make_user(scoped["council"], username="acc-guardoff-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+    r = authed_api_client(manager).post(
+        f"/api/v1/consultants/{consultant.id}/revenue-officers",
+        {"username": "revoff-blocked", "full_name": "Blocked"},
+        format="json",
+    )
+    assert r.status_code == 403, r.content
+    assert not AppUser.objects.filter(username="revoff-blocked").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_revenue_officer_list_scoped_to_own_consultant(scoped, authed_api_client, make_consultant):
+    own = make_consultant(scoped["council"], name="Own Officer Co", contract_ref="CR-OWNOFFICER")
+    other = make_consultant(scoped["council"], name="Other Officer Co", contract_ref="CR-OTHEROFFICER")
+    admin_client = authed_api_client(scoped["admin"])
+    admin_client.post(f"/api/v1/consultants/{own.id}/revenue-officers", {"username": "own-off", "full_name": "Own Officer"}, format="json")
+    admin_client.post(f"/api/v1/consultants/{other.id}/revenue-officers", {"username": "other-off", "full_name": "Other Officer"}, format="json")
+
+    r = admin_client.get(f"/api/v1/consultants/{own.id}/revenue-officers")
+    assert r.status_code == 200, r.content
+    assert {row["username"] for row in r.json()} == {"own-off"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_revenue_officer_sees_same_portfolio_as_consultant_but_read_only(
+    scoped, authed_api_client, make_consultant, make_user, make_payer, make_revenue_item,
+):
+    council = scoped["council"]
+    consultant = make_consultant(council, name="Portfolio Officer Co", contract_ref="CR-PORTOFFICER")
+    manager = make_user(council, username="acc-portoff-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+    officer = make_user(council, username="acc-portoff-officer", access_level=AppRole.REVENUE_OFFICER, consultant=consultant)
+
+    item = make_revenue_item(council, code="ACCOFFITEM", rate=5000)
+    payer = make_payer(council, scoped["ward"], manager, name="Officer Payer")
+    bill = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=manager)
+
+    r = authed_api_client(officer).get("/api/v1/bills")
+    assert r.status_code == 200, r.content
+    assert [row["id"] for row in r.json()["results"]] == [bill.id]
+
+    r_post = authed_api_client(officer).post("/api/v1/bills", {"payer_id": payer.id, "bill_all_drafts": True}, format="json")
+    assert r_post.status_code == 403, r_post.content
+
+    r_payers = authed_api_client(officer).get("/api/v1/payers")
+    assert r_payers.status_code == 200, r_payers.content
+    assert [row["id"] for row in r_payers.json()["results"]] == [payer.id]

@@ -49,10 +49,18 @@ class SupersededBillSerializer(serializers.Serializer):
     hand-built dicts — a dict would need this same "amount" key, and DRF's
     DecimalField-to-string formatting only happens by going through this
     serializer, not by building a response dict by hand (see the git history
-    on PublicBillLookupView for the bug that shipped from doing that once)."""
+    on PublicBillLookupView for the bug that shipped from doing that once).
+
+    `lines` exposes each superseded bill's own itemized BillLines — issue_bill's
+    roll_arrears never touches them, it only flips the prior bill's status to
+    SUPERSEDED and sums its balance into the new bill's arrears_amount. So the
+    line-level detail behind that lump sum was always sitting right here,
+    unexposed — this is a read-only addition, no new storage or change to
+    roll_arrears itself."""
 
     bill_ref = serializers.CharField()
     amount = serializers.DecimalField(source="balance", max_digits=14, decimal_places=2)
+    lines = BillLineDetailSerializer(many=True, read_only=True)
 
 
 class BillDetailSerializer(BillSerializer):
