@@ -157,6 +157,47 @@ forgotten.
 
 ---
 
+## 2026-09-01 — Frontend: consultant contract dates (first of Scaper20's new-feature batch)
+
+**Context:** Scaper20 shipped his side of the earlier backend-requirements handoff directly
+to his live deployment — contract dates, consultant/agent KYC fields, a `REVENUE_OFFICER`
+role, departments, and a `/reports` endpoint all now exist on `https://acrev360-backend.
+onrender.com`, confirmed by pulling `/api/schema/` straight from his live service (not from
+anything checked into either repo — his backend commits aren't in this session's local
+`ACRev360-backend-latest` checkout at all). Frontend work proceeds feature by feature against
+that live schema; this entry is the first, smallest one.
+
+**Added:** consultant detail modal shows `contract_start_date`/`contract_end_date` and a
+computed `is_contract_expired` tag, editable via `POST /consultants/{id}/contract_dates`.
+
+**Fixed (pre-existing break, not new scope):** `SubConsultantRequest` now requires
+`registration_ward_id` — a consultant's own payer registration needs a ward, same as any
+other payer — which silently broke `tsc -b` for the whole app the moment types were
+regenerated, since the onboarding form never sent it. Added a ward picker to onboarding, plus
+optional contract-start/end fields there too (the backend accepts both at onboarding time as
+well as via the dedicated endpoint).
+
+**Files:** frontend — `apps/portal/src/routes/consultants/ConsultantsPage.tsx`,
+`packages/api/src/generated/schema.ts` (regenerated against his live schema — this single
+regen pulled in every field/endpoint from the whole batch above, not just contract dates;
+expect large diffs on this file for each subsequent feature in the batch even though only
+one feature's UI lands per commit).
+
+**Verified:** `tsc -b` clean. Live in the browser against his actual backend (temporarily
+pointed `apps/portal/vite.config.ts`'s dev proxy at his live URL instead of the usual local
+Docker target, reverted after — the local backend checkout doesn't have any of his new code,
+so there's currently no way to test this batch against a local backend at all) — set real
+dates on the one real consultant already in his database ("Erado Consulting"), confirmed the
+round trip and the display update.
+
+**Gotchas:** the local `ACRev360-backend-latest` checkout and his live deployment have
+diverged — his backend has commits/code this session has never seen, only reachable by
+reading his live `/api/schema/` directly. Don't assume the local backend repo reflects what's
+actually live; check the live schema before building frontend work against any of the
+remaining items in this batch (KYC fields, revenue officer, departments, reports).
+
+---
+
 ## 2026-08-31 — Fix: `render.yaml` merge broke Scaper20's live deploy (`ALLOWED_HOSTS`)
 
 **Found:** merging `claude/updates` into `master` (PR #2) broke Scaper20's live backend
