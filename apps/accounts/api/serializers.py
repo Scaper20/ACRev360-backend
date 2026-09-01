@@ -97,6 +97,8 @@ class SubConsultantSerializer(serializers.ModelSerializer):
             "contract_start_date", "contract_end_date", "is_contract_expired", "created_at",
             "manager_username", "manager_password", "manager_full_name", "has_login",
             "registration_ward_id", "registration_payer", "registration_payer_ref",
+            "authorized_signatory_name", "authorized_signatory_id_type", "authorized_signatory_id_hash",
+            "registered_address",
         ]
         read_only_fields = ["id", "status", "created_at", "has_login", "is_contract_expired", "registration_payer"]
 
@@ -166,6 +168,7 @@ class FieldAgentSerializer(serializers.ModelSerializer):
         fields = [
             "id", "agent_code", "assigned_ward", "device_imei", "status",
             "full_name", "username", "password", "phone", "consultant_id", "agent_full_name", "agent_phone",
+            "id_type", "id_hash", "next_of_kin_name", "next_of_kin_phone",
         ]
         read_only_fields = ["id", "agent_code", "status", "consultant_id", "agent_full_name", "agent_phone"]
 

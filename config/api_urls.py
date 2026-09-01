@@ -2,6 +2,7 @@ from django.urls import include, path
 
 from apps.common.api.dashboard import DashboardGlobalView, DashboardSummaryView
 from apps.common.api.health import HealthView
+from apps.common.api.reports import ReportsView
 
 urlpatterns = [
     path("health", HealthView.as_view(), name="health"),
@@ -19,4 +20,5 @@ urlpatterns = [
     path("", include("apps.fieldops.api.urls")),
     path("dashboard/summary", DashboardSummaryView.as_view(), name="dashboard-summary"),
     path("dashboard/global", DashboardGlobalView.as_view(), name="dashboard-global"),
+    path("reports", ReportsView.as_view(), name="reports"),
 ]

@@ -835,3 +835,47 @@ def test_revenue_officer_sees_same_portfolio_as_consultant_but_read_only(
     r_payers = authed_api_client(officer).get("/api/v1/payers")
     assert r_payers.status_code == 200, r_payers.content
     assert [row["id"] for row in r_payers.json()["results"]] == [payer.id]
+
+
+# --- KYC fields (item 2) — hashed storage, matching Payer.nin_bvn_hash's convention ---
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_with_kyc_fields_round_trips(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "KYC Co", "contract_ref": "CR-KYC", "commission_rate": "30.00",
+            "registration_ward_id": scoped["ward"].id,
+            "authorized_signatory_name": "Amina Bello", "authorized_signatory_id_type": "NIN",
+            "authorized_signatory_id_hash": "a" * 64, "registered_address": "12 Independence Way, Kuje",
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    body = r.json()
+    assert body["authorized_signatory_name"] == "Amina Bello"
+    assert body["authorized_signatory_id_type"] == "NIN"
+    assert body["authorized_signatory_id_hash"] == "a" * 64
+    assert body["registered_address"] == "12 Independence Way, Kuje"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_agent_with_kyc_fields_round_trips(scoped, authed_api_client, make_consultant, make_user):
+    consultant = make_consultant(scoped["council"], name="Agent KYC Co", contract_ref="CR-AGENTKYC")
+    manager = make_user(scoped["council"], username="acc-agentkyc-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
+
+    r = authed_api_client(manager).post(
+        "/api/v1/agents",
+        {
+            "full_name": "KYC Agent", "username": "kyc-agent",
+            "id_type": "VOTERS_CARD", "id_hash": "b" * 64,
+            "next_of_kin_name": "Chidi Okafor", "next_of_kin_phone": "08099998888",
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    body = r.json()
+    assert body["id_type"] == "VOTERS_CARD"
+    assert body["id_hash"] == "b" * 64
+    assert body["next_of_kin_name"] == "Chidi Okafor"
+    assert body["next_of_kin_phone"] == "08099998888"

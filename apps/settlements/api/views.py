@@ -21,13 +21,17 @@ from apps.settlements.services import compute_settlements
 )
 class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CommissionSettlementSerializer
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+    # REVENUE_OFFICER included here (list only — `compute`/`status_change`
+    # below already declare their own narrower COUNCIL_ADMIN-only
+    # permission_classes) — a settlement is exactly the kind of "own
+    # consultant's performance" data a revenue officer is meant to see.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         user = self.request.user
         qs = CommissionSettlement.objects.filter(council_id=user.council_id).order_by("-period_start")
-        if user.access_level == AppRole.CONSULTANT:
+        if user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER):
             qs = qs.filter(consultant_id=user.consultant_id)
         q = self.request.query_params.get("q")
         if q:

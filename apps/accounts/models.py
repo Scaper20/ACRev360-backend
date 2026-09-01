@@ -104,6 +104,14 @@ class SubConsultant(CouncilScopedModel):
         (EXITED, "Exited"),
     ]
 
+    NIN, PASSPORT, DRIVERS_LICENSE, VOTERS_CARD = "NIN", "PASSPORT", "DRIVERS_LICENSE", "VOTERS_CARD"
+    ID_TYPE_CHOICES = [
+        (NIN, "NIN"),
+        (PASSPORT, "International Passport"),
+        (DRIVERS_LICENSE, "Driver's License"),
+        (VOTERS_CARD, "Voter's Card"),
+    ]
+
     consultant_name = models.CharField(max_length=160)
     contract_ref = models.CharField(max_length=64)
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, help_text="Percent, e.g. 30.00")
@@ -116,6 +124,13 @@ class SubConsultant(CouncilScopedModel):
     registration_payer = models.OneToOneField(
         "registry.Payer", on_delete=models.PROTECT, null=True, blank=True, related_name="consultant"
     )
+    # KYC — the firm's authorized signatory. authorized_signatory_id_hash follows
+    # Payer.nin_bvn_hash's exact convention: a pre-hashed value handed in by the
+    # caller, not hashed here — this field is a plain store, not a hasher.
+    authorized_signatory_name = models.CharField(max_length=160, blank=True)
+    authorized_signatory_id_type = models.CharField(max_length=32, choices=ID_TYPE_CHOICES, blank=True)
+    authorized_signatory_id_hash = models.CharField(max_length=128, blank=True)
+    registered_address = models.CharField(max_length=255, blank=True)
 
     class Meta:
         db_table = "sub_consultant"
@@ -140,11 +155,25 @@ class FieldAgent(CouncilScopedModel):
         (EXITED, "Exited"),
     ]
 
+    NIN, PASSPORT, DRIVERS_LICENSE, VOTERS_CARD = "NIN", "PASSPORT", "DRIVERS_LICENSE", "VOTERS_CARD"
+    ID_TYPE_CHOICES = [
+        (NIN, "NIN"),
+        (PASSPORT, "International Passport"),
+        (DRIVERS_LICENSE, "Driver's License"),
+        (VOTERS_CARD, "Voter's Card"),
+    ]
+
     user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name="field_agent")
     agent_code = models.CharField(max_length=32)
     assigned_ward = models.ForeignKey(WardZone, on_delete=models.PROTECT, null=True, blank=True, related_name="agents")
     device_imei = models.CharField(max_length=32, blank=True)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=ACTIVE)
+    # KYC — same hashed-value convention as Payer.nin_bvn_hash / SubConsultant.
+    # authorized_signatory_id_hash above.
+    id_type = models.CharField(max_length=32, choices=ID_TYPE_CHOICES, blank=True)
+    id_hash = models.CharField(max_length=128, blank=True)
+    next_of_kin_name = models.CharField(max_length=160, blank=True)
+    next_of_kin_phone = models.CharField(max_length=32, blank=True)
 
     class Meta:
         db_table = "field_agent"
