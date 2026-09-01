@@ -157,6 +157,44 @@ forgotten.
 
 ---
 
+## 2026-09-01 — Frontend: agent + consultant KYC fields (second of Scaper20's new-feature batch)
+
+**Added:** field agent onboarding now takes ID type/number (hashed client-side via the
+existing `sha256Hex` helper before it ever reaches the wire — same discipline as `Payer`'s
+`nin_bvn_hash`) plus next-of-kin name/phone. Consultant onboarding takes an authorized
+signatory name + ID, plus a registered address. Both show up read-only in their respective
+detail views afterward — neither `FieldAgent` nor `SubConsultant` has an edit endpoint for
+these fields on his backend, only onboarding-time, so there's no way to set/fix them after
+the fact yet without re-onboarding.
+
+**Found while verifying live:** agent onboarding worked immediately (201, fields round-
+tripped and displayed correctly). Consultant onboarding 400'd instead —
+`"This council has no '30010048 — Consultancy' revenue item configured — cannot bill
+consultant registration."` Root cause had nothing to do with this feature: his new
+registration-billing logic (onboarding a consultant now auto-bills them, tying into the
+earlier-discussed "inactive until paid" item) looks for a rate **band** named "Consultancy"
+under the Contractors item — which this session's own `seed_rate_bands.py` already defines
+(`CONTRACTORS_FLAT = [("Services", 24000), ("Consultancy", 120000)]`, alongside two TIERED
+bands) — but that seed had never actually been run against his live database. His `30010048`
+was still on the old plain-flat-₦50,000 seed from before that rework. You ran
+`seed_rate_bands` against his live DB directly; consultant onboarding with KYC fields then
+succeeded and displayed correctly.
+
+**Files:** `apps/portal/src/routes/agents/AgentsPage.tsx`,
+`apps/portal/src/routes/consultants/ConsultantsPage.tsx` (both `ACRev360-frontend`).
+
+**Verified:** `tsc -b` clean. Live against his backend end to end for both agent and
+consultant onboarding, including the mid-verification discovery and fix above.
+
+**Gotchas:** his live database's revenue-item catalog can lag behind what's designed/coded
+in this local backend checkout by a lot, and the gap isn't visible until something that
+depends on it (like this billing rule) actually exercises it — a plain "does the item exist"
+check isn't enough; check whether the *bands* a feature expects actually exist too. If a
+future item's onboarding/billing-adjacent feature 400s with a message naming a specific band
+label, check `seed_rate_bands.py` for that label before assuming it's a real bug.
+
+---
+
 ## 2026-09-01 — Frontend: consultant contract dates (first of Scaper20's new-feature batch)
 
 **Context:** Scaper20 shipped his side of the earlier backend-requirements handoff directly
