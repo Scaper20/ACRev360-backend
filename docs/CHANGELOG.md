@@ -24,8 +24,12 @@ forgotten.
 **Recurring themes worth knowing before you read the entries below:**
 - **`common.scoping.portfolio_filter` only covers payer-shaped querysets** (bills,
   payments, payers, receipts, debt) via `enumerated_by__consultant_id`. Anything else
-  that needs consultant/agent scoping — like revenue items — needs its own hand-written
-  join. Two real bugs shipped from assuming otherwise.
+  that needs consultant/agent scoping — like revenue items, or Settlements (no payer to
+  walk through — scoped directly by `consultant_id` instead, see `CommissionSettlement
+  ViewSet.get_queryset` and the reports endpoint's own `_settlements_report`) — needs
+  its own hand-written join. Two real bugs shipped from assuming otherwise. As of
+  2026-09-01 `REVENUE_OFFICER` shares this same scoping 1:1 with `CONSULTANT` — this
+  caveat applies to both roles now, not just one.
 - **A serializer field the view sets from the URL (not client input) must be
   `read_only`**, or DRF treats it as required input the client was never asked to send,
   and the endpoint 400s on every call. Bit both `ConsultantPortfolioSerializer` and (at
@@ -154,6 +158,181 @@ forgotten.
   file reached `master` once already and 400'd every request to the other service (Django's
   `ALLOWED_HOSTS` check rejects any request whose `Host:` header isn't on the list) with no
   crash, no traceback — just silent request-level rejection. See the entry below.
+
+---
+
+## 2026-09-01 — Frontend backend-requirements batch, part 2: KYC fields, ad-hoc report endpoint
+
+**Ask:** the two items deliberately left open in part 1 below — item 2 (KYC field
+storage format) and item 4 (report module scope), which the frontend explicitly asked
+to define together rather than have guessed at. User picked: hashed ID storage, all
+four entities (Payers/Bills/Payments/Settlements), all four dimensions (ward,
+revenue_item, consultant, date), and an ad-hoc query builder over fixed templates.
+
+**Added — KYC fields (item 2):** `SubConsultant.authorized_signatory_{name,id_type,
+id_hash}` + `registered_address`; `FieldAgent.{id_type,id_hash,next_of_kin_name,
+next_of_kin_phone}`. Storage follows `Payer.nin_bvn_hash`'s exact existing precedent —
+confirmed that field is a plain `CharField` the caller hands an already-hashed value
+into (the one real hashing call in this codebase, `hashlib.sha256(...).hexdigest()`,
+lives in `seed_starter_data.py`'s own local seed helper, not a server-side utility) —
+so no new hashing logic was added, just matching field shapes. Both exposed on
+list/detail, accepted at onboarding only (no dedicated edit endpoint — wasn't asked for,
+unlike contract dates in part 1).
+
+**Added — ad-hoc report endpoint (item 4):** `GET /api/v1/reports?entity=...
+&group_by=...&<filters>` (`apps/common/api/reports.py`, registered directly in
+`config/api_urls.py` — same lightweight pattern as `DashboardSummaryView`/
+`DashboardGlobalView`, no new Django app). Deliberately *not* a fully free-form query
+builder (arbitrary client-picked joins) — that's dynamic ORM construction from
+untrusted input, a much bigger and riskier surface. Instead: any of the 4 entities x up
+to 2 of that entity's allowed dimensions x its filters, from a fixed validated
+combinatorial space, returning already-aggregated rows (counts/sums as quoted decimal
+strings, matching every other money field in this API) — never raw identity-level
+records. Each entity's access mirrors its own direct endpoint exactly rather than
+inventing a new visibility rule: GLOBAL_VIEW excluded everywhere payer/bill identity is
+involved (same allow-list boundary as always), AGENT excluded from SETTLEMENTS
+(matching `CommissionSettlementViewSet`), CONSULTANT/REVENUE_OFFICER scoped via the same
+`portfolio_filter` used everywhere else (Settlements has no payer to walk through, so
+it's scoped directly by `consultant_id`, matching `CommissionSettlementViewSet.
+get_queryset` — same as part 1's Gotcha about `portfolio_filter` only covering
+payer-shaped querysets). `revenue_item` grouping on BILLS fans out per `BillLine` rather
+than per `Bill` (a multi-item bill has no single "the" item) — matches
+`DashboardSummaryView`'s existing `by_item` breakdown convention rather than inventing a
+different one.
+
+**Fixed — small consistency gap found while building this:** `CommissionSettlementViewSet`
+didn't have `REVENUE_OFFICER` yet (added in part 1 to Payer/Bill/Payment/Receipt/
+DebtCase/CouncilRevenueItem, but settlements was missed) — added here so a revenue
+officer sees the same settlement data through both `/settlements` directly and
+`/reports?entity=SETTLEMENTS`, rather than only the latter.
+
+**Files:** `apps/accounts/{models.py,api/serializers.py}`, `apps/settlements/api/views.py`,
+`apps/common/api/reports.py` (new), `config/api_urls.py`, migration
+`accounts/0003_fieldagent_id_hash_fieldagent_id_type_and_more.py`,
+`tests/{test_accounts.py,test_reports.py}` (latter new).
+
+**Verified:** via pytest against the real (remote Render) Postgres database, same caveat
+as part 1 (no running server / frontend exercised). 21/21 passing (16 report tests + 2
+KYC round-trip tests + 4 settlements-touched `test_search_filters` tests, re-run after
+touching `CommissionSettlementViewSet`) — one initial failure
+(`test_bills_report_group_by_revenue_item_fans_out_lines`) was a bug in the test's own
+fixture (two revenue items both left on `make_revenue_item`'s default `name="Test Item"`,
+so the report's `item_name`-based grouping correctly merged them into one bucket), not
+the feature — fixed the test, not the code. `manage.py check` and
+`makemigrations --check` both clean.
+
+**Gotchas:**
+- `docs/openapi-schema.yaml` is a stale, unwired static export (last touched 2026-08-16,
+  no script/CI reference anywhere in the repo) — `API_REFERENCE.md` already says the live
+  `/api/schema/` is the real source of truth and a checked-in static export is exactly
+  what it says *not* to rely on. Left as-is; flagged rather than silently regenerated
+  since nothing in the repo currently treats it as authoritative — confirm with Scaper20
+  before deciding whether to keep maintaining it or drop it.
+- The reports endpoint's `revenue_item` dimension only exists for BILLS — PAYERS/PAYMENTS
+  have no clean per-item link (a payment applies against a whole bill's balance, not an
+  itemized charge; a payer isn't "one" revenue item). Requesting it for those 400s with a
+  clear message rather than silently ignoring it.
+
+---
+
+## 2026-09-01 — Frontend backend-requirements batch, part 1: contract dates, Department, revenue officer role, arrears line-item detail, consultants as billed payers
+
+**Ask:** frontend audited the outstanding feature list and wrote up exactly what the
+backend needed before any of it could be built — 7 items, several with open design
+questions the frontend explicitly flagged rather than guessing at. Grounded each answer
+in the actual code (SubConsultant/FieldAgent/AppUser models, portfolio_filter,
+roll_arrears, status_change) before proposing anything; user confirmed 4 of the open
+decisions via AskUserQuestion before implementation started. This entry covers items 1,
+3, 5, 6, 7 — items 2 (KYC) and 4 (reports) needed a further round of decisions, see part
+2 above.
+
+**Added — contract dates (item 1):** `SubConsultant.contract_start_date`/
+`contract_end_date` (nullable — open-ended contract), `is_contract_expired` computed
+property (dashboard-flag only, no auto status transition — this codebase has no
+state-machine or scheduled-job infra for SubConsultant.status, and none was added here).
+Editable post-onboarding via a new `POST /consultants/{id}/contract_dates` action,
+COUNCIL_ADMIN-only, validates start <= end against whichever of the pair is already set.
+
+**Added — Department (item 5):** new `apps.tenancy.Department` model (council-scoped,
+matching every other reference model here — WardZone included), own RLS policy in its
+migration per this codebase's own convention (every tenant-scoped table gets one in the
+same migration that creates it). `GET/POST/PATCH /departments`, and
+`POST /revenue-items/{id}/department` (`department_id`, nullable to clear) to assign —
+mirrors the existing `rate`/`rate-bands` per-field-action pattern on
+`CouncilRevenueItemViewSet` rather than a generic edit endpoint. `?department=` filter
+added to the revenue-items list. No Department concept existed anywhere before this.
+
+**Added — revenue officer role (item 3):** new `REVENUE_OFFICER` access level, scoped
+identically to `CONSULTANT` in `common.scoping.portfolio_filter` (same
+`enumerated_by__consultant_id` walk) — enforced read-only by staying off every mutation
+endpoint's `permission_classes`/`get_permissions()`, not by any check inside
+`portfolio_filter` itself. Wired into `PayerViewSet`, `BillViewSet`, `PaymentViewSet`,
+`ReceiptViewSet` (list only, not `send`), `DebtCaseViewSet`, `CouncilRevenueItemViewSet`.
+Onboarded via `POST/GET /consultants/{id}/revenue-officers`, COUNCIL_ADMIN-only, mirrors
+`StakeholderViewSet`'s existing onboarding shape.
+
+**Added — arrears line-item detail (item 6):** `SupersededBillSerializer` (used by both
+`BillViewSet.bill_detail` and the public bill-lookup view) now nests each superseded
+bill's own `BillLine`s. This is read-only — `issue_bill(roll_arrears=True)` was already
+confirmed to never touch a superseded bill's lines (it only flips status to SUPERSEDED
+and sums `.balance` into the new bill's `arrears_amount`), so the data was already
+there, just unexposed. Deliberately *not* the alternative (flagging individual
+BillLines as "carried forward from arrears") — that would have meant touching
+`issue_bill`'s merge logic, which its own docstring flags as protecting a real invariant
+(arrears consolidation never double-counts).
+
+**Added — consultants as billed payers (item 7):** `SubConsultant.registration_payer`
+(nullable OneToOne to `Payer` — null only for consultants onboarded before this).
+Onboarding now requires `registration_ward_id`, auto-creates the firm as a `Payer`
+(BUSINESS type) via the existing `create_payer()` service, and auto-issues a
+registration bill via `issue_bill()` against the seeded Contractors item's existing
+flat-rate "Consultancy" band (`30010048`, ₦120,000) — confirmed this band already
+existed rather than adding a new item. `status_change` now rejects `PENDING→ACTIVE`
+while that bill has an open balance (`ISSUED`/`PART_PAID`/`OVERDUE`).
+
+**Fixed — real gap found while scoping item 7:** `FieldAgentViewSet.perform_create`'s
+council-admin-driven branch already required the parent `SubConsultant` to be `ACTIVE`;
+the CONSULTANT-role self-service branch (a manager onboarding their own agent) never
+checked status at all — a `PENDING` or `SUSPENDED` manager could onboard field agents.
+Both branches now agree.
+
+**Files:** `apps/accounts/{models.py,api/serializers.py,api/views.py}`,
+`apps/tenancy/{models.py,api/serializers.py,api/views.py,api/urls.py}`,
+`apps/revenue/{models.py,api/serializers.py,api/views.py}`, `apps/common/scoping.py`,
+`apps/billing/api/{serializers.py,views.py}`, `apps/registry/api/views.py`,
+`apps/payments/api/views.py`, `apps/enforcement/api/views.py`, migrations
+`accounts/0002_...`, `tenancy/0002_department.py`,
+`revenue/0005_councilrevenueitem_department.py`,
+`tests/{conftest.py,test_accounts.py,test_money_invariants.py,test_departments.py}` (new).
+
+**Verified:** via pytest against the real (remote Render) Postgres database — not
+manually exercised through a running server or the frontend (a separate repo, not
+present here). 146/146 passing: 36 pre-existing `test_accounts.py` tests (confirming no
+regression), 29 new/changed, 75 across every other viewset/module this touched
+(`test_revenue_items_portfolio`, `test_dashboard`, `test_audit_fixes`, `test_rate_bands`,
+`test_search_filters`, `test_bill_line_merging`, `test_tenancy_rls`), 6 more
+(`test_onboarding`, `test_receipt_delivery`). `manage.py check` and
+`makemigrations --check` both clean.
+
+**Gotchas:**
+- Onboarding a consultant now hard-fails (400, not a silent skip) on any council that
+  hasn't run `seed_kuje`/`seed_rate_bands` yet — the `30010048`/"Consultancy" band has
+  to exist first. Worth knowing before onboarding a consultant on a fresh council.
+- Caught myself nearly widening `add_line`'s (and `kyc_status`'s) narrower
+  COUNCIL_ADMIN-only `permission_classes` while adding `REVENUE_OFFICER` — a
+  `get_permissions()` override branching on `self.request.method == "POST"` clobbers
+  *every* POST action on that viewset, not just the intended one, since DRF resolves an
+  `@action`'s own `permission_classes` by setting it as an instance attribute before
+  `get_permissions()` runs. Branch on `self.action` (e.g. `== "create"`), not
+  `self.request.method`, whenever a viewset has more than one POST-handling action —
+  `PayerViewSet`/`BillViewSet`/`PaymentViewSet` all do this correctly now; check this
+  pattern before adding another role to any viewset with narrower per-action overrides.
+- `common.scoping.portfolio_filter`'s existing "only covers payer-shaped querysets"
+  caveat (see recurring themes above) now also applies to `REVENUE_OFFICER`, not just
+  `CONSULTANT` — same rule, wider audience.
+- `GLOBAL_VIEW` was deliberately *not* added anywhere in this batch (still the same
+  allow-list as before) — `REVENUE_OFFICER` and `GLOBAL_VIEW` are different roles with
+  different scoping, don't conflate them later.
 
 ---
 
