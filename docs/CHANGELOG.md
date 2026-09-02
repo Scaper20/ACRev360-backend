@@ -157,6 +157,40 @@ forgotten.
 
 ---
 
+## 2026-09-01 — Frontend: REVENUE_OFFICER role (fourth of Scaper20's new-feature batch)
+
+**Added:** new `AccessLevel` value plus a dedicated `nav.ts` case — same read-oriented
+sections as `CONSULTANT` (Dashboard, Payer Registry, Bills, Payments, Receipts,
+Reconciliation, Settlements, Debt) but no "Team" section, since managing/onboarding agents
+is a mutating capability outside "same portfolio visibility as the manager" and every such
+action 403s for this role server-side regardless of what the nav shows. Every existing page's
+`isAdmin`/`=== 'CONSULTANT'` gating already excluded this new role correctly with zero
+changes needed anywhere else — worth remembering next time a new role shows up: check whether
+the existing allow-list-style checks already do the right thing before assuming new gating
+code is needed. Onboarding UI is a new "Revenue Officers" section in `ConsultantsPage`'s
+detail modal (list + admin-only create form), matching the backend's own nesting under
+`/consultants/{id}/revenue-officers`.
+
+**Found and fixed live:** `GET .../revenue-officers` is documented as
+`PaginatedRevenueOfficerList` but an empty list actually comes back as a bare `[]`, not
+`{results: [], count: 0}` — another schema-vs-runtime mismatch, same family as the six
+already catalogued in `packages/api/src/overrides.ts`. Handled both shapes defensively
+(`Array.isArray(data) ? data : (data.results ?? [])`) rather than assume either one is
+permanent.
+
+**Files:** `packages/api/src/auth.ts`, `apps/portal/src/nav.ts`,
+`apps/portal/src/routes/consultants/ConsultantsPage.tsx` (all `ACRev360-frontend`).
+
+**Verified:** `tsc -b` clean. Live against his backend: created a revenue officer under a
+real consultant, confirmed it displays correctly (name, username, phone, Active status,
+joined timestamp) after fixing the pagination-shape bug above.
+
+**Gotchas:** add this to the recurring-themes list mentally — a *list* endpoint's
+schema-vs-runtime mismatch shows up specifically on the **empty** case (bare `[]` vs an
+envelope with `count: 0`), which is easy to miss if you only test with existing data present.
+
+---
+
 ## 2026-09-01 — Frontend: departments (third of Scaper20's new-feature batch)
 
 **Added:** new `DepartmentsPage.tsx` — admin-only list/add/edit CRUD (`department_name`,
