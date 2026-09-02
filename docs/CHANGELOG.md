@@ -157,6 +157,31 @@ forgotten.
 
 ---
 
+## 2026-09-01 — Frontend: departments (third of Scaper20's new-feature batch)
+
+**Added:** new `DepartmentsPage.tsx` — admin-only list/add/edit CRUD (`department_name`,
+`department_code`, `head_name`, `head_phone`), same list-then-modal shape as `WardsPage` but
+with an edit path since his `PATCH /departments/{id}` exists (Wards has none). Revenue Items
+gets a new "Department" column plus a picker in its existing detail modal
+(`POST /revenue-items/{id}/department`, `department_id: null` clears it) — saving there
+invalidates both the `revenue-items` and `departments` query keys, since the item list
+denormalizes `department_name` and a rename should show up without a manual refresh.
+
+**Files:** `apps/portal/src/routes/departments/DepartmentsPage.tsx` (new),
+`apps/portal/src/routes/revenue-items/RevenueItemsPage.tsx`, `apps/portal/src/App.tsx`,
+`apps/portal/src/nav.ts` (all `ACRev360-frontend`).
+
+**Verified:** `tsc -b` clean. Live against his backend: created a department, edited its
+head's name (confirmed `PATCH` took), assigned it to a revenue item, confirmed the Department
+column updated to match.
+
+**Gotchas:** none new — same admin-gating discipline as every other admin-config page in this
+app (`isAdmin` hides both the mutating controls and the click-to-open affordance, not just the
+nav link, since a non-admin can still reach the route directly and the backend's own
+permission is the real gate either way).
+
+---
+
 ## 2026-09-01 — Frontend: agent + consultant KYC fields (second of Scaper20's new-feature batch)
 
 **Added:** field agent onboarding now takes ID type/number (hashed client-side via the
