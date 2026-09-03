@@ -157,6 +157,47 @@ forgotten.
 
 ---
 
+## 2026-09-03 — Arrears itemized by original revenue item, not one lump sum
+
+**Ask:** the last unbuilt item from the original backend-requirements batch —
+`roll_arrears` produces one `arrears_amount` figure with no line-item breakdown, and the
+original spec asked for either marking individual `BillLine`s as carried-forward, or
+exposing each superseded bill's own itemized lines through `superseded_bills`.
+
+**Found:** Scaper20 had already built the second option, ahead of my asking — checked the
+live schema before doing anything else, same discipline as every item in this batch.
+`SupersededBill` now exposes `lines: BillLineDetail[]` (both the authenticated detail
+endpoint and the public print lookup) — a read-only addition, `roll_arrears` itself is
+unchanged. The line-level detail behind the lump sum was always sitting on the superseded
+bills, just never serialized until now.
+
+**Rebuilt:** `BillDetailModal` — each "consolidated from {bill_ref}" row now shows its own
+itemized lines nested underneath, same money/band-label formatting as the current-period
+Line Items section above it. `DemandBillPrint` / `DemandNoticePrint` — replaced one generic
+"Arrears — Brought Forward" row per superseded bill with one row per actual line item,
+labeled with its real item name and suffixed "— arrears [from {bill_ref}]" so it stays
+clearly distinguishable from a current-period charge. Totals are unchanged — this only
+changes how the existing arrears figure is broken down, not any arithmetic.
+
+**Files:** `apps/portal/src/routes/bills/BillDetailModal.tsx`,
+`apps/portal/src/routes/print/DemandBillPrint.tsx`,
+`apps/portal/src/routes/print/DemandNoticePrint.tsx` (all `ACRev360-frontend`).
+
+**Verified:** `tsc -b` clean (forced, non-incremental). Live against his backend: issued a
+real bill for a payer with an existing open bill, checked "consolidate prior outstanding
+bills", confirmed all three surfaces (detail modal, demand bill, demand notice) show
+"Community and Development Levy — arrears" — the actual item carried over from the
+superseded bill — instead of a generic lump-sum line, with the same total amounts as before.
+
+**Gotchas:** none new. This was the last *unbuilt* item from the original backend-requirements
+batch, but not the last open one — "consultants onboarded as payers, billed, inactive until
+paid" is still only half-confirmed: the auto-billing side exists (that's how the missing
+Consultancy band got found earlier in this batch), but whether `status_change` actually
+*rejects* PENDING→ACTIVE while that bill is unpaid has never been tested, and there's no
+frontend surfacing it either way yet.
+
+---
+
 ## 2026-09-03 — Reports reworked into two record-level report types (Payers, Bills)
 
 **Ask:** the aggregate-only Reports page from three days ago wasn't what was actually wanted —
