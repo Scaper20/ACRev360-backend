@@ -157,6 +157,50 @@ forgotten.
 
 ---
 
+## 2026-09-03 — Frontend: reports (fifth and last of Scaper20's new-feature batch)
+
+**Added:** new `ReportsPage.tsx` under Administration — entity picker (Payers/Bills/
+Payments/Settlements), optional date range, up to 2 group-by dimensions (ward, revenue_item,
+consultant, date — enforced client-side), plus optional consultant/ward filters and a
+revenue-item filter shown only for Bills. Results render as a genuinely dynamic table: column
+set is the union of keys across every returned row, since `rows`' shape varies by
+entity/group_by combination and can't be known ahead of time (`ReportResponse.rows` is typed
+as `additionalProperties: {}` for exactly this reason).
+
+**Found and handled live, three things:**
+- `group_by` is documented "Repeatable, max 2" but the generated type is a bare `string` —
+  the schema never declared it as an array. `openapi-fetch`'s default serializer still
+  repeats an array value as multiple query keys regardless of the type, so the fix is a cast
+  past the type checker, not a different request shape — confirmed via network inspection
+  that `?group_by=ward` serializes correctly either way.
+- Decimal-shaped fields (`billed`/`arrears`/`balance`/`amount`) come back as fixed-2dp
+  strings, same convention as everywhere else in this API — `cellValue()` detects that shape
+  (`/^-?\d+\.\d{2}$/`) and formats via `money2()` instead of printing `"120000.00"` raw.
+- **A genuine bug**, not just a schema mismatch: TanStack Query's default retry (3x with
+  backoff) meant an invalid combination's 400 (e.g. `ward` isn't a valid dimension for
+  SETTLEMENTS — only consultant/date are) took several seconds to actually surface, and
+  checking too early caught it mid-retry looking exactly like "no rows for this selection"
+  instead of the real, specific server error. Set `retry: false` on this query — a 400 here
+  is always a bad combination, never a transient failure, and a query-builder tool is exactly
+  where users hit invalid combinations regularly while exploring what's valid.
+
+**Files:** `apps/portal/src/routes/reports/ReportsPage.tsx` (new), `apps/portal/src/App.tsx`,
+`apps/portal/src/nav.ts` (all `ACRev360-frontend`).
+
+**Verified:** `tsc -b` clean. Live against his backend: Payers ungrouped (`{count: 8}`) and
+grouped by ward; Bills and Payments grouped by ward with correct money formatting; Settlements'
+entity-specific dimension validation surfacing correctly and promptly after the retry fix; the
+max-2 group-by limit (4th checkbox click correctly blocked and visually reverted).
+
+**Gotchas:** a dynamic-shape response endpoint needs its error-surfacing tested with an
+*invalid* combination, not just valid ones — the retry-masking bug above would never have
+shown up testing only combinations that succeed. This closes out the full backend-requirements
+handoff batch from `docs/CHANGELOG.md`'s earlier entries (contract dates → KYC → departments →
+revenue officer → reports) — all five confirmed live against his actual deployment, not just
+type-checked.
+
+---
+
 ## 2026-09-01 — Frontend: REVENUE_OFFICER role (fourth of Scaper20's new-feature batch)
 
 **Added:** new `AccessLevel` value plus a dedicated `nav.ts` case — same read-oriented
