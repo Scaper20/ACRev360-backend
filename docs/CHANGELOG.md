@@ -157,6 +157,32 @@ forgotten.
 
 ---
 
+## 2026-09-03 — Follow-up: multi-level arrears chains now fully itemize
+
+**Found:** verifying the single-level itemization above with a *second* consolidation
+(`000006` → `000010` → `000011`) surfaced a real gap: `SupersededBill.lines` only returned
+`000010`'s own direct `bill.lines.all()` (₦5,000, "Registration of Marriages") — not the
+further ₦5,000 `000010` had itself inherited from `000006` ("Community and Development
+Levy"). `amount` (₦10,000) and `sum(lines)` (₦5,000) silently disagreed the moment a bill
+that already carried rolled-in arrears got superseded again — one level of history exposed,
+anything deeper dropped.
+
+**Fixed (Scaper20):** `SupersededBill.lines` now recurses through the full chain — confirmed
+live on the same `000011` bill: both lines (₦5,000 + ₦5,000) now present, summing exactly to
+the ₦10,000 `amount`.
+
+**Frontend:** no changes needed — `BillDetailModal`, `DemandBillPrint`, and
+`DemandNoticePrint` already iterate `s.lines` generically (from the entry above), so the
+existing code picked up the corrected data automatically. Re-verified all three surfaces live
+against the same bill.
+
+**Gotchas:** when verifying anything that touches `roll_arrears`, test with a genuine
+multi-level chain (consolidate a bill that is itself already a consolidation), not just a
+single supersession — that's exactly the case this bug only showed up in, and it's an easy
+scenario to skip when a single-level test already looks correct.
+
+---
+
 ## 2026-09-03 — Arrears itemized by original revenue item, not one lump sum
 
 **Ask:** the last unbuilt item from the original backend-requirements batch —
