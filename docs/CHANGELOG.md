@@ -161,6 +161,141 @@ forgotten.
 
 ---
 
+## 2026-09-03 — Fix: multi-level consolidation dropped the oldest arrears lines
+
+**Found:** reported directly against the arrears line-item feature added earlier this
+week (see the "arrears line-item detail (item 6)" entry below). Repro: bill1 (item A,
+₦5,000) → bill2 consolidates bill1 via `roll_arrears=True` and adds its own line (item
+B, ₦5,000), so bill2.total_amount = ₦10,000 → bill3 consolidates bill2 via
+`roll_arrears=True` with no new lines of its own, so bill3.arrears_amount = ₦10,000.
+`GET /bills/{bill3.id}/detail`'s `superseded_bills` correctly listed bill2 (the one
+entry in `bill3.supersedes` — bill1 is already `SUPERSEDED` by the time bill3 rolls up,
+so `issue_bill`'s `open_bills` query never sees it again, and it never appears in
+`bill3.supersedes` directly), but that entry's `lines` showed only item B (bill2's own
+direct line) — item A silently missing, `sum(lines) = 5000` against a stated `amount`
+of `10000`. Root cause: `SupersededBillSerializer.lines` sourced from the bare `lines`
+manager (`bill.lines.all()`), which only ever reaches one bill's *own* direct lines,
+never a further level of that bill's own `supersedes` chain.
+
+**Fixed:** new `Bill.all_arrears_lines()` (`apps/billing/models.py`) — a bill's own
+`lines.all()` plus, recursively, `all_arrears_lines()` of every bill in its own
+`supersedes.all()`. Deliberately a `Bill` method, not serializer logic, so the
+invariant ("sum of all lines always equals the total, at any consolidation depth") is
+directly testable without going through the API. `SupersededBillSerializer.lines` now
+sources from it (`source="all_arrears_lines"` — DRF auto-invokes a zero-arg method the
+same way it resolves a property, no `SerializerMethodField` needed). No schema/contract
+change — same field name, same shape, just complete now.
+
+**Files:** `apps/billing/models.py`, `apps/billing/api/serializers.py`,
+`tests/test_money_invariants.py` (+1 test reproducing the exact 3-bill chain, asserting
+both the model-level `all_arrears_lines()` invariant and the API response).
+
+**Verified:** pytest against the real remote Postgres; `manage.py check` clean. Full
+`test_money_invariants.py`: 8/8 passing (includes the two existing single-level
+superseded-bills tests, confirming the recursion is a no-op change for a chain that's
+only one level deep). The new multi-level test failed once first, on its own wrong
+expected numbers — it reused `scoped["item"]` assuming ₦5,000 to match the repro's
+figures, but that fixture item is actually ₦10,000 — fixed by using two explicit
+₦5,000 items instead; not a defect in `all_arrears_lines()` itself, which was correct
+on the first attempt (the failure was `arrears_amount == 15000 != expected 10000`,
+i.e. the *test's* arithmetic was wrong, not a missing/extra line).
+
+**Gotchas:**
+- **A bill's `lines` and its recursive `all_arrears_lines()` diverge the moment a
+  superseded bill had a *partial* payment before being rolled up.** `all_arrears_lines()`
+  returns lines at their full billed `line_amount`, unaware of any payment; `amount`
+  on `SupersededBillSerializer` (sourced from `balance`) reflects what was actually
+  still owed. No partial-payment case was in the reported repro or is covered by the
+  new test — if `sum(lines) != amount` ever shows up for a *real* bill, check payment
+  history on the superseded bill before assuming this fix regressed; it's a pre-existing,
+  separate characteristic (the `amount` field's own docstring already documents that it's
+  frozen at balance-at-supersession-time, not face value) that this pass didn't touch or
+  attempt to reconcile.
+- **This recurses to unbounded depth with no `prefetch_related` covering it fully** — the
+  existing prefetch calls in `BillViewSet.bill_detail`/`PublicBillLookupView` only cover
+  ~2 levels (`supersedes__lines__assessment__...`), so a 3+ level chain falls back to
+  per-level lazy queries beyond that. Correct either way; only a performance
+  consideration, and arrears chains this deep are not expected to be common. If they
+  become common, prefetching an unbounded recursive relation needs a different approach
+  (e.g. a recursive CTE) rather than deepening the existing `Prefetch` chain further.
+
+---
+
+## 2026-09-03 — Detailed reporting via the existing Payer/Bill list endpoints (filter/sort), not new ones
+
+**Ask:** frontend needs detailed reporting on Payers and Bills — filterable, sortable,
+paginated *rows* (the Payer Registry and Bills List pages), as distinct from `/reports`'s
+aggregate counts/sums added earlier today. Explicit constraint: extend the existing
+endpoints additively via optional query params, same serializers and response shapes, and
+leave `/reports` intact for the aggregate side.
+
+**Added — `apps/common/filtering.py` (new):** `parse_int`/`parse_date`/`parse_decimal`,
+`apply_payer_dimension_filters`, `apply_date_range`, and `StableOrderingFilter`. The
+parsers exist because a malformed param (`?ward_id=abc`, `?date_from=garbage`) raises a
+bare `ValueError`/`django.core.exceptions.ValidationError` from the ORM, and neither is a
+DRF `APIException` — so it skips `acrev360_exception_handler` and 500s (same class of
+problem as the uncaught `IntegrityError` already in the recurring themes above). Every
+new filter goes through them, so bad input is a 400 naming the param.
+
+**Added — `GET /payers`:** `ward_id`, `consultant_id`, `date_from`/`date_to`
+(registration date), and `ordering` over `full_name`/`created_at`/`payer_ref`/
+`kyc_status`. `q`, pagination, serializer and default `full_name` ordering unchanged.
+
+**Added — `GET /bills`:** `ward_id`, `consultant_id`, `revenue_item_id`,
+`date_from`/`date_to` (issue date = `created_at`; `due_date` is sortable but not
+range-filtered — say so if that's wanted), `value_min`/`value_max` over `total_amount`,
+and `ordering` over `total_amount`/`due_date`/`bill_ref`/`created_at`/`amount_paid`/
+`status`. `q`, `payer`, `status` unchanged.
+
+**Fixed — `/reports` double-counted a multi-band bill when filtered by revenue item:**
+found while tracing the `lines__assessment__council_revenue_item_id` join the new
+`/bills?revenue_item_id=` filter was asked to reuse. `_bills_report` applied that filter
+as a join and then summed *bill-level* columns (`total_amount - arrears_amount`,
+`arrears_amount`, balance) — the join duplicates the bill row once per matching line, so a
+bill carrying two lines for the same item under different rate bands had its totals
+counted twice. `Count("id", distinct=True)` was already protected; the `Sum`s weren't.
+Now filtered via `Exists()` on that path. The `group_by=revenue_item` path deliberately
+keeps the join: its measure is per-line `line_amount` (unaffected by row multiplication),
+and the shared join is what makes "filter to item X, grouped by item" show only X.
+No change to the endpoint's contract, params or response shape.
+
+**Files:** `apps/common/filtering.py` (new), `apps/registry/api/views.py`,
+`apps/billing/api/views.py`, `apps/common/api/reports.py`,
+`tests/test_list_filters.py` (new), `tests/test_reports.py`.
+
+**Verified:** 36/36 on the directly-affected suites (`test_list_filters` 14 new,
+`test_reports` 17 incl. a new double-count regression test, `test_search_filters`,
+`test_serializers`), plus a regression pass over every other suite that calls
+`/api/v1/payers` or `/api/v1/bills` (`test_accounts`, `test_audit_fixes`,
+`test_dashboard`, `test_money_invariants`, `test_rate_bands`). pytest against the real
+remote Postgres; no running server/frontend exercised. `manage.py check` clean.
+
+**Gotchas:**
+- **`.distinct()` is mandatory on `?revenue_item_id=`** for the *list* endpoint, and
+  `Exists()` (not a join) for any *bill-level aggregate* — both for the same underlying
+  reason: `add_bill_line`/`issue_bill` merge lines only when item **and** band **and**
+  tier all match, so two lines with the same `council_revenue_item_id` under different
+  bands is normal, intended data. Any future filter that joins through `lines` inherits
+  this trap.
+- **`consultant_id` is a narrowing filter layered on top of `portfolio_filter`, never a
+  replacement.** A CONSULTANT/REVENUE_OFFICER passing another firm's id gets the (empty)
+  intersection, not that firm's rows — there's a test pinning exactly this. Don't
+  "simplify" by reordering it ahead of `portfolio_filter` or making it an either/or.
+- **`filter_backends` is set per-view, deliberately, not as `DEFAULT_FILTER_BACKENDS`** —
+  a global default would apply `OrderingFilter` to every list endpoint in the project at
+  once, including ones whose ordering is load-bearing elsewhere.
+- **`StableOrderingFilter` appends a `pk` tiebreaker** because sorting a paginated list by
+  a non-unique column (`total_amount`, `due_date`, `full_name` all tie in real data)
+  otherwise lets Postgres return tied rows in a different order per page request — a row
+  repeats on one page and never appears on the other. Use it, not plain `OrderingFilter`,
+  for any future paginated sort.
+- An unrecognised `?ordering=` value is silently ignored (DRF's `remove_invalid_fields`
+  drops anything outside `ordering_fields` and falls back to the default) rather than
+  400ing — intentional, matching DRF's own behavior, but worth knowing when a sort
+  "doesn't work" and returns 200.
+
+---
+
 ## 2026-09-01 — Frontend backend-requirements batch, part 2: KYC fields, ad-hoc report endpoint
 
 **Ask:** the two items deliberately left open in part 1 below — item 2 (KYC field

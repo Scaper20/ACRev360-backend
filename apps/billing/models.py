@@ -93,6 +93,26 @@ class Bill(CouncilScopedModel):
     def balance(self):
         return self.total_amount - self.amount_paid
 
+    def all_arrears_lines(self):
+        """This bill's own BillLines, plus (recursively) every BillLine
+        belonging to each bill this one directly or indirectly superseded.
+
+        A bill consolidated more than once (e.g. 000006 -> 000010 -> 000011)
+        previously only surfaced the immediate predecessor's own direct
+        lines — `bill.supersedes.all()` is one level of the chain, not the
+        whole thing, so 000011's superseded-bill breakdown silently dropped
+        000006's line once 000010 (itself a consolidation of 000006) got
+        superseded in turn. Recursing through `supersedes` at each level
+        instead of just reading `.lines` fixes that. See
+        apps.billing.api.serializers.SupersededBillSerializer, the one
+        caller of this — kept as a Bill method rather than serializer logic
+        so it's usable (and testable) independent of the API layer.
+        """
+        lines = list(self.lines.all())
+        for prior in self.supersedes.all():
+            lines.extend(prior.all_arrears_lines())
+        return lines
+
 
 class BillLine(models.Model):
     """Join table between bill and assessment — each line carries its own

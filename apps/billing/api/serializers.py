@@ -56,11 +56,18 @@ class SupersededBillSerializer(serializers.Serializer):
     SUPERSEDED and sums its balance into the new bill's arrears_amount. So the
     line-level detail behind that lump sum was always sitting right here,
     unexposed — this is a read-only addition, no new storage or change to
-    roll_arrears itself."""
+    roll_arrears itself.
+
+    Sources `lines` from Bill.all_arrears_lines(), not the bare `lines`
+    manager — a superseded bill that was itself a consolidation (e.g.
+    000006 -> 000010, then 000010 -> 000011) needs its *own* superseded
+    history included too, not just its direct lines, or a second (or
+    deeper) level of consolidation silently drops the oldest lines. See
+    Bill.all_arrears_lines's docstring."""
 
     bill_ref = serializers.CharField()
     amount = serializers.DecimalField(source="balance", max_digits=14, decimal_places=2)
-    lines = BillLineDetailSerializer(many=True, read_only=True)
+    lines = BillLineDetailSerializer(source="all_arrears_lines", many=True, read_only=True)
 
 
 class BillDetailSerializer(BillSerializer):

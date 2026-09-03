@@ -6,6 +6,7 @@ consolidation never double-counts, webhook replays are idempotent.
 import hashlib
 import hmac
 import json
+from decimal import Decimal
 
 import pytest
 from django.db import transaction
@@ -131,6 +132,60 @@ def test_public_bill_lookup_also_lists_superseded_bills(scoped, api_client):
     assert superseded[0]["bill_ref"] == original.bill_ref
     assert superseded[0]["amount"] == "10000.00"
     assert [line["harmonised_code"] for line in superseded[0]["lines"]] == ["MNYITEM"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_multi_level_consolidation_includes_full_recursive_line_history(scoped, authed_api_client, make_revenue_item):
+    """Bug: SupersededBillSerializer.lines sourced from the bare `lines`
+    manager — one prior bill's own *direct* lines only. A bill consolidated
+    more than once (bill1 -> bill2 -> bill3, matching the reported
+    000006 -> 000010 -> 000011 case) silently dropped bill1's line once
+    bill2 (itself a consolidation of bill1) got superseded by bill3 in turn:
+    bill3.supersedes only ever contains bill2 (bill1 is already SUPERSEDED
+    and excluded from issue_bill's open_bills query by the time bill3 rolls
+    up), so reading bill2.lines directly never reaches bill1's line at all.
+    Bill.all_arrears_lines() fixes this by recursing through `supersedes` at
+    each level instead of reading `.lines` directly."""
+    council, payer, admin = scoped["council"], scoped["payer"], scoped["admin"]
+    # Explicit ₦5,000 items, not scoped["item"] (which is ₦10,000) — matches
+    # the reported repro's own figures exactly.
+    item_a = make_revenue_item(council, code="MNYITEM4A", rate=5000)
+    item_b = make_revenue_item(council, code="MNYITEM4B", rate=5000)
+
+    bill1 = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_a, "quantity": 1}], actor=admin)
+    bill2 = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_b, "quantity": 1}],
+        roll_arrears=True, actor=admin,
+    )
+    bill3 = issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
+
+    bill1.refresh_from_db()
+    bill2.refresh_from_db()
+    assert bill1.status == Bill.SUPERSEDED
+    assert bill2.status == Bill.SUPERSEDED
+    assert bill3.supersedes.count() == 1  # bill1 isn't directly here — it's one level deeper, under bill2
+    assert bill3.arrears_amount == Decimal("10000")
+    assert bill3.total_amount == Decimal("10000")
+
+    # Model-level: the recursive invariant itself.
+    all_lines = bill3.all_arrears_lines()
+    assert sum((line.line_amount for line in all_lines), start=Decimal("0")) == bill3.total_amount
+    assert {line.assessment.council_revenue_item.harmonised_code for line in all_lines} == {
+        item_a.harmonised_code, item_b.harmonised_code,
+    }
+
+    # API-level: bill3's one superseded_bills entry (bill2) must carry both
+    # its own line AND bill1's, not just its own.
+    r = authed_api_client(admin).get(f"/api/v1/bills/{bill3.id}/detail")
+    assert r.status_code == 200, r.content
+    superseded = r.json()["superseded_bills"]
+    assert len(superseded) == 1
+    assert superseded[0]["bill_ref"] == bill2.bill_ref
+    assert superseded[0]["amount"] == "10000.00"
+    codes = {line["harmonised_code"] for line in superseded[0]["lines"]}
+    assert codes == {item_a.harmonised_code, item_b.harmonised_code}
+    line_sum = sum((Decimal(line["line_amount"]) for line in superseded[0]["lines"]), start=Decimal("0"))
+    assert line_sum == Decimal(superseded[0]["amount"])
 
 
 @pytest.mark.django_db(transaction=True)
