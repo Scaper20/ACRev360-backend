@@ -157,6 +157,50 @@ forgotten.
 
 ---
 
+## 2026-09-03 — Reports reworked into two record-level report types (Payers, Bills)
+
+**Ask:** the aggregate-only Reports page from three days ago wasn't what was actually wanted —
+needed two dedicated report types (Payers, Bills) with real per-record filtering, sorting, and
+search: which consultant onboarded, date range, ward, revenue items, and a bill value range.
+
+**Found:** none of the three existing candidates supported this. `GET /payers` and `GET
+/bills` only had `q` + pagination (plus `payer`/`status` on bills) — no ward/consultant/date
+filters at all. The `/reports` endpoint had the filter dimensions but only ever returned
+aggregate summary rows (counts/sums per group) — no search, no sort, no individual records.
+Bill value range didn't exist anywhere in the API.
+
+**Backend ask:** drafted a spec recommending extending the existing `/payers` and `/bills`
+list endpoints (same serializers/response shape already consumed by Payer Registry and Bills
+List) rather than a parallel report endpoint — additive, backward-compatible query params,
+and the `revenue_item_id` join logic already existed in `/reports` and was directly reusable.
+Scaper20 built exactly that: `ward_id`, `consultant_id`, `date_from`/`date_to`, and DRF's
+`ordering` on both; `revenue_item_id` and `value_min`/`value_max` added to bills only. Verified
+every field/filter live via curl before building against it: `ordering` on `full_name`,
+`payer_ref`, `created_at` (payers) and `bill_ref`, `total_amount`, `due_date` (bills) all
+genuinely reorder results (DRF's `OrderingFilter` silently ignores bad field names rather than
+erroring, so this needed a real behavioral check, not just a 200 status); `value_min`/
+`value_max`, `ward_id`, `date_from`/`date_to` all narrow correctly.
+
+**Rebuilt:** `ReportsPage.tsx` is now two dedicated sub-views (`PayersReport`, `BillsReport`),
+each a real filterable/sortable/searchable/paginated list — not an aggregate summary. Payers:
+search, ward, consultant ("onboarded by"), date range, sort. Bills: adds status, revenue item,
+value min/max.
+
+**Files:** `apps/portal/src/routes/reports/ReportsPage.tsx` (`ACRev360-frontend`).
+
+**Verified:** `tsc -b` clean. Live against his backend: ward filter narrowed payers to exactly
+the 6 actually in that ward; `value_min=50000` narrowed bills to exactly the 2 that qualify;
+both report types render with the same tag/money/date conventions as the existing Payer
+Registry and Bills List pages, not a one-off style.
+
+**Gotchas:** `OrderingFilter`'s silent-ignore-on-bad-field behavior means a `200` response is
+not proof a sort field actually works — confirm the row order actually changes (ascending vs
+descending) before trusting a new `ordering` value, same lesson as the retry-masking bug in
+the previous Reports entry: this endpoint family needs behavioral verification, not just
+status-code verification.
+
+---
+
 ## 2026-09-03 — Frontend: reports (fifth and last of Scaper20's new-feature batch)
 
 **Added:** new `ReportsPage.tsx` under Administration — entity picker (Payers/Bills/
