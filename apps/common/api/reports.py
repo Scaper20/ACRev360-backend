@@ -23,7 +23,7 @@ filter since it has no payer to walk through).
 """
 import datetime
 
-from django.db.models import Count, F, Sum
+from django.db.models import Count, Exists, F, OuterRef, Sum
 from django.db.models.functions import TruncDate
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
@@ -32,7 +32,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
-from apps.billing.models import Bill
+from apps.billing.models import Bill, BillLine
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.models import Payment
@@ -130,8 +130,6 @@ def _bills_report(request, group_by, f):
     qs = Bill.objects.filter(council_id=request.user.council_id).exclude(status__in=[Bill.SUPERSEDED, Bill.CANCELLED])
     qs = portfolio_filter(qs, request)
     qs = _apply_common_filters(qs, f, ward_field="payer__ward_id", consultant_field="payer__enumerated_by__consultant_id", date_field="created_at")
-    if f.get("revenue_item_id"):
-        qs = qs.filter(lines__assessment__council_revenue_item_id=f["revenue_item_id"])
 
     field_map = {WARD: "payer__ward__ward_name", CONSULTANT: "payer__enumerated_by__consultant__consultant_name"}
 
@@ -140,11 +138,25 @@ def _bills_report(request, group_by, f):
         # no single "the" item, so this switches both the base rows and the
         # money measure to line_amount, matching DashboardSummaryView's own
         # by_item breakdown (apps/common/api/dashboard.py) rather than
-        # inventing a different convention here.
+        # inventing a different convention here. Per-line sums are unaffected
+        # by the join's row multiplication, so the plain join filter is correct
+        # here (and keeps "filter to item X, grouped by item" showing only X).
         qs = qs.exclude(lines__isnull=True)
+        if f.get("revenue_item_id"):
+            qs = qs.filter(lines__assessment__council_revenue_item_id=f["revenue_item_id"])
         field_map = dict(field_map, revenue_item="lines__assessment__council_revenue_item__item_name")
         aggregates = {"count": Count("id", distinct=True), "billed": Sum("lines__line_amount")}
     else:
+        if f.get("revenue_item_id"):
+            # Exists(), not a join filter: the measures below sum *bill-level*
+            # columns, and a join to lines duplicates the bill row once per
+            # matching line — a bill carrying two lines for the same item under
+            # different rate bands (add_bill_line merges only when item+band+
+            # tier all match) would have its total counted twice. Count() was
+            # already distinct-protected; the Sums were not.
+            qs = qs.filter(
+                Exists(BillLine.objects.filter(bill=OuterRef("pk"), assessment__council_revenue_item_id=f["revenue_item_id"]))
+            )
         aggregates = {
             "count": Count("id", distinct=True),
             "billed": Sum(F("total_amount") - F("arrears_amount")),

@@ -22,6 +22,13 @@ from apps.billing.api.serializers import (
 from apps.audit.services import audit
 from apps.billing.models import Assessment, Bill, BillLine
 from apps.billing.services import BillingError, add_bill_line, delete_bill_line, issue_bill, update_bill_line
+from apps.common.filtering import (
+    StableOrderingFilter,
+    apply_date_range,
+    apply_payer_dimension_filters,
+    parse_decimal,
+    parse_int,
+)
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.models import Payment
@@ -60,6 +67,17 @@ class IssueBillResponseSerializer(BillSerializer):
             OpenApiParameter("status", OpenApiTypes.STR, description="Filter by bill status"),
             OpenApiParameter("payer", OpenApiTypes.INT, description="Filter to one payer's bills"),
             OpenApiParameter("q", OpenApiTypes.STR, description="Search by bill reference or payer name"),
+            OpenApiParameter("ward_id", OpenApiTypes.INT, description="Filter by the bill's payer's ward"),
+            OpenApiParameter(
+                "consultant_id", OpenApiTypes.INT,
+                description="Filter by the consultant whose user enumerated the bill's payer. Narrows within "
+                "the caller's own scope — it never widens it for a CONSULTANT/REVENUE_OFFICER.",
+            ),
+            OpenApiParameter("revenue_item_id", OpenApiTypes.INT, description="Bills carrying a line for this revenue item"),
+            OpenApiParameter("date_from", OpenApiTypes.DATE, description="Issued on/after this date (inclusive)"),
+            OpenApiParameter("date_to", OpenApiTypes.DATE, description="Issued on/before this date (inclusive)"),
+            OpenApiParameter("value_min", OpenApiTypes.NUMBER, description="Minimum total_amount (inclusive)"),
+            OpenApiParameter("value_max", OpenApiTypes.NUMBER, description="Maximum total_amount (inclusive)"),
         ]
     ),
     create=extend_schema(request=IssueBillSerializer, responses=IssueBillResponseSerializer),
@@ -73,6 +91,9 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
     # as CONSULTANT (see common.scoping.portfolio_filter).
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
+    # Per-view, not a DEFAULT_FILTER_BACKEND — see PayerViewSet's identical note.
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["total_amount", "due_date", "bill_ref", "created_at", "amount_paid", "status"]
 
     def get_permissions(self):
         if self.request.method == "DELETE":
@@ -92,13 +113,38 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
         qs = Bill.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
         qs = qs.select_related("payer", "payer__enumerated_by", "payer__enumerated_by__consultant")
         qs = portfolio_filter(qs, self.request)
-        status_param = self.request.query_params.get("status")
+        params = self.request.query_params
+        # Layered on top of portfolio_filter above, never instead of it — see
+        # apply_payer_dimension_filters' docstring.
+        qs = apply_payer_dimension_filters(qs, params, payer_path="payer")
+        qs = apply_date_range(qs, params, field="created_at")  # created_at is the issue date
+
+        status_param = params.get("status")
         if status_param:
             qs = qs.filter(status=status_param)
-        payer_param = self.request.query_params.get("payer")
-        if payer_param:
+
+        # Previously unparsed — `?payer=abc` raised a bare ValueError from the
+        # ORM, which isn't a DRF APIException and so 500'd instead of 400ing.
+        payer_param = parse_int(params, "payer")
+        if payer_param is not None:
             qs = qs.filter(payer_id=payer_param)
-        q = self.request.query_params.get("q")
+
+        revenue_item_id = parse_int(params, "revenue_item_id")
+        if revenue_item_id is not None:
+            # Same join the /reports endpoint uses. .distinct() because a bill can
+            # legitimately carry two lines for the same revenue item under
+            # different rate bands (add_bill_line merges only when item+band+tier
+            # all match), and the join would otherwise return that bill twice.
+            qs = qs.filter(lines__assessment__council_revenue_item_id=revenue_item_id).distinct()
+
+        value_min = parse_decimal(params, "value_min")
+        if value_min is not None:
+            qs = qs.filter(total_amount__gte=value_min)
+        value_max = parse_decimal(params, "value_max")
+        if value_max is not None:
+            qs = qs.filter(total_amount__lte=value_max)
+
+        q = params.get("q")
         if q:
             qs = qs.filter(models.Q(bill_ref__icontains=q) | models.Q(payer__full_name__icontains=q))
         return qs

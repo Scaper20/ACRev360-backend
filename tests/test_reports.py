@@ -13,6 +13,7 @@ from apps.accounts.models import AppRole
 from apps.billing.services import issue_bill
 from apps.payments.models import PaymentChannel
 from apps.payments.services import post_payment
+from apps.revenue.models import RateBand
 from apps.settlements.models import CommissionSettlement
 from apps.tenancy.context import set_council_context
 
@@ -91,6 +92,36 @@ def test_bills_report_group_by_revenue_item_fans_out_lines(scoped, authed_api_cl
     assert r.status_code == 200, r.content
     rows = {row["revenue_item"]: row["billed"] for row in r.json()["rows"]}
     assert rows == {"Report Item One": "10000.00", "Report Item Two": "5000.00"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bills_report_revenue_item_filter_does_not_double_count(scoped, authed_api_client, make_payer):
+    """A bill carrying two lines for the same item under different rate bands was
+    duplicated by the `lines` join, so the bill-level Sums (billed/arrears/balance)
+    counted it twice — Count was distinct-protected, the Sums weren't. Filtering
+    now goes through Exists() instead of the join."""
+    council, admin, item = scoped["council"], scoped["admin"], scoped["item_a"]
+    band_a = RateBand.objects.create(
+        council_revenue_item=item, label="Band A", rate_mode=RateBand.FLAT,
+        flat_amount=4000, effective_from=datetime.date.today(),
+    )
+    band_b = RateBand.objects.create(
+        council_revenue_item=item, label="Band B", rate_mode=RateBand.FLAT,
+        flat_amount=6000, effective_from=datetime.date.today(),
+    )
+    payer = make_payer(council, scoped["ward_a"], admin, name="Double Count Payer", phone="08085000001")
+    issue_bill(
+        council_id=council.id, payer=payer,
+        lines=[{"council_revenue_item": item, "rate_band": band_a}, {"council_revenue_item": item, "rate_band": band_b}],
+        actor=admin,
+    )
+
+    r = authed_api_client(admin).get(f"/api/v1/reports?entity=BILLS&revenue_item_id={item.id}")
+    assert r.status_code == 200, r.content
+    row = r.json()["rows"][0]
+    assert row["count"] == 1
+    assert row["billed"] == "10000.00"  # not 20000.00
+    assert row["balance"] == "10000.00"
 
 
 @pytest.mark.django_db(transaction=True)

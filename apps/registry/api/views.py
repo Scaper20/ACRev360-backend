@@ -10,6 +10,7 @@ from apps.accounts.models import AppRole, SubConsultant
 from apps.audit.services import audit
 from apps.billing.models import Assessment, Bill
 from apps.billing.services import BillingError
+from apps.common.filtering import StableOrderingFilter, apply_date_range, apply_payer_dimension_filters
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.registry.api.serializers import (
@@ -30,6 +31,14 @@ from apps.revenue.models import CouncilRevenueItem
     list=extend_schema(
         parameters=[
             OpenApiParameter("q", OpenApiTypes.STR, description="Search by name, reference or phone"),
+            OpenApiParameter("ward_id", OpenApiTypes.INT, description="Filter by the payer's ward"),
+            OpenApiParameter(
+                "consultant_id", OpenApiTypes.INT,
+                description="Filter by the consultant whose user enumerated the payer. Narrows within the "
+                "caller's own scope — it never widens it for a CONSULTANT/REVENUE_OFFICER.",
+            ),
+            OpenApiParameter("date_from", OpenApiTypes.DATE, description="Registered on/after this date (inclusive)"),
+            OpenApiParameter("date_to", OpenApiTypes.DATE, description="Registered on/before this date (inclusive)"),
         ]
     )
 )
@@ -43,6 +52,10 @@ class PayerViewSet(
     # portfolio as CONSULTANT (see common.scoping.portfolio_filter).
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
+    # Set per-view rather than as a DEFAULT_FILTER_BACKEND — a global default
+    # would silently change every other list endpoint's behavior too.
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["full_name", "created_at", "payer_ref", "kyc_status"]
 
     def get_permissions(self):
         if self.request.method == "DELETE":
@@ -61,7 +74,12 @@ class PayerViewSet(
     def get_queryset(self):
         qs = Payer.objects.filter(council_id=self.request.user.council_id).order_by("full_name")
         qs = portfolio_filter(qs, self.request, payer_path="")  # payer IS the root here
-        q = self.request.query_params.get("q")
+        params = self.request.query_params
+        # Layered on top of portfolio_filter above, never instead of it — see
+        # apply_payer_dimension_filters' docstring.
+        qs = apply_payer_dimension_filters(qs, params, payer_path="")
+        qs = apply_date_range(qs, params, field="created_at")
+        q = params.get("q")
         if q:
             qs = qs.filter(Q(full_name__icontains=q) | Q(payer_ref__icontains=q) | Q(phone__icontains=q))
         return qs
