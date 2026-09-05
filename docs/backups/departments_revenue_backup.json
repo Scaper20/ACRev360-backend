@@ -1,0 +1,2519 @@
+{
+  "departments": [
+    {
+      "id": 16,
+      "department_name": "Agricultural and Natural Resources Department",
+      "department_code": "AGRIC",
+      "head_name": "Head of Agricultural Services",
+      "head_phone": "08000000007"
+    },
+    {
+      "id": 17,
+      "department_name": "Audit Department",
+      "department_code": "AUDIT",
+      "head_name": "Head of Internal Audit",
+      "head_phone": "08000000008"
+    },
+    {
+      "id": 13,
+      "department_name": "Department of Administration and General Services",
+      "department_code": "ADMIN",
+      "head_name": "Head of Administration",
+      "head_phone": "08000000004"
+    },
+    {
+      "id": 15,
+      "department_name": "Department of Education, Social, Information, Sports and Culture",
+      "department_code": "EDU",
+      "head_name": "Head of Social Development",
+      "head_phone": "08000000006"
+    },
+    {
+      "id": 11,
+      "department_name": "Department of Environmental",
+      "department_code": "ENV",
+      "head_name": "Head of Environmental Sanitation",
+      "head_phone": "08000000002"
+    },
+    {
+      "id": 12,
+      "department_name": "Department of Finance and Supplies",
+      "department_code": "FIN",
+      "head_name": "Council Treasurer",
+      "head_phone": "08000000003"
+    },
+    {
+      "id": 10,
+      "department_name": "Department of Works, Lands, Housing and Engineering",
+      "department_code": "WORKS",
+      "head_name": "Engr. Head of Works",
+      "head_phone": "08000000001"
+    },
+    {
+      "id": 14,
+      "department_name": "Medical and Health Care Department",
+      "department_code": "HEALTH",
+      "head_name": "Head of Medical Services",
+      "head_phone": "08000000005"
+    }
+  ],
+  "revenue_items": [
+    {
+      "id": 80,
+      "harmonised_code": "30010031",
+      "item_name": "Registration of Marriages, Births and Death",
+      "category_id": 4,
+      "unit_of_charge": "Per Registration",
+      "department_id": 13
+    },
+    {
+      "id": 91,
+      "harmonised_code": "30010032",
+      "item_name": "Motor Parks (Commercial Vehicles picking up passengers)",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 16
+    },
+    {
+      "id": 68,
+      "harmonised_code": "30010033",
+      "item_name": "Environmental Sanitation and Premise Inspection",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 11
+    },
+    {
+      "id": 87,
+      "harmonised_code": "30010034",
+      "item_name": "Control of Advertisement",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 15
+    },
+    {
+      "id": 64,
+      "harmonised_code": "30010035",
+      "item_name": "Stacking of Building Material / Construction Permit",
+      "category_id": 2,
+      "unit_of_charge": "Per Permit",
+      "department_id": 10
+    },
+    {
+      "id": 82,
+      "harmonised_code": "30010036",
+      "item_name": "Mobile Advert",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 13
+    },
+    {
+      "id": 92,
+      "harmonised_code": "30010037",
+      "item_name": "Loading/Off Loading Control of Traffic",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 16
+    },
+    {
+      "id": 65,
+      "harmonised_code": "30010038",
+      "item_name": "Cutting Of Road Tar",
+      "category_id": 3,
+      "unit_of_charge": "Per Permit",
+      "department_id": 10
+    },
+    {
+      "id": 90,
+      "harmonised_code": "30010039",
+      "item_name": "Movement and Keeping of Dogs",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 16
+    },
+    {
+      "id": 66,
+      "harmonised_code": "30010040",
+      "item_name": "Numbering / Street Naming",
+      "category_id": 4,
+      "unit_of_charge": "Per Annum",
+      "department_id": 10
+    },
+    {
+      "id": 72,
+      "harmonised_code": "30010043",
+      "item_name": "Trade License, Private Lockup Shops and Allied Matters",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 12
+    },
+    {
+      "id": 81,
+      "harmonised_code": "30010044",
+      "item_name": "Radio and Television License",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 13
+    },
+    {
+      "id": 88,
+      "harmonised_code": "30010045",
+      "item_name": "Tricycle (Keke) Commercial Motor Cycle Regulation",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 15
+    },
+    {
+      "id": 69,
+      "harmonised_code": "30010046",
+      "item_name": "Public Toilet",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 11
+    },
+    {
+      "id": 70,
+      "harmonised_code": "30010047",
+      "item_name": "Pest Control",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 11
+    },
+    {
+      "id": 73,
+      "harmonised_code": "30010048",
+      "item_name": "Contractors",
+      "category_id": 4,
+      "unit_of_charge": "Per Registration",
+      "department_id": 12
+    },
+    {
+      "id": 63,
+      "harmonised_code": "30010049",
+      "item_name": "Tenement Rate Collection",
+      "category_id": 1,
+      "unit_of_charge": "Per Annum",
+      "department_id": 10
+    },
+    {
+      "id": 71,
+      "harmonised_code": "30010050",
+      "item_name": "Private Sector Participation Refuse Operation (PSPRO)",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 11
+    },
+    {
+      "id": 83,
+      "harmonised_code": "30010051",
+      "item_name": "Liquor Licensing",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 13
+    },
+    {
+      "id": 67,
+      "harmonised_code": "30010052",
+      "item_name": "Wrong Parking, Corporate Parking Permit/License",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 10
+    },
+    {
+      "id": 85,
+      "harmonised_code": "30010053",
+      "item_name": "Foodstuff Regulation",
+      "category_id": 3,
+      "unit_of_charge": "Per Month",
+      "department_id": 14
+    },
+    {
+      "id": 84,
+      "harmonised_code": "30010054",
+      "item_name": "Regulated Premises",
+      "category_id": 3,
+      "unit_of_charge": "Per Annum",
+      "department_id": 14
+    },
+    {
+      "id": 86,
+      "harmonised_code": "30010055",
+      "item_name": "Registration Fee",
+      "category_id": 4,
+      "unit_of_charge": "Per Registration",
+      "department_id": 14
+    },
+    {
+      "id": 89,
+      "harmonised_code": "30010056",
+      "item_name": "Communication Mast License",
+      "category_id": 2,
+      "unit_of_charge": "Per Annum",
+      "department_id": 15
+    },
+    {
+      "id": 75,
+      "harmonised_code": "30010057",
+      "item_name": "Agreement Fees on Sale of Land and Other Disposition",
+      "category_id": 4,
+      "unit_of_charge": "Per Transaction",
+      "department_id": 12
+    },
+    {
+      "id": 76,
+      "harmonised_code": "30010058",
+      "item_name": "Fees for Certificate of Occupancy",
+      "category_id": 4,
+      "unit_of_charge": "Per Certificate",
+      "department_id": 12
+    },
+    {
+      "id": 77,
+      "harmonised_code": "30010059",
+      "item_name": "Fees for Change of Ownership",
+      "category_id": 4,
+      "unit_of_charge": "Per Transaction",
+      "department_id": 12
+    },
+    {
+      "id": 78,
+      "harmonised_code": "30010060",
+      "item_name": "Searches",
+      "category_id": 4,
+      "unit_of_charge": "Per Search",
+      "department_id": 12
+    },
+    {
+      "id": 74,
+      "harmonised_code": "30010061",
+      "item_name": "Tender Fees",
+      "category_id": 4,
+      "unit_of_charge": "Per Tender",
+      "department_id": 12
+    },
+    {
+      "id": 79,
+      "harmonised_code": "30010062",
+      "item_name": "Community and Development Levy",
+      "category_id": 5,
+      "unit_of_charge": "Per Annum",
+      "department_id": 12
+    }
+  ],
+  "rate_schedules": [
+    {
+      "id": 63,
+      "council_revenue_item_id": 63,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 64,
+      "council_revenue_item_id": 64,
+      "rate_amount": "25000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 65,
+      "council_revenue_item_id": 65,
+      "rate_amount": "30000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 66,
+      "council_revenue_item_id": 66,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 67,
+      "council_revenue_item_id": 67,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 68,
+      "council_revenue_item_id": 68,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 69,
+      "council_revenue_item_id": 69,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 70,
+      "council_revenue_item_id": 70,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 71,
+      "council_revenue_item_id": 71,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 72,
+      "council_revenue_item_id": 72,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 73,
+      "council_revenue_item_id": 73,
+      "rate_amount": "50000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 74,
+      "council_revenue_item_id": 74,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 75,
+      "council_revenue_item_id": 75,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 76,
+      "council_revenue_item_id": 76,
+      "rate_amount": "25000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 77,
+      "council_revenue_item_id": 77,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 78,
+      "council_revenue_item_id": 78,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 79,
+      "council_revenue_item_id": 79,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 80,
+      "council_revenue_item_id": 80,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 81,
+      "council_revenue_item_id": 81,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 82,
+      "council_revenue_item_id": 82,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 83,
+      "council_revenue_item_id": 83,
+      "rate_amount": "50000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 84,
+      "council_revenue_item_id": 84,
+      "rate_amount": "30000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 85,
+      "council_revenue_item_id": 85,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 86,
+      "council_revenue_item_id": 86,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 87,
+      "council_revenue_item_id": 87,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 88,
+      "council_revenue_item_id": 88,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 89,
+      "council_revenue_item_id": 89,
+      "rate_amount": "1000000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 90,
+      "council_revenue_item_id": 90,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 91,
+      "council_revenue_item_id": 91,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    },
+    {
+      "id": 92,
+      "council_revenue_item_id": 92,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-05",
+      "effective_to": null
+    }
+  ],
+  "rate_bands": [
+    {
+      "id": 412,
+      "council_revenue_item_id": 89,
+      "label": "",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 429,
+      "council_revenue_item_id": 72,
+      "label": "Clinic/Private Hospitals",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "45000.00"
+    },
+    {
+      "id": 513,
+      "council_revenue_item_id": 73,
+      "label": "Construction",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 534,
+      "council_revenue_item_id": 84,
+      "label": "HOTELS \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "160000.00"
+    },
+    {
+      "id": 520,
+      "council_revenue_item_id": 82,
+      "label": "Industrial Motorcycle",
+      "rate_mode": "FLAT",
+      "flat_amount": "4500.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 517,
+      "council_revenue_item_id": 67,
+      "label": "Lorries/Tippers",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "250000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 527,
+      "council_revenue_item_id": 92,
+      "label": "Lorries/Tippers",
+      "rate_mode": "FLAT",
+      "flat_amount": "15000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 413,
+      "council_revenue_item_id": 64,
+      "label": "Paint Depot",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 379,
+      "council_revenue_item_id": 87,
+      "label": "School Sign Board",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20800.00",
+      "max_amount": "40800.00"
+    },
+    {
+      "id": 403,
+      "council_revenue_item_id": 83,
+      "label": "Wholesale Liquor",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 518,
+      "council_revenue_item_id": 67,
+      "label": "Car/Buses/Vans/Pick-up",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "500000.00",
+      "max_amount": "1000000.00"
+    },
+    {
+      "id": 521,
+      "council_revenue_item_id": 82,
+      "label": "Car/Buses/vans/pickups",
+      "rate_mode": "FLAT",
+      "flat_amount": "17000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 528,
+      "council_revenue_item_id": 92,
+      "label": "Car/Buses /Vans/Pick-ups",
+      "rate_mode": "FLAT",
+      "flat_amount": "5000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 414,
+      "council_revenue_item_id": 64,
+      "label": "Cement",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 404,
+      "council_revenue_item_id": 83,
+      "label": "Depot (Beer)",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 535,
+      "council_revenue_item_id": 84,
+      "label": "HOTELS \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "40000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 380,
+      "council_revenue_item_id": 87,
+      "label": "Neon Sign",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20200.00",
+      "max_amount": "40200.00"
+    },
+    {
+      "id": 430,
+      "council_revenue_item_id": 72,
+      "label": "Patent Medicine Dealers",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "15000.00"
+    },
+    {
+      "id": 514,
+      "council_revenue_item_id": 73,
+      "label": "Supply",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 415,
+      "council_revenue_item_id": 64,
+      "label": "Cement (Warehouse)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 405,
+      "council_revenue_item_id": 83,
+      "label": "Departmental / Super Store Liquor",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 529,
+      "council_revenue_item_id": 92,
+      "label": "Dyna Delivery Van/J5",
+      "rate_mode": "FLAT",
+      "flat_amount": "10000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 519,
+      "council_revenue_item_id": 67,
+      "label": "Dyna Delivery Van/J5",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "250000.00"
+    },
+    {
+      "id": 522,
+      "council_revenue_item_id": 82,
+      "label": "Dyna Delivery Vans/J5",
+      "rate_mode": "FLAT",
+      "flat_amount": "25000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 536,
+      "council_revenue_item_id": 84,
+      "label": "HOTELS \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 381,
+      "council_revenue_item_id": 87,
+      "label": "Metal Fixed",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10400.00",
+      "max_amount": "20400.00"
+    },
+    {
+      "id": 431,
+      "council_revenue_item_id": 72,
+      "label": "Pharmacy",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "80000.00"
+    },
+    {
+      "id": 515,
+      "council_revenue_item_id": 73,
+      "label": "Services",
+      "rate_mode": "FLAT",
+      "flat_amount": "24000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 432,
+      "council_revenue_item_id": 72,
+      "label": "Blacksmith",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 516,
+      "council_revenue_item_id": 73,
+      "label": "Consultancy",
+      "rate_mode": "FLAT",
+      "flat_amount": "120000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 537,
+      "council_revenue_item_id": 84,
+      "label": "GUEST INN \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 416,
+      "council_revenue_item_id": 64,
+      "label": "Iron",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 530,
+      "council_revenue_item_id": 92,
+      "label": "Luxurious Buses",
+      "rate_mode": "FLAT",
+      "flat_amount": "20000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 406,
+      "council_revenue_item_id": 83,
+      "label": "Supermarket / Shop",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 523,
+      "council_revenue_item_id": 82,
+      "label": "Tipp er\\Lonies",
+      "rate_mode": "FLAT",
+      "flat_amount": "30000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 382,
+      "council_revenue_item_id": 87,
+      "label": "Wooden Fixed",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10800.00",
+      "max_amount": "20800.00"
+    },
+    {
+      "id": 433,
+      "council_revenue_item_id": 72,
+      "label": "Goldsmith",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 538,
+      "council_revenue_item_id": 84,
+      "label": "GUEST INN \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 383,
+      "council_revenue_item_id": 87,
+      "label": "Metal Standing (Two Faces)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10800.00",
+      "max_amount": "20800.00"
+    },
+    {
+      "id": 407,
+      "council_revenue_item_id": 83,
+      "label": "Restaurant Liquor",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 417,
+      "council_revenue_item_id": 64,
+      "label": "Rod/Pipe",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "70000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 524,
+      "council_revenue_item_id": 82,
+      "label": "Trailers",
+      "rate_mode": "FLAT",
+      "flat_amount": "35000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 531,
+      "council_revenue_item_id": 92,
+      "label": "Trailers",
+      "rate_mode": "FLAT",
+      "flat_amount": "20000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 525,
+      "council_revenue_item_id": 82,
+      "label": "Cranes",
+      "rate_mode": "FLAT",
+      "flat_amount": "45000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 532,
+      "council_revenue_item_id": 92,
+      "label": "Cranes",
+      "rate_mode": "FLAT",
+      "flat_amount": "25000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 539,
+      "council_revenue_item_id": 84,
+      "label": "GUEST INN \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 408,
+      "council_revenue_item_id": 83,
+      "label": "Hotels",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 384,
+      "council_revenue_item_id": 87,
+      "label": "Metal Standing (Dual Faces)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10400.00",
+      "max_amount": "20400.00"
+    },
+    {
+      "id": 418,
+      "council_revenue_item_id": 64,
+      "label": "Paint Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 434,
+      "council_revenue_item_id": 72,
+      "label": "POS",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "25000.00"
+    },
+    {
+      "id": 409,
+      "council_revenue_item_id": 83,
+      "label": "Beer Parlor",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 526,
+      "council_revenue_item_id": 82,
+      "label": "Earth moving equipment",
+      "rate_mode": "FLAT",
+      "flat_amount": "45000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 533,
+      "council_revenue_item_id": 92,
+      "label": "Earth-Moving Equipment",
+      "rate_mode": "FLAT",
+      "flat_amount": "25000.00",
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 419,
+      "council_revenue_item_id": 64,
+      "label": "POP Cement",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 435,
+      "council_revenue_item_id": 72,
+      "label": "Printing Press",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 540,
+      "council_revenue_item_id": 84,
+      "label": "RESTAURANT \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "30000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 385,
+      "council_revenue_item_id": 87,
+      "label": "Wooden Standing",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 420,
+      "council_revenue_item_id": 64,
+      "label": "Aluminum Profile",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "250000.00"
+    },
+    {
+      "id": 436,
+      "council_revenue_item_id": 72,
+      "label": "Dentist Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 410,
+      "council_revenue_item_id": 83,
+      "label": "Native Liquor",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 541,
+      "council_revenue_item_id": 84,
+      "label": "RESTAURANT \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 386,
+      "council_revenue_item_id": 87,
+      "label": "Wooden Standing (Two Faces)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "40000.00"
+    },
+    {
+      "id": 411,
+      "council_revenue_item_id": 83,
+      "label": "Club Liquor",
+      "rate_mode": "TIERED",
+      "flat_amount": null,
+      "min_amount": null,
+      "max_amount": null
+    },
+    {
+      "id": 387,
+      "council_revenue_item_id": 87,
+      "label": "Electrical Fixed",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "25000.00"
+    },
+    {
+      "id": 437,
+      "council_revenue_item_id": 72,
+      "label": "Herbal Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 542,
+      "council_revenue_item_id": 84,
+      "label": "RESTAURANT \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 421,
+      "council_revenue_item_id": 64,
+      "label": "Roofing Sheet",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 543,
+      "council_revenue_item_id": 84,
+      "label": "CANTEEN \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 438,
+      "council_revenue_item_id": 72,
+      "label": "Optical Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 388,
+      "council_revenue_item_id": 87,
+      "label": "Plastic Fixed",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "25000.00"
+    },
+    {
+      "id": 422,
+      "council_revenue_item_id": 64,
+      "label": "Plumbing Material",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "30000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 544,
+      "council_revenue_item_id": 84,
+      "label": "CANTEEN \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "7000.00"
+    },
+    {
+      "id": 389,
+      "council_revenue_item_id": 87,
+      "label": "Electrical Standing",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "40000.00"
+    },
+    {
+      "id": 439,
+      "council_revenue_item_id": 72,
+      "label": "Mechanic Workshop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "25000.00"
+    },
+    {
+      "id": 423,
+      "council_revenue_item_id": 64,
+      "label": "Tiles",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 545,
+      "council_revenue_item_id": 84,
+      "label": "CANTEEN \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "3000.00"
+    },
+    {
+      "id": 390,
+      "council_revenue_item_id": 87,
+      "label": "Electrical Standing (Two Faces)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "38000.00",
+      "max_amount": "68000.00"
+    },
+    {
+      "id": 424,
+      "council_revenue_item_id": 64,
+      "label": "Iron Gate/Doors",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "70000.00",
+      "max_amount": "200000.00"
+    },
+    {
+      "id": 440,
+      "council_revenue_item_id": 72,
+      "label": "Vulcanizing Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "1000.00",
+      "max_amount": "2000.00"
+    },
+    {
+      "id": 425,
+      "council_revenue_item_id": 64,
+      "label": "Electrical Material (Cable, Transformer, Poles & Pipe)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 546,
+      "council_revenue_item_id": 84,
+      "label": "JOINTS/BAR \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 391,
+      "council_revenue_item_id": 87,
+      "label": "Plastic Standing",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "40000.00"
+    },
+    {
+      "id": 441,
+      "council_revenue_item_id": 72,
+      "label": "Watch Repairing Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 442,
+      "council_revenue_item_id": 72,
+      "label": "Carwash",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 426,
+      "council_revenue_item_id": 64,
+      "label": "Ceiling Material",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "40000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 547,
+      "council_revenue_item_id": 84,
+      "label": "JOINTS/BAR \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 392,
+      "council_revenue_item_id": 87,
+      "label": "Plastic Standing (Two Faces)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "38000.00",
+      "max_amount": "38000.00"
+    },
+    {
+      "id": 427,
+      "council_revenue_item_id": 64,
+      "label": "Gravel Site",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "250000.00"
+    },
+    {
+      "id": 443,
+      "council_revenue_item_id": 72,
+      "label": "Grinding Machine",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "15000.00"
+    },
+    {
+      "id": 548,
+      "council_revenue_item_id": 84,
+      "label": "JOINTS/BAR \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 393,
+      "council_revenue_item_id": 87,
+      "label": "Special Sign Board",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "300000.00"
+    },
+    {
+      "id": 549,
+      "council_revenue_item_id": 84,
+      "label": "BAKERY \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 394,
+      "council_revenue_item_id": 87,
+      "label": "Carving",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "8000.00",
+      "max_amount": "16000.00"
+    },
+    {
+      "id": 428,
+      "council_revenue_item_id": 64,
+      "label": "Sand Seller",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 444,
+      "council_revenue_item_id": 72,
+      "label": "Welding Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 550,
+      "council_revenue_item_id": 84,
+      "label": "BAKERY \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "30000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 395,
+      "council_revenue_item_id": 87,
+      "label": "Banners",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 445,
+      "council_revenue_item_id": 72,
+      "label": "Electrical Appliances Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 551,
+      "council_revenue_item_id": 84,
+      "label": "BAKERY \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "25000.00"
+    },
+    {
+      "id": 446,
+      "council_revenue_item_id": 72,
+      "label": "Electronic Workshop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 396,
+      "council_revenue_item_id": 87,
+      "label": "Posters",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 552,
+      "council_revenue_item_id": 84,
+      "label": "OTHER CONF. \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 447,
+      "council_revenue_item_id": 72,
+      "label": "Pool/Bet Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 397,
+      "council_revenue_item_id": 87,
+      "label": "Tin Plates",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "40000.00"
+    },
+    {
+      "id": 398,
+      "council_revenue_item_id": 87,
+      "label": "Advert on Cloths (Prior to Colour)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "30000.00",
+      "max_amount": "60000.00"
+    },
+    {
+      "id": 553,
+      "council_revenue_item_id": 84,
+      "label": "OTHER CONF. \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 448,
+      "council_revenue_item_id": 72,
+      "label": "Panel Beater Workshop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 399,
+      "council_revenue_item_id": 87,
+      "label": "Major Highway / Town Bill Board",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "350000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 554,
+      "council_revenue_item_id": 84,
+      "label": "OTHER CONF. \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "1000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 449,
+      "council_revenue_item_id": 72,
+      "label": "Spare Parts (Motor)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 400,
+      "council_revenue_item_id": 87,
+      "label": "Lamp Plate Advert",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "60000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 450,
+      "council_revenue_item_id": 72,
+      "label": "Spare Parts (Try-cycle)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 555,
+      "council_revenue_item_id": 84,
+      "label": "YOGHURT & OTHER DAIRIES FOOD \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 401,
+      "council_revenue_item_id": 87,
+      "label": "Multinational Companies",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "700000.00",
+      "max_amount": "1000000.00"
+    },
+    {
+      "id": 451,
+      "council_revenue_item_id": 72,
+      "label": "Spare Parts (Motor Cycle)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 556,
+      "council_revenue_item_id": 84,
+      "label": "YOGHURT & OTHER DAIRIES FOOD \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 402,
+      "council_revenue_item_id": 87,
+      "label": "Financial Institution",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "200000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 452,
+      "council_revenue_item_id": 72,
+      "label": "Spare Parts (Bicycle)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 557,
+      "council_revenue_item_id": 84,
+      "label": "YOGHURT & OTHER DAIRIES FOOD \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 453,
+      "council_revenue_item_id": 72,
+      "label": "Airline Ticketing Office",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 558,
+      "council_revenue_item_id": 84,
+      "label": "PORTABLE WATER FACTORY \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "120000.00",
+      "max_amount": "250000.00"
+    },
+    {
+      "id": 454,
+      "council_revenue_item_id": 72,
+      "label": "Media Houses (Print)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "200000.00",
+      "max_amount": "300000.00"
+    },
+    {
+      "id": 559,
+      "council_revenue_item_id": 84,
+      "label": "PORTABLE WATER FACTORY \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 455,
+      "council_revenue_item_id": 72,
+      "label": "Departmental Store",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 560,
+      "council_revenue_item_id": 84,
+      "label": "PORTABLE WATER FACTORY \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 561,
+      "council_revenue_item_id": 84,
+      "label": "FOOD PRESERVING ESTABLISHMENT \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "70000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 456,
+      "council_revenue_item_id": 72,
+      "label": "Provision Store",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 562,
+      "council_revenue_item_id": 84,
+      "label": "FOOD PRESERVING ESTABLISHMENT \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "60000.00"
+    },
+    {
+      "id": 457,
+      "council_revenue_item_id": 72,
+      "label": "Super Store",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 563,
+      "council_revenue_item_id": 84,
+      "label": "FOOD PRESERVING ESTABLISHMENT \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 458,
+      "council_revenue_item_id": 72,
+      "label": "Super Market",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 564,
+      "council_revenue_item_id": 84,
+      "label": "FOOD RELATED WAREHOUSE \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "80000.00"
+    },
+    {
+      "id": 459,
+      "council_revenue_item_id": 72,
+      "label": "Telephone Accessories Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 460,
+      "council_revenue_item_id": 72,
+      "label": "Car Stand",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 565,
+      "council_revenue_item_id": 84,
+      "label": "FOOD RELATED WAREHOUSE \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 461,
+      "council_revenue_item_id": 72,
+      "label": "Beauty Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 566,
+      "council_revenue_item_id": 84,
+      "label": "FOOD RELATED WAREHOUSE \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "15000.00"
+    },
+    {
+      "id": 462,
+      "council_revenue_item_id": 72,
+      "label": "Cosmetic Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 567,
+      "council_revenue_item_id": 84,
+      "label": "FOOD HAWERS \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 568,
+      "council_revenue_item_id": 84,
+      "label": "FOOD HAWERS \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "3000.00"
+    },
+    {
+      "id": 463,
+      "council_revenue_item_id": 72,
+      "label": "Plastic Product Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 464,
+      "council_revenue_item_id": 72,
+      "label": "Bookshop and Stationaries",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 569,
+      "council_revenue_item_id": 84,
+      "label": "FOOD HAWERS \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "1000.00",
+      "max_amount": "2000.00"
+    },
+    {
+      "id": 465,
+      "council_revenue_item_id": 72,
+      "label": "Electrical Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 570,
+      "council_revenue_item_id": 84,
+      "label": "FOOD RELATEDESTABLISHEMENT \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "40000.00"
+    },
+    {
+      "id": 466,
+      "council_revenue_item_id": 72,
+      "label": "Electronic Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "35000.00"
+    },
+    {
+      "id": 571,
+      "council_revenue_item_id": 84,
+      "label": "FOOD RELATEDESTABLISHEMENT \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 572,
+      "council_revenue_item_id": 84,
+      "label": "FOOD RELATEDESTABLISHEMENT \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 467,
+      "council_revenue_item_id": 72,
+      "label": "Gas Refilling Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 468,
+      "council_revenue_item_id": 72,
+      "label": "Coffee Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 573,
+      "council_revenue_item_id": 84,
+      "label": "OTHER \u2014 Large",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 469,
+      "council_revenue_item_id": 72,
+      "label": "Bicycle Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 574,
+      "council_revenue_item_id": 84,
+      "label": "OTHER \u2014 Medium",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 575,
+      "council_revenue_item_id": 84,
+      "label": "OTHER \u2014 Small",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "500.00",
+      "max_amount": "1500.00"
+    },
+    {
+      "id": 470,
+      "council_revenue_item_id": 72,
+      "label": "Tricycle Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 471,
+      "council_revenue_item_id": 72,
+      "label": "Motor Cycle Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 472,
+      "council_revenue_item_id": 72,
+      "label": "Kiosk",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 473,
+      "council_revenue_item_id": 72,
+      "label": "Block Moulding Stand",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 474,
+      "council_revenue_item_id": 72,
+      "label": "Furniture/Carpentry Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 475,
+      "council_revenue_item_id": 72,
+      "label": "Hair Dressing Salon",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 476,
+      "council_revenue_item_id": 72,
+      "label": "Barbing Salon Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 477,
+      "council_revenue_item_id": 72,
+      "label": "Cinema Houses",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 478,
+      "council_revenue_item_id": 72,
+      "label": "Viewing Centres",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 479,
+      "council_revenue_item_id": 72,
+      "label": "Rentals",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 480,
+      "council_revenue_item_id": 72,
+      "label": "Photographic Studio",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "2000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 481,
+      "council_revenue_item_id": 72,
+      "label": "Business Centre/Cyber Cafe",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "10000.00"
+    },
+    {
+      "id": 482,
+      "council_revenue_item_id": 72,
+      "label": "Curtain Material Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 483,
+      "council_revenue_item_id": 72,
+      "label": "Boutique Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "15000.00"
+    },
+    {
+      "id": 484,
+      "council_revenue_item_id": 72,
+      "label": "Agro-Chemical Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 485,
+      "council_revenue_item_id": 72,
+      "label": "Industrial Chemical Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "15000.00",
+      "max_amount": "30000.00"
+    },
+    {
+      "id": 486,
+      "council_revenue_item_id": 72,
+      "label": "Tools/Equipment Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 487,
+      "council_revenue_item_id": 72,
+      "label": "Tailoring/Fashion Design Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "15000.00"
+    },
+    {
+      "id": 488,
+      "council_revenue_item_id": 72,
+      "label": "Shoe Maker Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 489,
+      "council_revenue_item_id": 72,
+      "label": "Spray/Painter Workshop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "5000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 490,
+      "council_revenue_item_id": 72,
+      "label": "Mobile Phone Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 491,
+      "council_revenue_item_id": 72,
+      "label": "Corporate Offices",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 492,
+      "council_revenue_item_id": 72,
+      "label": "Foam Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "10000.00",
+      "max_amount": "20000.00"
+    },
+    {
+      "id": 493,
+      "council_revenue_item_id": 72,
+      "label": "Foam Depot",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 494,
+      "council_revenue_item_id": 72,
+      "label": "Arts and Crafts Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 495,
+      "council_revenue_item_id": 72,
+      "label": "Kerosene Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "3000.00",
+      "max_amount": "5000.00"
+    },
+    {
+      "id": 496,
+      "council_revenue_item_id": 72,
+      "label": "Soap and Detergent Depot",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "50000.00"
+    },
+    {
+      "id": 497,
+      "council_revenue_item_id": 72,
+      "label": "Tobacco Distribution Shop",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "20000.00",
+      "max_amount": "70000.00"
+    },
+    {
+      "id": 498,
+      "council_revenue_item_id": 72,
+      "label": "Commercial Banks",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "250000.00",
+      "max_amount": "300000.00"
+    },
+    {
+      "id": 499,
+      "council_revenue_item_id": 72,
+      "label": "Micro Finance Banks",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 500,
+      "council_revenue_item_id": 72,
+      "label": "Insurance Company",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "50000.00",
+      "max_amount": "100000.00"
+    },
+    {
+      "id": 501,
+      "council_revenue_item_id": 72,
+      "label": "Bureau de Change",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "200000.00"
+    },
+    {
+      "id": 502,
+      "council_revenue_item_id": 72,
+      "label": "Mortgage Banks",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "200000.00"
+    },
+    {
+      "id": 503,
+      "council_revenue_item_id": 72,
+      "label": "Construction Company (Multi-National)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "500000.00",
+      "max_amount": "1000000.00"
+    },
+    {
+      "id": 504,
+      "council_revenue_item_id": 72,
+      "label": "Construction Company (Local)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "200000.00",
+      "max_amount": "509000.13"
+    },
+    {
+      "id": 505,
+      "council_revenue_item_id": 72,
+      "label": "Petrol Station",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "100000.00",
+      "max_amount": "150000.00"
+    },
+    {
+      "id": 506,
+      "council_revenue_item_id": 72,
+      "label": "Quarries",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "500000.00",
+      "max_amount": "750000.00"
+    },
+    {
+      "id": 507,
+      "council_revenue_item_id": 72,
+      "label": "Power Distribution Companies (DISCO's)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "1000000.00",
+      "max_amount": "1500000.00"
+    },
+    {
+      "id": 508,
+      "council_revenue_item_id": 72,
+      "label": "Telecommunication Company",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "200000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 509,
+      "council_revenue_item_id": 72,
+      "label": "Furniture Showroom",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "200000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 510,
+      "council_revenue_item_id": 72,
+      "label": "Warehouse (Exception of Premises and Building Materials Regulated)",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 511,
+      "council_revenue_item_id": 72,
+      "label": "Electric/Electronic Equipment Installation Company",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "500000.00"
+    },
+    {
+      "id": 512,
+      "council_revenue_item_id": 72,
+      "label": "Manufacturing Company",
+      "rate_mode": "RANGE",
+      "flat_amount": null,
+      "min_amount": "150000.00",
+      "max_amount": "450000.00"
+    }
+  ],
+  "rate_tiers": [
+    {
+      "id": 371,
+      "band_id": 514,
+      "label": "\u20a6100,000 \u2013 \u20a61,000,000",
+      "amount": "20000.00"
+    },
+    {
+      "id": 367,
+      "band_id": 513,
+      "label": "\u20a61,000,000 \u2013 \u20a65,000,000",
+      "amount": "20000.00"
+    },
+    {
+      "id": 343,
+      "band_id": 405,
+      "label": "Large",
+      "amount": "200000.00"
+    },
+    {
+      "id": 361,
+      "band_id": 411,
+      "label": "Large",
+      "amount": "150000.00"
+    },
+    {
+      "id": 355,
+      "band_id": 409,
+      "label": "Large",
+      "amount": "20000.00"
+    },
+    {
+      "id": 337,
+      "band_id": 403,
+      "label": "Large",
+      "amount": "200000.00"
+    },
+    {
+      "id": 358,
+      "band_id": 410,
+      "label": "Large",
+      "amount": "1500.00"
+    },
+    {
+      "id": 364,
+      "band_id": 412,
+      "label": "Large",
+      "amount": "2000000.00"
+    },
+    {
+      "id": 346,
+      "band_id": 406,
+      "label": "Large",
+      "amount": "50000.00"
+    },
+    {
+      "id": 340,
+      "band_id": 404,
+      "label": "Large",
+      "amount": "500000.00"
+    },
+    {
+      "id": 352,
+      "band_id": 408,
+      "label": "Large",
+      "amount": "500000.00"
+    },
+    {
+      "id": 349,
+      "band_id": 407,
+      "label": "Large",
+      "amount": "20000.00"
+    },
+    {
+      "id": 372,
+      "band_id": 514,
+      "label": "\u20a61,100,000 \u2013 \u20a610,000,000",
+      "amount": "30000.00"
+    },
+    {
+      "id": 368,
+      "band_id": 513,
+      "label": "\u20a65,100,000 \u2013 \u20a650,000,000",
+      "amount": "35000.00"
+    },
+    {
+      "id": 356,
+      "band_id": 409,
+      "label": "Medium",
+      "amount": "10000.00"
+    },
+    {
+      "id": 338,
+      "band_id": 403,
+      "label": "Medium",
+      "amount": "100000.00"
+    },
+    {
+      "id": 341,
+      "band_id": 404,
+      "label": "Medium",
+      "amount": "250000.00"
+    },
+    {
+      "id": 344,
+      "band_id": 405,
+      "label": "Medium",
+      "amount": "100000.00"
+    },
+    {
+      "id": 347,
+      "band_id": 406,
+      "label": "Medium",
+      "amount": "20000.00"
+    },
+    {
+      "id": 350,
+      "band_id": 407,
+      "label": "Medium",
+      "amount": "10000.00"
+    },
+    {
+      "id": 353,
+      "band_id": 408,
+      "label": "Medium",
+      "amount": "200000.00"
+    },
+    {
+      "id": 359,
+      "band_id": 410,
+      "label": "Medium",
+      "amount": "500.00"
+    },
+    {
+      "id": 362,
+      "band_id": 411,
+      "label": "Medium",
+      "amount": "100000.00"
+    },
+    {
+      "id": 365,
+      "band_id": 412,
+      "label": "Medium",
+      "amount": "1500000.00"
+    },
+    {
+      "id": 373,
+      "band_id": 514,
+      "label": "\u20a611,000,000 \u2013 \u20a650,000,000",
+      "amount": "100000.00"
+    },
+    {
+      "id": 369,
+      "band_id": 513,
+      "label": "\u20a650,100,000 \u2013 \u20a699,000,000",
+      "amount": "150000.00"
+    },
+    {
+      "id": 351,
+      "band_id": 407,
+      "label": "Small",
+      "amount": "5000.00"
+    },
+    {
+      "id": 366,
+      "band_id": 412,
+      "label": "Small",
+      "amount": "1000000.00"
+    },
+    {
+      "id": 348,
+      "band_id": 406,
+      "label": "Small",
+      "amount": "15000.00"
+    },
+    {
+      "id": 345,
+      "band_id": 405,
+      "label": "Small",
+      "amount": "50000.00"
+    },
+    {
+      "id": 360,
+      "band_id": 410,
+      "label": "Small",
+      "amount": "100.00"
+    },
+    {
+      "id": 363,
+      "band_id": 411,
+      "label": "Small",
+      "amount": "50000.00"
+    },
+    {
+      "id": 339,
+      "band_id": 403,
+      "label": "Small",
+      "amount": "50000.00"
+    },
+    {
+      "id": 354,
+      "band_id": 408,
+      "label": "Small",
+      "amount": "70000.00"
+    },
+    {
+      "id": 342,
+      "band_id": 404,
+      "label": "Small",
+      "amount": "150000.00"
+    },
+    {
+      "id": 357,
+      "band_id": 409,
+      "label": "Small",
+      "amount": "5000.00"
+    },
+    {
+      "id": 370,
+      "band_id": 513,
+      "label": "\u20a6100,000,000 and Above",
+      "amount": "300000.00"
+    },
+    {
+      "id": 374,
+      "band_id": 514,
+      "label": "\u20a651,000,000 and Above",
+      "amount": "250000.00"
+    }
+  ]
+}
