@@ -63,6 +63,11 @@ class Department(CouncilScopedModel):
     department_code = models.CharField(max_length=32, blank=True)
     head_name = models.CharField(max_length=160, blank=True)
     head_phone = models.CharField(max_length=32, blank=True)
+    legal_basis = models.CharField(
+        max_length=120, blank=True,
+        help_text="The bye-law provision constituting this department, e.g. "
+        "'Part II, Section 6' — from the council's departmental schedule.",
+    )
 
     class Meta:
         db_table = "department"

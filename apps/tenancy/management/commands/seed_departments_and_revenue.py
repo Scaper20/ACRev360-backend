@@ -1,21 +1,151 @@
 """
-Data migration and seeding command for Kuje Area Council (KAC).
-Workflow:
-1. Backup existing 'department' and 'council_revenue_item' (along with rate schedules, bands, tiers) to JSON.
-2. Clear current entries in these tables safely within a database transaction.
-3. Seed the 8 departments extracted from KUJE DEPARTMENT.docx.
-4. Seed/activate all revenue items, linking each to its parent department.
-5. Apply gazette bye-law rate schedules and hierarchical rate bands/tiers (RANGE, TIERED, FLAT).
+Seeds Kuje Area Council's departmental structure and its full revenue-item
+catalogue, with each item carrying the bye-law it is charged under and the
+gazetted bands/classifications underneath it.
+
+Sources
+-------
+`docs/KUJE DEPARTMENT.docx` is authoritative for *which* departments exist and
+*which* items each one collects, and supplies every bye-law citation ("Part
+XXI", "Part VIII (Part B)", ...) plus the council's own description of what the
+provision authorises. Both are read straight off the document's departmental
+tables; nothing here is inferred.
+
+`docs/reference/Kuje Revenue Item and Code List.xlsx` supplies the harmonised
+codes for the 25 items that appear in the FCT-wide catalogue.
+
+Most bands and classifications are imported from
+`apps.revenue.management.commands.seed_rate_bands` rather than re-transcribed —
+that module is the single reviewed transcription of the XLSX schedules, and
+copying its figures into a second file would only create somewhere for the two
+to drift apart. See its docstring for per-schedule provenance.
+
+`docs/KAC NEW GAzETTE (4).pdf` — the actual legal instrument — is a 144-page
+scan with no text layer, so `pypdf` extracts zero characters and it cannot be
+parsed as text. It is not unreadable, though: every page is a single embedded
+200 DPI JPEG, extracted losslessly and read page by page. Schedules recovered
+that way live in `apps.revenue.gazette_kac`, each carrying its gazette page.
+
+Reading the gazette directly corrected the secondary sources in four ways:
+  - Foodstuff Regulation's Part citation (the .docx says Part XXIV, but Part
+    XXIV is Wrong Parking; the foodstuff monthly rates are Part XXVI's Second
+    Schedule, gazette B317-B318).
+  - Six items the .docx leaves unattributed do each have a Part of their own.
+  - Tender Fees' four figures, which `seed_rate_bands` refused to guess at
+    because the XLSX copy was corrupt, are clean in the gazette (B276).
+  - Schedule "C" has 26 establishment rows; the XLSX transcription has 22.
+
+Every citation here was read off the relevant Part's BODY header, never off the
+gazette's own table of contents — the TOC at B168 mislabels Part XXV as
+"Foodstuff Regulations" when the Part itself (B301) is headed "Community
+Development Levy and Allied Matters". The .docx was right about that one and an
+earlier TOC-based reading of it was wrong.
+
+Reconciling the two documents
+-----------------------------
+The .docx lists 42 departmental rows, but `uniq_item_code_per_council` plus a
+single `department` FK means one row per item with one owning department. Four
+collapses, each resolved on the document's own wording rather than by picking a
+side:
+
+- Veterinary Services Fees is listed under both Medical (§2.5) and Agriculture
+  (§2.7); §2.5 itself says "though under Agric Dept, health oversight is from
+  Medical" -> Agriculture owns it, Medical's oversight noted in the description.
+- Street Naming/Numbering is listed under both Works (§2.1) and Education
+  (§2.6); §2.6 says "also linked to Works, but Social Development may process
+  applications" -> Works owns it.
+- "Mobile Advertisement Permit" and "Regulation of Mobile Advertisement" are two
+  rows in the same department under the same Part VII with the same description
+  ("Fees for branded vehicles and operational vehicles") -> one item.
+- Medical's "Pest Control Certificates" and Environmental's "Fumigation
+  Certificates" are both Part XIX and both described as fumigation certificates
+  required before food-premises registration -> one item, owned by
+  Environmental, whose Part XIX registers the firms that issue them.
+
+Where the harmonised catalogue's own name already merges two .docx rows — 30010035
+"Stacking of Building Material/Construction Permit" over §2.1's separate stacking
+and construction-site rows, 30010052 "Wrong Parking, Corporate Parking Permit/
+License" over §2.1's separate permit and impoundment rows, 30010033
+"Environmental Sanitation and Premise inspection" over §2.2's sanitation and
+inspection-fee rows — the catalogue code is used once and both provisions are
+cited on it, rather than minting a second code for a charge the catalogue
+already covers.
+
+Ten items the .docx names have no harmonised code (Forestry, Fishery,
+Cooperatives, Trade Site Allocation, Certificate of Fitness for Habitation and
+so on). They are seeded as council-local items — `template` null, `KJ`-prefixed
+code — which is exactly the case `CouncilRevenueItem.template`'s null branch
+exists for.
+
+Six codes run the other way: they are in the harmonised catalogue but the .docx
+never assigns them to a department (30010032 Motor Parks, 30010037 Loading/Off
+Loading, 30010039 Dogs, 30010041 Dry Cleaning, 30010042 Market Regulation,
+30010045 Tricycle/Keke). They are seeded with `department` NULL — the FK is
+nullable for this — so their codes and, for Loading/Off Loading, its seven
+gazetted bands survive, without inventing a departmental home the source
+document does not support. They need a department assigned before they can be
+billed against.
+
+Audit Department is seeded with no revenue items: §2.8 lists compliance audit,
+risk assessment and regulatory compliance as its functions and states it "does
+not directly collect revenue".
+
+Known-incomplete rows
+---------------------
+Certificate of Fitness for Habitation now carries its full Schedule "C" (78
+bands). Its ₦100,000,000 multinational figure had been withheld by an earlier
+pass as unconfirmed; gazette B219 states it verbatim, so it is sourced rather
+than assumed — though a figure of that size still deserves the council's eye.
+
+Fumigation Certificates keeps a placeholder rate. Part XIX (B273-B274) gazettes
+only the ₦100,000 pest-control *firm* registration and prices no separate
+certificate, so there is no gazette figure to seed and none was invented.
+
+Tenement Rate Collection has no bands, and that is correct rather than missing:
+Part XXI (B277-B284) contains no fee schedule at all — the rate is a percentage
+of assessed annual value, which the flat/range/tiered band model cannot express.
+This finally explains the long-standing "no bye-law unambiguously named this"
+note in `seed_rate_bands`.
+
+Safety
+------
+`department` and `council_revenue_item` are both under FORCE ROW LEVEL SECURITY,
+so every statement runs inside `council_context`. Without it Postgres filters
+each DELETE to zero rows and the clear would silently do nothing while
+reporting success.
+
+The clear is scoped to exactly the two named tables plus the rows that are
+FK-dependent on a revenue item and cannot outlive it (`rate_schedule`,
+`rate_band`, `rate_tier`). Payers, bills, assessments, payments, users and
+consultant/agent portfolios are left alone; this command refuses to run if any
+assessment or portfolio row still points at an item it would delete, rather than
+widening the blast radius to get past the PROTECT.
 """
 
-import json
-import os
 from datetime import date
 from decimal import Decimal
 
-from django.core.management.base import BaseCommand
+from django.core.management import call_command
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from apps.revenue.management.commands.seed_rate_bands import (
+    BUILDING_MATERIALS_BANDS,
+    COMMUNICATION_MAST_TIERS,
+    COMMUNITY_LEVY_FLAT,
+    COMMUNITY_LEVY_TIERED,
+    CONTRACTORS_FLAT,
+    CONTRACTORS_TIERED,
+    CONTROL_OF_ADVERTISEMENT_BANDS,
+    FOODSTUFF_REGULATION_FLAT,
+    LIQUOR_LICENSING_BANDS,
+    LOADING_OFFLOADING_FLAT,
+    MOBILE_ADVERT_FLAT,
+    REGULATED_PREMISES_RANGES,
+    TRADE_LICENSE_BANDS,
+    WRONG_PARKING_CORPORATE_BANDS,
+)
+from apps.revenue.gazette_kac import TENDER_FEES_FLAT, certificate_of_fitness_bands
 from apps.revenue.models import (
     AgentPortfolio,
     ConsultantPortfolio,
@@ -27,20 +157,19 @@ from apps.revenue.models import (
     RevenueItemTemplate,
 )
 from apps.revenue.services import replace_rate_bands
-from apps.tenancy.context import set_council_context
+from apps.tenancy.context import council_context
 from apps.tenancy.models import Council, Department
-from apps.tenancy.services import activate_template_item
 
-# 8 Departments extracted from KUJE DEPARTMENT.docx
+# (code, name, legal_basis, head_name, head_phone) — KUJE DEPARTMENT.docx §2.1-2.8
 DEPARTMENTS = [
-    ("Department of Works, Lands, Housing and Engineering", "WORKS", "Engr. Head of Works", "08000000001"),
-    ("Department of Environmental", "ENV", "Head of Environmental Sanitation", "08000000002"),
-    ("Department of Finance and Supplies", "FIN", "Council Treasurer", "08000000003"),
-    ("Department of Administration and General Services", "ADMIN", "Head of Administration", "08000000004"),
-    ("Medical and Health Care Department", "HEALTH", "Head of Medical Services", "08000000005"),
-    ("Department of Education, Social, Information, Sports and Culture", "EDU", "Head of Social Development", "08000000006"),
-    ("Agricultural and Natural Resources Department", "AGRIC", "Head of Agricultural Services", "08000000007"),
-    ("Audit Department", "AUDIT", "Head of Internal Audit", "08000000008"),
+    ("WORKS", "Department of Works, Lands, Housing and Engineering", "Part II, Section 6", "Engr. Head of Works", "08000000001"),
+    ("ENV", "Department of Environmental", "Part II, Section 5(iii)", "Head of Environmental Sanitation", "08000000002"),
+    ("FIN", "Department of Finance and Supplies", "Part II, Section 4", "Council Treasurer", "08000000003"),
+    ("ADMIN", "Department of Administration and General Services", "Part II, Section 3", "Head of Administration", "08000000004"),
+    ("HEALTH", "Medical and Health Care Department", "Part II, Section 5", "Head of Medical Services", "08000000005"),
+    ("EDU", "Department of Education, Social, Information, Sports and Culture", "Part II, Section 7", "Head of Social Development", "08000000006"),
+    ("AGRIC", "Agricultural and Natural Resources Department", "Part II, Section 2", "Head of Agricultural Services", "08000000007"),
+    ("AUDIT", "Audit Department", "Part II, Section 4 (Audit Department)", "Head of Internal Audit", "08000000008"),
 ]
 
 CATEGORIES = [
@@ -51,494 +180,355 @@ CATEGORIES = [
     "Levies",
 ]
 
-# Mapping of revenue items to departments, category, unit, default rate
-# (harmonised_code, item_name, unit_of_charge, category_name, dept_code, rate, byelaw_ref)
-REVENUE_ITEM_DEPT_MAPPING = [
-    # Works, Lands, Housing and Engineering
-    ("30010049", "Tenement Rate Collection", "Per Annum", "Rates", "WORKS", 20000, "Part XXI"),
-    ("30010035", "Stacking of Building Material / Construction Permit", "Per Permit", "Licences and Permits", "WORKS", 25000, "Part VIII"),
-    ("30010038", "Cutting Of Road Tar", "Per Permit", "Fees and Charges", "WORKS", 30000, "Part X"),
-    ("30010040", "Numbering / Street Naming", "Per Annum", "Registration and Professional Fees", "WORKS", 5000, "Part XII"),
-    ("30010052", "Wrong Parking, Corporate Parking Permit/License", "Per Annum", "Fees and Charges", "WORKS", 10000, "Part XXIV"),
+_UNASSIGNED_NOTE = (
+    "In the Kuje harmonised revenue code list but not assigned to any department in the "
+    "council's departmental schedule. The bye-law citation is the gazette's own — every one "
+    "of these items does have a Part of its own, read off that Part's body header — so only "
+    "the owning DEPARTMENT is still outstanding and needs council confirmation."
+)
 
-    # Environmental
-    ("30010033", "Environmental Sanitation and Premise Inspection", "Per Annum", "Fees and Charges", "ENV", 10000, "Part V"),
-    ("30010046", "Public Toilet", "Per Annum", "Fees and Charges", "ENV", 10000, "Part XVIII"),
-    ("30010047", "Pest Control", "Per Annum", "Fees and Charges", "ENV", 15000, "Part XIX"),
-    ("30010050", "Private Sector Participation Refuse Operation (PSPRO)", "Per Annum", "Fees and Charges", "ENV", 15000, "Part XXII"),
+# (code, name, unit, category, dept_code|None, base_rate, bye_law_ref, bye_law_description)
+REVENUE_ITEMS = [
+    # --- 2.1 Works, Lands, Housing and Engineering ---------------------------
+    ("30010049", "Tenement Rate Collection", "Per Annum", "Rates", "WORKS", 20000, "Part XXI",
+     "Assessed on all ratable properties at 4% of annual value. Collected by the Valuation Office under this department."),
+    ("30010035", "Stacking of Building Material / Construction Permit", "Per Permit", "Licences and Permits", "WORKS", 25000, "Part VIII",
+     "Fees for stacking building materials on streets; includes daily charges for unlawful stacking. Part VIII (Part B) "
+     "covers construction site permits, including special permits for pile driving."),
+    ("30010038", "Cutting Of Road Tar", "Per Permit", "Fees and Charges", "WORKS", 15000, "Part X",
+     "Fee of ₦15,000 minimum for cutting road tar for speed breakers, water pipes, or cables."),
+    ("30010040", "Numbering / Street Naming", "Per Annum", "Registration and Professional Fees", "WORKS", 5000, "Part XII",
+     "Fees paid by individuals who want streets/roads named after them. Applications may be processed by the Department "
+     "of Education, Social, Information, Sports and Culture."),
+    ("30010052", "Wrong Parking, Corporate Parking Permit/License", "Per Annum", "Fees and Charges", "WORKS", 10000, "Part XXIV",
+     "Annual parking permits for corporate bodies and institutions, together with penalties and recovery fees for "
+     "illegally parked or abandoned vehicles."),
 
-    # Finance and Supplies
-    ("30010043", "Trade License, Private Lockup Shops and Allied Matters", "Per Annum", "Licences and Permits", "FIN", 20000, "Part XV"),
-    ("30010048", "Contractors", "Per Registration", "Registration and Professional Fees", "FIN", 50000, "Part XX"),
-    ("30010061", "Tender Fees", "Per Tender", "Registration and Professional Fees", "FIN", 10000, "Part XX"),
-    ("30010057", "Agreement Fees on Sale of Land and Other Disposition", "Per Transaction", "Registration and Professional Fees", "FIN", 20000, "Part XX"),
-    ("30010058", "Fees for Certificate of Occupancy", "Per Certificate", "Registration and Professional Fees", "FIN", 25000, "Part XX"),
-    ("30010059", "Fees for Change of Ownership", "Per Transaction", "Registration and Professional Fees", "FIN", 15000, "Part XX"),
-    ("30010060", "Searches", "Per Search", "Registration and Professional Fees", "FIN", 5000, "Part XX"),
-    ("30010062", "Community and Development Levy", "Per Annum", "Levies", "FIN", 5000, "Part XXV"),
+    # --- 2.2 Environmental ---------------------------------------------------
+    ("30010033", "Environmental Sanitation and Premise Inspection", "Per Annum", "Fees and Charges", "ENV", 10000, "Part V",
+     "Monthly waste management charges for residential, commercial, industrial, and institutional premises. Part V "
+     "(Section 6.6) covers fees collected during inspection of premises for sanitary compliance. Administered with the "
+     "Environmental Sanitation and Waste Management Authority."),
+    ("30010046", "Public Toilet", "Per Annum", "Fees and Charges", "ENV", 10000, "Part XVIII",
+     "Fees for establishing/operating public toilets; annual renewal fees."),
+    ("KJ30010063", "Private Dislodging Tank/Vehicle Registration", "Per Annum", "Registration and Professional Fees", "ENV", 100000, "Part XVIII",
+     "₦100,000 annual registration for private dislodging vehicles."),
+    ("30010047", "Pest Control", "Per Annum", "Registration and Professional Fees", "ENV", 100000, "Part XIX",
+     "₦100,000 annual registration for private pest control firms operating in Kuje."),
+    ("30010050", "Private Sector Participation Refuse Operation (PSPRO)", "Per Annum", "Fees and Charges", "ENV", 15000, "Part XXII",
+     "Registration and licensing of PSP refuse operators."),
+    ("KJ30010064", "Fumigation Certificates", "Per Certificate", "Fees and Charges", "ENV", 10000, "Part XIX",
+     "Fees for fumigation of food premises before registration. Issued also as the Pest Control Certificates the Medical "
+     "and Health Care Department requires before registering a food premises. NOTE: Part XIX (gazette B273-B274) "
+     "gazettes only the N100,000 pest-control FIRM registration, no separate certificate fee — this item's rate is a "
+     "placeholder awaiting the council's own figure."),
+    ("KJ30010065", "Certificate of Fitness for Habitation", "Per Certificate", "Fees and Charges", "ENV", 50000, "Part V (Section 8.0)",
+     "Fees for issuance of certificate of fitness for habitation/continued habitation. Priced by gazette "
+     "Schedule C (B219): 26 establishment types x three charges — Fitness for Habitation (old building), "
+     "Fitness for Continued Habitation (new building), and Fitness for Use (renewal)."),
 
-    # Administration and General Services
-    ("30010031", "Registration of Marriages, Births and Death", "Per Registration", "Registration and Professional Fees", "ADMIN", 5000, "Part III"),
-    ("30010044", "Radio and Television License", "Per Annum", "Licences and Permits", "ADMIN", 5000, "Part XVI"),
-    ("30010036", "Mobile Advert", "Per Annum", "Licences and Permits", "ADMIN", 15000, "Part VII"),
-    ("30010051", "Liquor Licensing", "Per Annum", "Licences and Permits", "ADMIN", 50000, "Part XXIII"),
+    # --- 2.3 Finance and Supplies -------------------------------------------
+    ("30010043", "Trade License, Private Lockup Shops and Allied Matters", "Per Annum", "Licences and Permits", "FIN", 20000, "Part XV",
+     "Annual license fees for all businesses, shops, kiosks, workshops, and corporate offices."),
+    ("30010048", "Contractors", "Per Registration", "Registration and Professional Fees", "FIN", 50000, "Part XX",
+     "Registration fees for contractors (construction, supply, services, consultancy)."),
+    ("30010061", "Tender Fees", "Per Tender", "Registration and Professional Fees", "FIN", 10000, "Part XX",
+     "Fees paid by intending contractors for tender documents."),
+    ("30010057", "Agreement Fees on Sale of Land and Other Disposition", "Per Transaction", "Registration and Professional Fees", "FIN", 20000, "Part XX",
+     "Fees for land agreements and other dispositions."),
+    ("30010058", "Fees for Certificate of Occupancy", "Per Certificate", "Registration and Professional Fees", "FIN", 25000, "Part XX",
+     "Processing fees for C of O."),
+    ("30010059", "Fees for Change of Ownership", "Per Transaction", "Registration and Professional Fees", "FIN", 15000, "Part XX",
+     "Fees for transfer of property ownership."),
+    ("30010060", "Searches", "Per Search", "Registration and Professional Fees", "FIN", 5000, "Part XX",
+     "Fees for land searches."),
+    ("30010062", "Community and Development Levy", "Per Annum", "Levies", "FIN", 5000, "Part XXV",
+     "Annual levy on residents (individuals and corporate bodies) except exempted categories. Collected and enforced by "
+     "the Area Council Revenue Committee."),
 
-    # Medical and Health Care Department
-    ("30010054", "Regulated Premises", "Per Annum", "Fees and Charges", "HEALTH", 30000, "Part XXVI"),
-    ("30010053", "Foodstuff Regulation", "Per Month", "Fees and Charges", "HEALTH", 10000, "Part XXIV"),
-    ("30010055", "Registration Fee", "Per Registration", "Registration and Professional Fees", "HEALTH", 5000, "Part XIX"),
+    # --- 2.4 Administration and General Services -----------------------------
+    ("30010031", "Registration of Marriages, Births and Death", "Per Registration", "Registration and Professional Fees", "ADMIN", 5000, "Part III",
+     "Fees for registering marriages, births, and deaths."),
+    ("30010044", "Radio and Television License", "Per Annum", "Licences and Permits", "ADMIN", 5000, "Part XVI",
+     "Annual license fees on radio/TV sets and communication masts."),
+    ("30010036", "Mobile Advert", "Per Annum", "Licences and Permits", "ADMIN", 15000, "Part VII",
+     "Fees for branded/operational vehicles used for advertisement. Collected by the Internal Revenue General Committee."),
+    ("30010051", "Liquor Licensing", "Per Annum", "Licences and Permits", "ADMIN", 50000, "Part XXIII",
+     "Annual fees for tavern, wine/beer, hotel, club, wholesale, and retail liquor licenses."),
+    ("30010056", "Communication Mast License", "Per Annum", "Licences and Permits", "ADMIN", 1000000, "Part XVI",
+     "Annual license fees on communication masts, licensed under the same bye-law as radio and television sets."),
 
-    # Education, Social, Information, Sports and Culture
-    ("30010034", "Control of Advertisement", "Per Annum", "Licences and Permits", "EDU", 20000, "Part VI"),
-    ("30010045", "Tricycle (Keke) Commercial Motor Cycle Regulation", "Per Annum", "Licences and Permits", "EDU", 10000, "Part XV"),
-    ("30010056", "Communication Mast License", "Per Annum", "Licences and Permits", "EDU", 1000000, "Part XVI"),
+    # --- 2.5 Medical and Health Care ----------------------------------------
+    ("30010054", "Regulated Premises", "Per Annum", "Fees and Charges", "HEALTH", 30000, "Part XXVI",
+     "Annual registration fees for hotels, guest inns, restaurants, bakeries, dairies, aerated water manufacturers, and "
+     "food-related establishments."),
+    ("30010053", "Foodstuff Regulation", "Per Month", "Fees and Charges", "HEALTH", 10000, "Part XXVI",
+     "Permits for foodstuff premises and food handlers. Priced by the Regulated Premises bye-law's "
+     "SECOND Schedule (s.3(c), gazette B317-B318) — monthly rates by premises sub-type, Categories A-H — "
+     "which is a separate recurring charge from that bye-law's FIRST Schedule licence fee. The council's "
+     "departmental schedule cites Part XXIV for this item, but Part XXIV is Wrong Parking/Corporate "
+     "Parking (gazette B297); the foodstuff monthly rates sit in Part XXVI."),
 
-    # Agricultural and Natural Resources Department
-    ("30010039", "Movement and Keeping of Dogs", "Per Annum", "Fees and Charges", "AGRIC", 5000, "Part II (Sec 2)"),
-    ("30010032", "Motor Parks (Commercial Vehicles picking up passengers)", "Per Annum", "Fees and Charges", "AGRIC", 15000, "Part II (Sec 2)"),
-    ("30010037", "Loading/Off Loading Control of Traffic", "Per Annum", "Fees and Charges", "AGRIC", 10000, "Part II (Sec 2)"),
+    # --- 2.6 Education, Social, Information, Sports and Culture --------------
+    ("30010034", "Control of Advertisement", "Per Annum", "Licences and Permits", "EDU", 20000, "Part VI",
+     "Permit fees for fixed advertisements such as billboards, signboards, neon signs, banners, etc."),
+    ("KJ30010066", "Trade Site Allocation", "Per Allocation", "Fees and Charges", "EDU", 20000, "Part II (Section 7)",
+     "Fees for allocation of trade sites within the Council."),
+    ("30010055", "Registration of Social Organizations", "Per Registration", "Registration and Professional Fees", "EDU", 5000, "Part II (Section 7)",
+     "Fees for registration of voluntary, self-help, and social organizations."),
+    ("KJ30010067", "Cinema and Viewing Centre Licenses", "Per Annum", "Licences and Permits", "EDU", 20000, "Part XV",
+     "License fees for cinema houses and viewing centres."),
+
+    # --- 2.7 Agricultural and Natural Resources ------------------------------
+    ("KJ30010068", "Veterinary Services Fees", "Per Service", "Fees and Charges", "AGRIC", 5000, "Part II (Section 2)",
+     "Fees for vaccination, animal treatment, and slaughterhouse supervision. Health oversight is provided by the "
+     "Medical and Health Care Department."),
+    ("KJ30010069", "Forestry Fees and Royalties", "Per Assessment", "Fees and Charges", "AGRIC", 10000, "Part II (Section 2)",
+     "Fees for forest produce measurement, assessment, and royalties."),
+    ("KJ30010070", "Agricultural Extension Services", "Per Service", "Fees and Charges", "AGRIC", 10000, "Part II (Section 2)",
+     "Fees for tractor hiring services and agricultural training programmes."),
+    ("KJ30010071", "Fishery Services", "Per Service", "Fees and Charges", "AGRIC", 5000, "Part II (Section 2)",
+     "Fees for fishery extension services and demonstrations."),
+    ("KJ30010072", "Cooperative Registration", "Per Registration", "Registration and Professional Fees", "AGRIC", 5000, "Part II (Section 2)",
+     "Registration fees for cooperative societies."),
+
+    # --- Harmonised codes with no department in the source document ----------
+    ("30010032", "Motor Parks (Commercial Vehicles picking up passengers)", "Per Annum", "Fees and Charges", None, 15000, "Part IV", _UNASSIGNED_NOTE),
+    ("30010037", "Loading/Off Loading Control of Traffic", "Per Annum", "Fees and Charges", None, 10000, "Part IX", _UNASSIGNED_NOTE),
+    ("30010039", "Movement and Keeping of Dogs", "Per Annum", "Licences and Permits", None, 5000, "Part XI", _UNASSIGNED_NOTE),
+    ("30010041", "Registration of Dry Cleaning and Laundry Houses", "Per Annum", "Registration and Professional Fees", None, 10000, "Part XIII", _UNASSIGNED_NOTE),
+    ("30010042", "Market Regulation", "Per Annum", "Fees and Charges", None, 10000, "Part XIV", _UNASSIGNED_NOTE),
+    ("30010045", "Tricycle (Keke) Commercial Motor Cycle Regulation", "Per Annum", "Licences and Permits", None, 10000, "Part XVII", _UNASSIGNED_NOTE),
 ]
 
-# Gazette rate bands definitions
-CONTROL_OF_ADVERTISEMENT_BANDS = [
-    ("School Sign Board", 20800, 40800),
-    ("Neon Sign", 20200, 40200),
-    ("Metal Fixed", 10400, 20400),
-    ("Wooden Fixed", 10800, 20800),
-    ("Metal Standing (Two Faces)", 10800, 20800),
-    ("Metal Standing (Dual Faces)", 10400, 20400),
-    ("Wooden Standing", 10000, 20000),
-    ("Wooden Standing (Two Faces)", 20000, 40000),
-    ("Electrical Fixed", 15000, 25000),
-    ("Plastic Fixed", 15000, 25000),
-    ("Electrical Standing", 20000, 40000),
-    ("Electrical Standing (Two Faces)", 38000, 68000),
-    ("Plastic Standing", 20000, 40000),
-    ("Plastic Standing (Two Faces)", 38000, 38000),
-    ("Special Sign Board", 150000, 300000),
-    ("Carving", 8000, 16000),
-    ("Banners", 10000, 20000),
-    ("Posters", 5000, 10000),
-    ("Tin Plates", 20000, 40000),
-    ("Advert on Cloths (Prior to Colour)", 30000, 60000),
-    ("Major Highway / Town Bill Board", 350000, 500000),
-    ("Lamp Plate Advert", 60000, 100000),
-    ("Multinational Companies", 700000, 1000000),
-    ("Financial Institution", 200000, 500000),
-]
 
-LIQUOR_LICENSING_BANDS = [
-    ("Wholesale Liquor", 200000, 100000, 50000),
-    ("Depot (Beer)", 500000, 250000, 150000),
-    ("Departmental / Super Store Liquor", 200000, 100000, 50000),
-    ("Supermarket / Shop", 50000, 20000, 15000),
-    ("Restaurant Liquor", 20000, 10000, 5000),
-    ("Hotels", 500000, 200000, 70000),
-    ("Beer Parlor", 20000, 10000, 5000),
-    ("Native Liquor", 1500, 500, 100),
-    ("Club Liquor", 150000, 100000, 50000),
-]
+def _range(label, min_amount, max_amount):
+    return {"label": label, "rate_mode": RateBand.RANGE, "min_amount": Decimal(min_amount), "max_amount": Decimal(max_amount)}
 
-COMMUNICATION_MAST_TIERS = [("Large", 2000000), ("Medium", 1500000), ("Small", 1000000)]
 
-BUILDING_MATERIALS_BANDS = [
-    ("Paint Depot", 50000, 100000),
-    ("Cement", 10000, 20000),
-    ("Cement (Warehouse)", 50000, 70000),
-    ("Iron", 50000, 70000),
-    ("Rod/Pipe", 70000, 100000),
-    ("Paint Shop", 10000, 20000),
-    ("POP Cement", 20000, 50000),
-    ("Aluminum Profile", 100000, 250000),
-    ("Roofing Sheet", 50000, 100000),
-    ("Plumbing Material", 30000, 50000),
-    ("Tiles", 50000, 150000),
-    ("Iron Gate/Doors", 70000, 200000),
-    ("Electrical Material (Cable, Transformer, Poles & Pipe)", 150000, 500000),
-    ("Ceiling Material", 40000, 70000),
-    ("Gravel Site", 150000, 250000),
-    ("Sand Seller", 50000, 150000),
-]
+def _flat(label, amount):
+    return {"label": label, "rate_mode": RateBand.FLAT, "flat_amount": Decimal(amount)}
 
-TRADE_LICENSE_BANDS = [
-    ("Clinic/Private Hospitals", 10000, 45000),
-    ("Patent Medicine Dealers", 5000, 15000),
-    ("Pharmacy", 15000, 80000),
-    ("Blacksmith", 2000, 10000),
-    ("Goldsmith", 2000, 10000),
-    ("POS", 10000, 25000),
-    ("Printing Press", 10000, 100000),
-    ("Dentist Shop", 10000, 50000),
-    ("Herbal Shop", 5000, 20000),
-    ("Optical Shop", 5000, 20000),
-    ("Mechanic Workshop", 5000, 25000),
-    ("Vulcanizing Shop", 1000, 2000),
-    ("Watch Repairing Shop", 2000, 5000),
-    ("Carwash", 5000, 20000),
-    ("Grinding Machine", 5000, 15000),
-    ("Welding Shop", 5000, 20000),
-    ("Electrical Appliances Shop", 5000, 20000),
-    ("Electronic Workshop", 5000, 20000),
-    ("Pool/Bet Shop", 10000, 30000),
-    ("Panel Beater Workshop", 5000, 20000),
-    ("Spare Parts (Motor)", 15000, 70000),
-    ("Spare Parts (Try-cycle)", 5000, 20000),
-    ("Spare Parts (Motor Cycle)", 5000, 10000),
-    ("Spare Parts (Bicycle)", 2000, 5000),
-    ("Airline Ticketing Office", 50000, 150000),
-    ("Media Houses (Print)", 200000, 300000),
-    ("Departmental Store", 150000, 500000),
-    ("Provision Store", 2000, 10000),
-    ("Super Store", 50000, 100000),
-    ("Super Market", 20000, 70000),
-    ("Telephone Accessories Shop", 2000, 5000),
-    ("Car Stand", 50000, 100000),
-    ("Beauty Shop", 5000, 10000),
-    ("Cosmetic Shop", 5000, 20000),
-    ("Plastic Product Shop", 5000, 20000),
-    ("Bookshop and Stationaries", 5000, 30000),
-    ("Electrical Shop", 10000, 30000),
-    ("Electronic Shop", 15000, 35000),
-    ("Gas Refilling Shop", 5000, 10000),
-    ("Coffee Shop", 5000, 10000),
-    ("Bicycle Shop", 10000, 20000),
-    ("Tricycle Shop", 20000, 50000),
-    ("Motor Cycle Shop", 15000, 30000),
-    ("Kiosk", 2000, 5000),
-    ("Block Moulding Stand", 10000, 50000),
-    ("Furniture/Carpentry Shop", 5000, 10000),
-    ("Hair Dressing Salon", 3000, 10000),
-    ("Barbing Salon Shop", 3000, 10000),
-    ("Cinema Houses", 20000, 50000),
-    ("Viewing Centres", 5000, 10000),
-    ("Rentals", 5000, 10000),
-    ("Photographic Studio", 2000, 5000),
-    ("Business Centre/Cyber Cafe", 5000, 10000),
-    ("Curtain Material Shop", 10000, 30000),
-    ("Boutique Shop", 5000, 15000),
-    ("Agro-Chemical Shop", 10000, 30000),
-    ("Industrial Chemical Shop", 15000, 30000),
-    ("Tools/Equipment Shop", 50000, 150000),
-    ("Tailoring/Fashion Design Shop", 5000, 15000),
-    ("Shoe Maker Shop", 5000, 20000),
-    ("Spray/Painter Workshop", 5000, 20000),
-    ("Mobile Phone Shop", 20000, 50000),
-    ("Corporate Offices", 10000, 20000),
-    ("Foam Shop", 10000, 20000),
-    ("Foam Depot", 50000, 150000),
-    ("Arts and Crafts Shop", 3000, 5000),
-    ("Kerosene Shop", 3000, 5000),
-    ("Soap and Detergent Depot", 20000, 50000),
-    ("Tobacco Distribution Shop", 20000, 70000),
-    ("Commercial Banks", 250000, 300000),
-    ("Micro Finance Banks", 50000, 100000),
-    ("Insurance Company", 50000, 100000),
-    ("Bureau de Change", 100000, 200000),
-    ("Mortgage Banks", 100000, 200000),
-    ("Construction Company (Multi-National)", 500000, 1000000),
-    ("Construction Company (Local)", 200000, 509000.13),
-    ("Petrol Station", 100000, 150000),
-    ("Quarries", 500000, 750000),
-    ("Power Distribution Companies (DISCO's)", 1000000, 1500000),
-    ("Telecommunication Company", 200000, 500000),
-    ("Furniture Showroom", 200000, 500000),
-    ("Warehouse (Exception of Premises and Building Materials Regulated)", 150000, 500000),
-    ("Electric/Electronic Equipment Installation Company", 150000, 500000),
-    ("Manufacturing Company", 150000, 450000),
-]
 
-CONTRACTORS_TIERED = [
-    ("Construction", [
-        ("₦1,000,000 – ₦5,000,000", 20000),
-        ("₦5,100,000 – ₦50,000,000", 35000),
-        ("₦50,100,000 – ₦99,000,000", 150000),
-        ("₦100,000,000 and Above", 300000),
-    ]),
-    ("Supply", [
-        ("₦100,000 – ₦1,000,000", 20000),
-        ("₦1,100,000 – ₦10,000,000", 30000),
-        ("₦11,000,000 – ₦50,000,000", 100000),
-        ("₦51,000,000 and Above", 250000),
-    ]),
-]
-CONTRACTORS_FLAT = [
-    ("Services", 24000),
-    ("Consultancy", 120000),
-]
+def _tiered(label, tiers):
+    return {"label": label, "rate_mode": RateBand.TIERED,
+            "tiers": [{"label": t, "amount": Decimal(a)} for t, a in tiers]}
 
-WRONG_PARKING_CORPORATE_BANDS = [
-    ("Lorries/Tippers", 250000, 500000),
-    ("Car/Buses/Vans/Pick-up", 500000, 1000000),
-    ("Dyna Delivery Van/J5", 150000, 250000),
-]
 
-MOBILE_ADVERT_FLAT = [
-    ("Industrial Motorcycle", 4500),
-    ("Car/Buses/vans/pickups", 17000),
-    ("Dyna Delivery Vans/J5", 25000),
-    ("Tipp er\\Lonies", 30000),
-    ("Trailers", 35000),
-    ("Cranes", 45000),
-    ("Earth moving equipment", 45000),
-]
-
-LOADING_OFFLOADING_FLAT = [
-    ("Lorries/Tippers", 15000),
-    ("Car/Buses /Vans/Pick-ups", 5000),
-    ("Dyna Delivery Van/J5", 10000),
-    ("Luxurious Buses", 20000),
-    ("Trailers", 20000),
-    ("Cranes", 25000),
-    ("Earth-Moving Equipment", 25000),
-]
-
-REGULATED_PREMISES_RANGES = [
-    ("HOTELS", 100000, 160000, 40000, 70000, 10000, 30000),
-    ("GUEST INN", 20000, 30000, 15000, 20000, 5000, 10000),
-    ("RESTAURANT", 30000, 70000, 10000, 30000, 5000, 10000),
-    ("CANTEEN", 5000, 10000, 3000, 7000, 2000, 3000),
-    ("JOINTS/BAR", 20000, 50000, 15000, 30000, 3000, 10000),
-    ("BAKERY", 50000, 100000, 30000, 50000, 10000, 25000),
-    ("OTHER CONF.", 15000, 20000, 5000, 10000, 1000, 5000),
-    ("YOGHURT & OTHER DAIRIES FOOD", 100000, 150000, 50000, 70000, 10000, 50000),
-    ("PORTABLE WATER FACTORY", 120000, 250000, 100000, 150000, 50000, 100000),
-    ("FOOD PRESERVING ESTABLISHMENT", 70000, 100000, 15000, 60000, 5000, 10000),
-    ("FOOD RELATED WAREHOUSE", 50000, 80000, 20000, 50000, 5000, 15000),
-    ("FOOD HAWERS", 3000, 5000, 2000, 3000, 1000, 2000),
-    ("FOOD RELATEDESTABLISHEMENT", 20000, 40000, 10000, 30000, 2000, 10000),
-    ("OTHER", 5000, 10000, 3000, 5000, 500, 1500),
-]
+def build_band_specs():
+    """Gazette schedules keyed by harmonised code. Every figure comes from
+    `seed_rate_bands`; nothing is computed or filled in here."""
+    return {
+        "30010034": [_range(*b) for b in CONTROL_OF_ADVERTISEMENT_BANDS],
+        "30010035": [_range(*b) for b in BUILDING_MATERIALS_BANDS],
+        "30010036": [_flat(*b) for b in MOBILE_ADVERT_FLAT],
+        "30010037": [_flat(*b) for b in LOADING_OFFLOADING_FLAT],
+        "30010043": [_range(*b) for b in TRADE_LICENSE_BANDS],
+        "30010048": [_tiered(lbl, tiers) for lbl, tiers in CONTRACTORS_TIERED]
+                    + [_flat(*b) for b in CONTRACTORS_FLAT],
+        "30010051": [_tiered(lbl, [("Large", lg), ("Medium", md), ("Small", sm)])
+                     for lbl, lg, md, sm in LIQUOR_LICENSING_BANDS],
+        "30010052": [_range(*b) for b in WRONG_PARKING_CORPORATE_BANDS],
+        "30010053": [_flat(*b) for b in FOODSTUFF_REGULATION_FLAT],
+        # One unlabeled band: the gazette gives a single Large/Medium/Small
+        # triple for the whole item, with no sub-classification above it.
+        "30010056": [_tiered("", COMMUNICATION_MAST_TIERS)],
+        "30010054": [
+            spec
+            for est, l_mn, l_mx, m_mn, m_mx, s_mn, s_mx in REGULATED_PREMISES_RANGES
+            for spec in (
+                _range(f"{est} — Large", l_mn, l_mx),
+                _range(f"{est} — Medium", m_mn, m_mx),
+                _range(f"{est} — Small", s_mn, s_mx),
+            )
+        ],
+        "30010062": [_tiered(lbl, tiers) for lbl, tiers in COMMUNITY_LEVY_TIERED]
+                    + [_flat(*b) for b in COMMUNITY_LEVY_FLAT],
+        # Read straight from the gazette — see apps.revenue.gazette_kac.
+        "30010061": [_flat(*b) for b in TENDER_FEES_FLAT],
+        "KJ30010065": [_flat(*b) for b in certificate_of_fitness_bands()],
+    }
 
 
 class Command(BaseCommand):
-    help = "Backup, clear, and seed departments and revenue items with gazette rate bands for Kuje Area Council."
+    help = (
+        "Back up, clear and re-seed a council's departments and revenue items from "
+        "KUJE DEPARTMENT.docx, with gazette bye-law references, bands and classifications."
+    )
 
     def add_arguments(self, parser):
-        parser.add_argument("--council-code", default="KAC", help="Council code (default: KAC)")
+        parser.add_argument("--council", default="KAC", help="Council code to seed (default: KAC).")
+        parser.add_argument("--skip-backup", action="store_true", help="Do not write a JSON backup first.")
+        parser.add_argument("--dry-run", action="store_true", help="Roll the whole transaction back at the end.")
 
-    @transaction.atomic
     def handle(self, *args, **options):
-        council_code = options["council_code"]
+        council_code = options["council"]
         try:
             council = Council.objects.get(council_code=council_code)
         except Council.DoesNotExist:
-            self.stderr.write(self.style.ERROR(f"Council with code {council_code} does not exist."))
-            return
+            raise CommandError(f"No council with code {council_code!r}.")
 
-        set_council_context(council.id)
-        self.stdout.write(self.style.NOTICE(f"=== Starting Migration & Seeding for {council.council_name} ({council_code}) ==="))
+        if not options["skip_backup"]:
+            self.stdout.write(self.style.MIGRATE_HEADING("[1/5] Backing up current state"))
+            call_command("backup_departments_and_revenue", council=council_code)
+        else:
+            self.stdout.write(self.style.WARNING("[1/5] Backup skipped (--skip-backup)"))
 
-        # Step 1: Backup
-        self.backup_data(council)
-
-        # Step 2: Clear current entries
-        self.clear_existing(council)
-
-        # Step 3: Seed Departments
-        dept_map = self.seed_departments(council)
-
-        # Step 4: Seed & Map Revenue Items
-        items_map = self.seed_revenue_items(council, dept_map)
-
-        # Step 5: Seed Gazette Rate Bands
-        self.seed_rate_bands(council, items_map)
-
-        self.stdout.write(self.style.SUCCESS(f"=== Successfully completed migration and seeding for {council_code}! ==="))
-
-    def backup_data(self, council):
-        os.makedirs("docs/backups", exist_ok=True)
-        backup_file = "docs/backups/departments_revenue_backup.json"
-
-        dept_qs = Department.objects.filter(council=council)
-        items_qs = CouncilRevenueItem.objects.filter(council=council)
-        schedules_qs = RateSchedule.objects.filter(council_revenue_item__council=council)
-        bands_qs = RateBand.objects.filter(council_revenue_item__council=council)
-        tiers_qs = RateTier.objects.filter(band__council_revenue_item__council=council)
-
-        data = {
-            "departments": list(dept_qs.values("id", "department_name", "department_code", "head_name", "head_phone")),
-            "revenue_items": list(items_qs.values("id", "harmonised_code", "item_name", "category_id", "unit_of_charge", "department_id")),
-            "rate_schedules": list(schedules_qs.values("id", "council_revenue_item_id", "rate_amount", "effective_from", "effective_to")),
-            "rate_bands": list(bands_qs.values("id", "council_revenue_item_id", "label", "rate_mode", "flat_amount", "min_amount", "max_amount")),
-            "rate_tiers": list(tiers_qs.values("id", "band_id", "label", "amount")),
-        }
-
-        # Convert Decimal and Date to str
-        def json_default(obj):
-            if isinstance(obj, (Decimal, date)):
-                return str(obj)
-            raise TypeError(f"Type {type(obj)} not serializable")
-
-        with open(backup_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=json_default)
-
-        self.stdout.write(self.style.SUCCESS(f"[1/5] Backup created at: {backup_file} ({len(data['departments'])} depts, {len(data['revenue_items'])} items)"))
-
-    def clear_existing(self, council):
-        import traceback
-        from apps.accounts.models import AppRole, AppUser, SubConsultant
-        from apps.audit.models import AuditLog
-        from apps.billing.models import Assessment, Bill, BillLine
-        from apps.fieldops.models import MobileSyncRecord
-        from apps.payments.models import APIClient, ChannelTransactionFeed, Payment, POSTerminal
-        from apps.reconciliation.models import ReconciliationException, ReconciliationRun
-        from apps.registry.models import EnumeratedAsset, Payer
-        from apps.settlements.models import CommissionSettlement
-
+        dry_run = options["dry_run"]
         try:
-            # 1. Nullify cyclic FK references to break delete cycles
-            AppUser.objects.filter(council=council).update(consultant=None)
-            SubConsultant.objects.filter(council=council).update(registration_payer=None)
-            Payer.objects.filter(council=council).update(is_duplicate_of=None)
+            with council_context(council.id):
+                self._guard_dependents(council)
+                self._clear(council)
+                departments = self._seed_departments(council)
+                items = self._seed_items(council, departments)
+                self._seed_bands(items)
+                self._report(council, departments, items)
+                if dry_run:
+                    self.stdout.write(self.style.WARNING("\n--dry-run: rolling back."))
+                    transaction.set_rollback(True)
+        except Exception as exc:
+            raise CommandError(f"Seed aborted, nothing committed: {exc}") from exc
 
-            # 2. Clear Portfolios and transactional records
-            ConsultantPortfolio.objects.filter(council=council).delete()
-            AgentPortfolio.objects.filter(council=council).delete()
+    def _guard_dependents(self, council):
+        """Refuse rather than widen the blast radius. Assessments and portfolios
+        are PROTECTed against a revenue item; if any exist, clearing the items
+        would mean deleting real operational data this command has no business
+        touching."""
+        blockers = []
+        assessments = self._assessment_count(council)
+        if assessments:
+            blockers.append(f"{assessments} assessment(s)")
+        consultant_rows = ConsultantPortfolio.objects.filter(council=council).count()
+        if consultant_rows:
+            blockers.append(f"{consultant_rows} consultant portfolio row(s)")
+        agent_rows = AgentPortfolio.objects.filter(council=council).count()
+        if agent_rows:
+            blockers.append(f"{agent_rows} agent portfolio row(s)")
+        if blockers:
+            raise CommandError(
+                "Existing revenue items are still referenced by "
+                + ", ".join(blockers)
+                + ". Reassign or remove those first — this command will not delete them."
+            )
 
-            AuditLog.objects.filter(council=council).delete()
-            ReconciliationException.objects.filter(council=council).delete()
-            ReconciliationRun.objects.filter(council=council).delete()
-            ChannelTransactionFeed.objects.filter(council=council).delete()
-            MobileSyncRecord.objects.filter(council=council).delete()
+    @staticmethod
+    def _assessment_count(council):
+        from apps.billing.models import Assessment
 
-            Payment.objects.filter(council=council).delete()
-            BillLine.objects.filter(bill__council=council).delete()
-            Bill.objects.filter(council=council).delete()
-            Assessment.objects.filter(council=council).delete()
+        return Assessment.objects.filter(council=council).count()
 
-            CommissionSettlement.objects.filter(council=council).delete()
-            POSTerminal.objects.filter(council=council).delete()
-            APIClient.objects.filter(council=council).delete()
-            
-            SubConsultant.objects.filter(council=council).delete()
-            EnumeratedAsset.objects.filter(payer__council=council).delete()
-            Payer.objects.filter(council=council).delete()
+    def _clear(self, council):
+        self.stdout.write(self.style.MIGRATE_HEADING("[2/5] Clearing departments and revenue items"))
+        item_ids = list(CouncilRevenueItem.objects.filter(council=council).values_list("id", flat=True))
 
-            AppUser.objects.filter(
-                council=council,
-                role__access_level__in=[AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW],
-            ).delete()
+        tiers, _ = RateTier.objects.filter(band__council_revenue_item_id__in=item_ids).delete()
+        bands, _ = RateBand.objects.filter(council_revenue_item_id__in=item_ids).delete()
+        schedules, _ = RateSchedule.objects.filter(council_revenue_item_id__in=item_ids).delete()
+        items, _ = CouncilRevenueItem.objects.filter(council=council).delete()
+        departments, _ = Department.objects.filter(council=council).delete()
 
-            # 2. Clear RateSchedule, RateTier, RateBand, CouncilRevenueItem, Department
-            RateSchedule.objects.filter(council_revenue_item__council=council).delete()
-            RateTier.objects.filter(band__council_revenue_item__council=council).delete()
-            RateBand.objects.filter(council_revenue_item__council=council).delete()
+        self.stdout.write(
+            f"  cleared {departments} departments, {items} revenue items, "
+            f"{schedules} rate schedules, {bands} bands, {tiers} tiers"
+        )
 
-            deleted_items, _ = CouncilRevenueItem.objects.filter(council=council).delete()
-            deleted_depts, _ = Department.objects.filter(council=council).delete()
-
-            self.stdout.write(self.style.SUCCESS(f"[2/5] Cleared existing entries: {deleted_items} revenue items and {deleted_depts} departments removed."))
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Error in clear_existing: {e}"))
-            traceback.print_exc()
-            raise e
-
-    def seed_departments(self, council):
-        dept_map = {}
-        for name, code, head, phone in DEPARTMENTS:
-            dept, created = Department.objects.get_or_create(
+    def _seed_departments(self, council):
+        self.stdout.write(self.style.MIGRATE_HEADING("[3/5] Seeding departments"))
+        departments = {}
+        for code, name, legal_basis, head, phone in DEPARTMENTS:
+            departments[code] = Department.objects.create(
                 council=council,
                 department_name=name,
-                defaults={
-                    "department_code": code,
-                    "head_name": head,
-                    "head_phone": phone,
-                },
+                department_code=code,
+                head_name=head,
+                head_phone=phone,
+                legal_basis=legal_basis,
             )
-            dept_map[code] = dept
-            status = "Created" if created else "Retained"
-            self.stdout.write(f"  - Department [{code}]: {name} ({status})")
+            self.stdout.write(f"  [{code:<6}] {name}  ({legal_basis})")
+        self.stdout.write(self.style.SUCCESS(f"  {len(departments)} departments seeded"))
+        return departments
 
-        self.stdout.write(self.style.SUCCESS(f"[3/5] Seeded {len(dept_map)} departments."))
-        return dept_map
-
-    def seed_revenue_items(self, council, dept_map):
-        for name in CATEGORIES:
-            RevenueCategory.objects.get_or_create(name=name, defaults={"sort_order": CATEGORIES.index(name)})
+    def _seed_items(self, council, departments):
+        self.stdout.write(self.style.MIGRATE_HEADING("[4/5] Seeding revenue items"))
+        for index, name in enumerate(CATEGORIES):
+            RevenueCategory.objects.get_or_create(name=name, defaults={"sort_order": index})
         categories = {c.name: c for c in RevenueCategory.objects.all()}
 
-        items_map = {}
-        for code, name, unit, cat_name, dept_code, rate, byelaw in REVENUE_ITEM_DEPT_MAPPING:
-            category = categories[cat_name]
-            dept = dept_map.get(dept_code)
+        today = date.today()
+        items = {}
+        for code, name, unit, category_name, dept_code, rate, bye_law, description in REVENUE_ITEMS:
+            category = categories[category_name]
 
-            # Update or create template
-            template, _ = RevenueItemTemplate.objects.update_or_create(
-                harmonised_code=code,
-                defaults={"item_name": name, "unit_of_charge": unit, "category": category},
-            )
+            # Council-local items (KJ-prefixed) have no place in the harmonised
+            # template catalogue — they exist for Kuje only, so `template` stays
+            # null rather than polluting the shared catalogue with local codes.
+            template = None
+            if not code.startswith("KJ"):
+                template, _ = RevenueItemTemplate.objects.update_or_create(
+                    harmonised_code=code,
+                    defaults={"item_name": name, "unit_of_charge": unit, "category": category},
+                )
 
-            # Activate template item for council
-            item = activate_template_item(
+            item = CouncilRevenueItem.objects.create(
                 council=council,
                 template=template,
-                rate_amount=rate,
-                actor=None,
+                harmonised_code=code,
+                item_name=name,
                 category=category,
+                unit_of_charge=unit,
+                department=departments.get(dept_code) if dept_code else None,
+                bye_law_reference=bye_law,
+                bye_law_description=description,
             )
+            RateSchedule.objects.create(
+                council_revenue_item=item, rate_amount=Decimal(rate), effective_from=today
+            )
+            items[code] = item
 
-            # Bind department FK
-            item.department = dept
-            item.save(update_fields=["department"])
-            items_map[code] = item
+        assigned = sum(1 for i in items.values() if i.department_id)
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  {len(items)} revenue items seeded ({assigned} mapped to a department, "
+                f"{len(items) - assigned} awaiting assignment)"
+            )
+        )
+        return items
 
-            self.stdout.write(f"  - Item [{code}] {name} -> Dept: {dept.department_code} ({byelaw})")
+    def _seed_bands(self, items):
+        self.stdout.write(self.style.MIGRATE_HEADING("[5/5] Seeding gazette bands and classifications"))
+        total_bands = total_tiers = 0
+        for code, specs in build_band_specs().items():
+            item = items.get(code)
+            if item is None:
+                continue
+            created = replace_rate_bands(council_revenue_item=item, bands=specs, actor=None)
+            tier_count = sum(len(s.get("tiers") or []) for s in specs)
+            total_bands += len(created)
+            total_tiers += tier_count
+            self.stdout.write(
+                f"  [{code}] {item.item_name[:52]:<52} {len(created):>3} bands"
+                + (f", {tier_count} tiers" if tier_count else "")
+            )
+        self.stdout.write(self.style.SUCCESS(f"  {total_bands} bands and {total_tiers} tiers seeded"))
 
-        self.stdout.write(self.style.SUCCESS(f"[4/5] Seeded & mapped {len(items_map)} revenue items to departments."))
-        return items_map
-
-    def seed_rate_bands(self, council, items_map):
-        def _range(label, min_amount, max_amount):
-            return {"label": label, "rate_mode": "RANGE", "min_amount": min_amount, "max_amount": max_amount}
-
-        def _tiered(label, tiers):
-            return {"label": label, "rate_mode": "TIERED", "tiers": [{"label": t, "amount": a} for t, a in tiers]}
-
-        def _flat(label, amount):
-            return {"label": label, "rate_mode": "FLAT", "flat_amount": amount}
-
-        # Apply bands
-        if "30010034" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010034"], bands=[_range(lbl, mn, mx) for lbl, mn, mx in CONTROL_OF_ADVERTISEMENT_BANDS], actor=None)
-
-        if "30010051" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010051"], bands=[
-                _tiered(lbl, [("Large", l), ("Medium", m), ("Small", s)])
-                for lbl, l, m, s in LIQUOR_LICENSING_BANDS
-            ], actor=None)
-
-        if "30010056" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010056"], bands=[_tiered("", COMMUNICATION_MAST_TIERS)], actor=None)
-
-        if "30010035" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010035"], bands=[_range(lbl, mn, mx) for lbl, mn, mx in BUILDING_MATERIALS_BANDS], actor=None)
-
-        if "30010043" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010043"], bands=[_range(lbl, mn, mx) for lbl, mn, mx in TRADE_LICENSE_BANDS], actor=None)
-
-        if "30010048" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010048"], bands=[
-                _tiered(lbl, tiers) for lbl, tiers in CONTRACTORS_TIERED
-            ] + [_flat(lbl, amt) for lbl, amt in CONTRACTORS_FLAT], actor=None)
-
-        if "30010052" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010052"], bands=[_range(lbl, mn, mx) for lbl, mn, mx in WRONG_PARKING_CORPORATE_BANDS], actor=None)
-
-        if "30010036" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010036"], bands=[_flat(lbl, amt) for lbl, amt in MOBILE_ADVERT_FLAT], actor=None)
-
-        if "30010037" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010037"], bands=[_flat(lbl, amt) for lbl, amt in LOADING_OFFLOADING_FLAT], actor=None)
-
-        if "30010054" in items_map:
-            replace_rate_bands(council_revenue_item=items_map["30010054"], bands=[
-                band
-                for est, l_mn, l_mx, m_mn, m_mx, s_mn, s_mx in REGULATED_PREMISES_RANGES
-                for band in (
-                    _range(f"{est} — Large", l_mn, l_mx),
-                    _range(f"{est} — Medium", m_mn, m_mx),
-                    _range(f"{est} — Small", s_mn, s_mx),
+    def _report(self, council, departments, items):
+        self.stdout.write(self.style.MIGRATE_HEADING("\nDepartment-wise revenue portfolio"))
+        for code, _, _, _, _ in DEPARTMENTS:
+            dept = departments[code]
+            owned = [i for i in items.values() if i.department_id == dept.id]
+            self.stdout.write(f"\n  {dept.department_name}  [{code}] — {dept.legal_basis}")
+            if not owned:
+                self.stdout.write("      (no revenue items — oversight only)")
+            for item in sorted(owned, key=lambda i: i.harmonised_code):
+                band_count = item.rate_bands.filter(effective_to__isnull=True).count()
+                suffix = f"  · {band_count} bands" if band_count else ""
+                self.stdout.write(
+                    f"      {item.harmonised_code:<11} {item.item_name[:48]:<48} "
+                    f"{item.bye_law_reference or '—':<22}{suffix}"
                 )
-            ], actor=None)
 
-        self.stdout.write(self.style.SUCCESS("[5/5] Seeded gazette rate bands and classifications."))
+        unassigned = [i for i in items.values() if not i.department_id]
+        if unassigned:
+            self.stdout.write(self.style.WARNING("\n  Awaiting departmental assignment"))
+            for item in sorted(unassigned, key=lambda i: i.harmonised_code):
+                self.stdout.write(f"      {item.harmonised_code:<11} {item.item_name}")
