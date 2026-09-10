@@ -9,6 +9,10 @@ class LogoutRequestSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
+class AssignPayerSerializer(serializers.Serializer):
+    payer_id = serializers.IntegerField()
+
+
 class UpdateProfileSerializer(serializers.ModelSerializer):
     """PATCH /auth/me — deliberately a narrow, separate serializer rather than
     reusing MeSerializer for writes too: username/council/role/consultant/

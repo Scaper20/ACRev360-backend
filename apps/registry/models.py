@@ -50,6 +50,15 @@ class Payer(CouncilScopedModel):
         "accounts.AppUser", on_delete=models.PROTECT, related_name="enumerated_payers"
     )
 
+    #: Set via FieldAgentViewSet.assign_payer — once set, this payer comes out
+    #: of the general consultant-team pool for portfolio-scoping purposes
+    #: (see apps.common.scoping.portfolio_filter): only this agent (and the
+    #: consultant manager, who still sees the whole team) can see it, even if
+    #: a *different* agent originally registered it (enumerated_by).
+    assigned_agent = models.ForeignKey(
+        "accounts.AppUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_payers"
+    )
+
     #: Unapplied money — the leftover when a payment exceeds a bill's
     #: outstanding balance. Not auto-consumed against a future bill; that's
     #: a separate feature. See apps.payments.services.post_payment.

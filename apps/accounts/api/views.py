@@ -1,4 +1,5 @@
 from django.db import models, transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -13,6 +14,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.accounts.api.serializers import (
     AgentPortfolioSerializer,
+    AssignPayerSerializer,
     ChangePasswordSerializer,
     ConsultantPortfolioSerializer,
     FieldAgentSerializer,
@@ -32,6 +34,7 @@ from apps.billing.models import Bill
 from apps.billing.services import BillingError, issue_bill
 from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
+from apps.registry.api.serializers import PayerSerializer
 from apps.registry.models import Payer
 from apps.registry.services import create_payer
 from apps.revenue.models import AgentPortfolio, ConsultantPortfolio, CouncilRevenueItem, RateBand
@@ -521,6 +524,38 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             entity_id=agent.id, detail={"portfolio_id": entry.id},
         )
         return Response(AgentPortfolioSerializer(entry).data)
+
+    @extend_schema(request=AssignPayerSerializer, responses=PayerSerializer)
+    @action(detail=True, methods=["post"], url_path="assign-payer")
+    def assign_payer(self, request, pk=None):
+        """Hands an already-registered payer to this specific agent —
+        get_queryset() already scopes a CONSULTANT caller to their own
+        agents, so reaching this for another firm's agent 404s before this
+        body runs, same as `portfolio` above. Once assigned, the payer comes
+        out of the general consultant-team pool for scoping purposes (see
+        apps.common.scoping.portfolio_filter) — only this agent, and the
+        consultant manager, see it from here on."""
+        agent = self.get_object()
+        serializer = AssignPayerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payer = get_object_or_404(Payer, pk=serializer.validated_data["payer_id"], council_id=agent.council_id)
+
+        agent_consultant_id = agent.user.consultant_id
+        if agent_consultant_id is not None:
+            payer_consultant_id = payer.enumerated_by.consultant_id if payer.enumerated_by_id else None
+            if payer_consultant_id != agent_consultant_id:
+                return Response(
+                    {"error": "This payer isn't in this agent's own consultant's portfolio"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        payer.assigned_agent = agent.user
+        payer.save(update_fields=["assigned_agent"])
+        audit(
+            council_id=agent.council_id, actor=request.user, action="PAYER_ASSIGNED_TO_AGENT", entity_type="PAYER",
+            entity_id=payer.id, detail={"agent_id": agent.id, "agent_code": agent.agent_code},
+        )
+        return Response(PayerSerializer(payer).data)
 
     @extend_schema(responses=AgentActivityResponseSerializer)
     @action(
