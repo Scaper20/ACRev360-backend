@@ -163,7 +163,10 @@ def test_bill_filter_by_value_range_and_date_range(scoped, authed_api_client, ma
     cheap_item = make_revenue_item(council, code="LFLTCHEAP", name="Cheap Item", rate=2000)
     payer = make_payer(council, scoped["ward_a"], admin, name="Value Payer", phone="09080000001")
     cheap = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": cheap_item, "quantity": 1}], actor=admin)
-    pricey = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": scoped["item"], "quantity": 1}], actor=admin)
+    pricey = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": scoped["item"], "quantity": 1}],
+        actor=admin, force=True,
+    )
     client = authed_api_client(admin)
 
     min_only = client.get("/api/v1/bills?value_min=5000")
@@ -183,7 +186,10 @@ def test_bill_ordering_by_total_amount(scoped, authed_api_client, make_payer, ma
     cheap_item = make_revenue_item(council, code="LFLTORDER", name="Order Item", rate=1000)
     payer = make_payer(council, scoped["ward_a"], admin, name="Order Payer", phone="09090000001")
     cheap = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": cheap_item, "quantity": 1}], actor=admin)
-    pricey = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": scoped["item"], "quantity": 1}], actor=admin)
+    pricey = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": scoped["item"], "quantity": 1}],
+        actor=admin, force=True,
+    )
     client = authed_api_client(admin)
 
     asc = client.get("/api/v1/bills?ordering=total_amount")

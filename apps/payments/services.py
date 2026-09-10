@@ -1,15 +1,39 @@
+from decimal import Decimal
+
 from django.db import transaction
+from django.db.models import F
 
 from apps.audit.services import audit
 from apps.billing.models import Bill
 from apps.billing.services import recompute_bill
 from apps.common.refs import finalize_ref, placeholder_ref
-from apps.payments.models import POSTerminal, Payment, PaymentChannel, Receipt
+from apps.payments.models import POSTerminal, Payment, PaymentAllocation, PaymentChannel, Receipt
 
 
 class PaymentRejected(Exception):
     """Raised when a bill can't take a payment — terminal-state refusal, the one
     place this is enforced so every channel is covered. See V2_ARCHITECTURE.md §7.2."""
+
+
+def _allocate_fifo(*, payment: Payment, bill: Bill) -> tuple[Decimal, Decimal]:
+    """Applies payment.amount to bill.lines oldest-first, filling each line's
+    outstanding balance before moving to the next. Returns (applied, leftover)
+    — leftover is whatever's left once every line is fully paid (an
+    overpayment), 0 otherwise. select_for_update on the lines guards against
+    two concurrent payments double-spending the same outstanding balance."""
+    remaining = payment.amount
+    applied = Decimal("0")
+    for line in bill.lines.select_for_update().order_by("position", "id"):
+        if remaining <= 0:
+            break
+        outstanding = line.line_amount - line.paid_amount
+        if outstanding <= 0:
+            continue
+        take = min(remaining, outstanding)
+        PaymentAllocation.objects.create(payment=payment, bill_line=line, amount=take)
+        remaining -= take
+        applied += take
+    return applied, remaining
 
 
 @transaction.atomic
@@ -49,9 +73,21 @@ def post_payment(
     )
     finalize_ref(payment, "payment_ref", f"PAY-{payment.id:08d}")
 
-    bill.amount_paid = bill.amount_paid + amount
+    applied, leftover = _allocate_fifo(payment=payment, bill=bill)
+
+    bill.amount_paid = bill.amount_paid + applied
     bill.save(update_fields=["amount_paid", "updated_at"])
     recompute_bill(bill)
+
+    if leftover > 0:
+        from apps.registry.models import Payer
+
+        Payer.objects.filter(pk=bill.payer_id).update(credit_balance=F("credit_balance") + leftover)
+        audit(
+            council_id=council_id, actor=posted_by, action="PAYMENT_OVERPAYMENT_CREDITED",
+            entity_type="PAYER", entity_id=bill.payer_id,
+            detail={"payment_ref": payment.payment_ref, "bill_ref": bill.bill_ref, "credited_amount": str(leftover)},
+        )
 
     receipt = Receipt.objects.create(council_id=council_id, receipt_ref=placeholder_ref(), payment=payment)
     finalize_ref(receipt, "receipt_ref", f"RCT-{receipt.id:08d}")

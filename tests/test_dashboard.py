@@ -121,19 +121,19 @@ def test_summary_portfolio_scoping_for_consultant(
 def test_summary_assessments_tracks_bills_after_supersession(scoped, authed_api_client):
     council, payer, admin, item = scoped["council"], scoped["payer"], scoped["admin"], scoped["item"]
     issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
-    # roll_arrears supersedes the original bill into a new consolidated one
-    # that carries the debt forward as a lump arrears figure, with no fresh
-    # BillLine of its own. The original Assessment's BillLine still points at
-    # the now-SUPERSEDED bill, so a naive status=BILLED count would keep
-    # counting it forever — assessments must track `bills` via the bill_lines
-    # join and correctly drop to 0 here, not stay pinned at 1.
+    # roll_arrears supersedes the original bill into a new consolidated one.
+    # Since PR4 (itemized arrears), the original Assessment gets a fresh
+    # arrears-only BillLine on the new active bill itself — not just a
+    # bill-level lump sum — so it correctly still counts as BILLED-and-active
+    # (1), not 0: the item's charge is genuinely still tracked, now on the
+    # bill that superseded the original rather than the superseded one.
     issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
 
     r = authed_api_client(admin).get("/api/v1/dashboard/summary")
     assert r.status_code == 200, r.content
     body = r.json()
     assert body["bills"] == 1
-    assert body["assessments"] == 0
+    assert body["assessments"] == 1
 
 
 @pytest.mark.django_db(transaction=True)

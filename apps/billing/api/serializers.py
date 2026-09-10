@@ -31,11 +31,18 @@ class BillLineDetailSerializer(serializers.ModelSerializer):
     quantity = serializers.DecimalField(source="assessment.quantity", max_digits=10, decimal_places=2, read_only=True)
     band_label = serializers.CharField(source="assessment.rate_band.label", read_only=True, default=None)
     tier_label = serializers.CharField(source="assessment.rate_tier.label", read_only=True, default=None)
+    paid_amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
 
     class Meta:
         model = BillLine
-        fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "line_amount", "band_label", "tier_label"]
-        read_only_fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "band_label", "tier_label"]
+        fields = [
+            "id", "assessment", "harmonised_code", "item_name", "quantity", "line_amount",
+            "current_amount", "arrears_amount", "paid_amount", "band_label", "tier_label",
+        ]
+        read_only_fields = [
+            "id", "assessment", "harmonised_code", "item_name", "quantity",
+            "current_amount", "arrears_amount", "paid_amount", "band_label", "tier_label",
+        ]
 
 
 class SupersededBillSerializer(serializers.Serializer):
@@ -103,6 +110,7 @@ class IssueBillSerializer(serializers.Serializer):
     lines = BillLineEntrySerializer(many=True, required=False, default=list)
     bill_all_drafts = serializers.BooleanField(default=False)
     roll_arrears = serializers.BooleanField(default=False)
+    force = serializers.BooleanField(required=False, default=False, write_only=True)
 
 
 class AddLineSerializer(serializers.Serializer):

@@ -1,21 +1,27 @@
 import uuid
 
 from django.db import models
+from django.utils import timezone
 
 from apps.tenancy.models import CouncilScopedModel, WardZone
 
 
 class PaymentChannel(models.Model):
-    """The five channels — council-agnostic catalogue."""
+    """The six channels — council-agnostic catalogue."""
 
-    POS, OTC, IB_MB, USSD, FIRSTMONIE = "POS", "OTC", "IB_MB", "USSD", "FIRSTMONIE"
+    POS, OTC, IB_MB, USSD, FIRSTMONIE, CASH = "POS", "OTC", "IB_MB", "USSD", "FIRSTMONIE", "CASH"
     CODE_CHOICES = [
         (POS, "POS"),
         (OTC, "Over-the-counter teller"),
         (IB_MB, "Internet / Mobile Banking"),
         (USSD, "USSD"),
         (FIRSTMONIE, "FirstMonie Agent Banking"),
+        (CASH, "Cash"),
     ]
+
+    #: Channels with no bank-side feed to reconcile against by definition —
+    #: excluded from unmatched-credit exception logic entirely.
+    NO_FEED_EXPECTED = {CASH}
 
     code = models.CharField(max_length=16, choices=CODE_CHOICES, unique=True)
     provider = models.CharField(max_length=120, blank=True)
@@ -47,6 +53,17 @@ class POSTerminal(CouncilScopedModel):
         return self.terminal_id
 
 
+#: The only action an API key can currently invoke is authenticating an
+#: inbound channel webhook — extend as more actions are opened up to API-key
+#: callers. Kept at module level so it can back the scopes field's default
+#: (existing rows/tests that never set scopes explicitly keep working).
+API_CLIENT_SCOPE_WEBHOOK_POST = "payments.webhook.post"
+
+
+def _default_api_client_scopes():
+    return [API_CLIENT_SCOPE_WEBHOOK_POST]
+
+
 class APIClient(CouncilScopedModel):
     """Registered API credentials per channel integration, for HMAC signature
     verification on inbound webhooks — see V2_ARCHITECTURE.md §8 (on by default).
@@ -56,16 +73,32 @@ class APIClient(CouncilScopedModel):
     recompute the signature server-side, which a hash can never allow. See
     apps/payments/crypto.py."""
 
+    SCOPE_WEBHOOK_POST = API_CLIENT_SCOPE_WEBHOOK_POST
+    SCOPE_CHOICES = [SCOPE_WEBHOOK_POST]
+
     channel = models.ForeignKey(PaymentChannel, on_delete=models.PROTECT, related_name="api_clients")
     api_key = models.CharField(max_length=64, unique=True)
     secret_encrypted = models.CharField(max_length=256)
     is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="Null means the key never expires.")
+    scopes = models.JSONField(
+        default=_default_api_client_scopes, blank=True, help_text="Action codes this key may invoke — see SCOPE_CHOICES."
+    )
+    last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "api_client"
 
     def __str__(self):
         return f"{self.channel_id}:{self.api_key}"
+
+    def has_scope(self, code: str) -> bool:
+        return code in self.scopes
+
+    def is_expired(self, *, at=None) -> bool:
+        if self.expires_at is None:
+            return False
+        return self.expires_at <= (at or timezone.now())
 
 
 class Payment(CouncilScopedModel):
@@ -102,6 +135,24 @@ class Payment(CouncilScopedModel):
 
     def __str__(self):
         return self.payment_ref or f"(unsaved payment #{self.pk})"
+
+
+class PaymentAllocation(models.Model):
+    """How one payment's amount was split across bill lines — FIFO, oldest
+    line first, see payments.services.post_payment. PROTECT on both FKs:
+    a payment's allocation history must survive exactly as long as the
+    payment and the line it was applied against."""
+
+    payment = models.ForeignKey(Payment, on_delete=models.PROTECT, related_name="allocations")
+    bill_line = models.ForeignKey("billing.BillLine", on_delete=models.PROTECT, related_name="allocations")
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "payment_allocation"
+
+    def __str__(self):
+        return f"{self.payment_id}->{self.bill_line_id}: {self.amount}"
 
 
 class ChannelTransactionFeed(CouncilScopedModel):

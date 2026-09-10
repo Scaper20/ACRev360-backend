@@ -50,6 +50,11 @@ class Payer(CouncilScopedModel):
         "accounts.AppUser", on_delete=models.PROTECT, related_name="enumerated_payers"
     )
 
+    #: Unapplied money — the leftover when a payment exceeds a bill's
+    #: outstanding balance. Not auto-consumed against a future bill; that's
+    #: a separate feature. See apps.payments.services.post_payment.
+    credit_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
     class Meta:
         db_table = "payer"
         indexes = [

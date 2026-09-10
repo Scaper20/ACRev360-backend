@@ -21,9 +21,9 @@ from apps.channels.api.serializers import (
     USSDSessionRequestSerializer,
     WebhookResponseSerializer,
 )
+from apps.channels.services import WebhookAuthError, authenticate_webhook_client
 from apps.common.permissions import access_level_permission
-from apps.payments.crypto import decrypt_secret
-from apps.payments.models import APIClient, ChannelTransactionFeed, PaymentChannel, Receipt
+from apps.payments.models import ChannelTransactionFeed, PaymentChannel, Receipt
 from apps.payments.services import PaymentRejected, post_payment
 from apps.tenancy.context import council_context, find_across_active_councils, resolve_council_from_bill_ref
 
@@ -37,7 +37,13 @@ class ChannelCatalogueView(APIView):
     def get(self, request):
         channels_by_code = {c.code: c.id for c in PaymentChannel.objects.all()}
         return Response([
-            {"id": channels_by_code.get(code), "code": code, "label": label, "required_fields": adapters.REQUIRED_FIELDS[code]}
+            {
+                "id": channels_by_code.get(code),
+                "code": code,
+                "label": label,
+                # CASH has no webhook payload contract — it's recorded directly, not via a bank feed.
+                "required_fields": adapters.REQUIRED_FIELDS.get(code, []),
+            }
             for code, label in PaymentChannel.CODE_CHOICES
         ])
 
@@ -76,13 +82,12 @@ class WebhookView(APIView):
 
             if settings.WEBHOOK_STRICT_SIGNATURES:
                 signature = request.headers.get("X-ACRev360-Signature")
-                clients = APIClient.objects.filter(council=council, channel=channel, is_active=True)
-                verified = any(
-                    adapters.verify_signature(decrypt_secret(c.secret_encrypted), request.body, signature)
-                    for c in clients
-                )
-                if not verified:
-                    return Response({"status": "rejected", "error": "Signature verification failed"}, status=status.HTTP_401_UNAUTHORIZED)
+                try:
+                    authenticate_webhook_client(
+                        council=council, channel=channel, raw_body=request.body, signature_header=signature,
+                    )
+                except WebhookAuthError as exc:
+                    return Response({"status": "rejected", "error": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
 
             existing = ChannelTransactionFeed.objects.filter(channel=channel, bank_txn_ref=normalised["bank_txn_ref"]).first()
             if existing:

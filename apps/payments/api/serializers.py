@@ -78,7 +78,11 @@ class POSTerminalSerializer(serializers.ModelSerializer):
 
 
 class APIClientSerializer(serializers.ModelSerializer):
+    scopes = serializers.ListField(
+        child=serializers.ChoiceField(choices=APIClient.SCOPE_CHOICES), required=False,
+    )
+
     class Meta:
         model = APIClient
-        fields = ["id", "channel", "api_key", "is_active"]
-        read_only_fields = ["id", "api_key"]
+        fields = ["id", "channel", "api_key", "is_active", "expires_at", "scopes", "last_used_at"]
+        read_only_fields = ["id", "api_key", "last_used_at"]

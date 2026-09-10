@@ -43,7 +43,9 @@ def test_post_payment_accepts_optional_terminal(scoped):
     with_terminal = post_payment(council_id=council.id, bill=bill, channel=channel, amount=5000, posted_by=admin, terminal=terminal)
     assert with_terminal.terminal_id == terminal.id
 
-    bill2 = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    bill2 = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin, force=True,
+    )
     without_terminal = post_payment(council_id=council.id, bill=bill2, channel=channel, amount=5000, posted_by=admin)
     assert without_terminal.terminal_id is None
 
@@ -117,11 +119,15 @@ def test_terminal_collected_total_annotation(scoped, authed_api_client):
     channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.POS)
 
     bill1 = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
-    bill2 = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    bill2 = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin, force=True,
+    )
     post_payment(council_id=council.id, bill=bill1, channel=channel, amount=4000, posted_by=admin, terminal=terminal)
     post_payment(council_id=council.id, bill=bill2, channel=channel, amount=6000, posted_by=admin, terminal=terminal)
 
-    failed_bill = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    failed_bill = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin, force=True,
+    )
     failed_payment = post_payment(council_id=council.id, bill=failed_bill, channel=channel, amount=9999, posted_by=admin, terminal=terminal)
     failed_payment.txn_status = Payment.FAILED
     failed_payment.save(update_fields=["txn_status"])

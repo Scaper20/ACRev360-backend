@@ -285,15 +285,35 @@ class APIClientViewSet(viewsets.ModelViewSet):
         from apps.payments.crypto import encrypt_secret
 
         secret = secrets.token_urlsafe(32)
-        serializer.save(
+        client = serializer.save(
             council_id=self.request.user.council_id,
             api_key=f"key_{secrets.token_urlsafe(16)}",
             secret_encrypted=encrypt_secret(secret),
         )
         self._plaintext_secret = secret
+        audit(
+            council_id=self.request.user.council_id, actor=self.request.user, action="API_CLIENT_CREATED",
+            entity_type="API_CLIENT", entity_id=client.id,
+            detail={"channel": client.channel.code, "expires_at": str(client.expires_at), "scopes": client.scopes},
+        )
 
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
         response.data["secret"] = self._plaintext_secret
         response.data["_secret_warning"] = "Shown once — store it now, it cannot be retrieved again."
         return response
+
+    @action(detail=True, methods=["post"])
+    def revoke(self, request, pk=None):
+        """The clean, audited way to deactivate a key — is_active is already
+        the revocation flag (see APIClient), this just exposes flipping it
+        through a real endpoint instead of a raw DB update."""
+        client = self.get_object()
+        if client.is_active:
+            client.is_active = False
+            client.save(update_fields=["is_active"])
+            audit(
+                council_id=request.user.council_id, actor=request.user, action="API_CLIENT_REVOKED",
+                entity_type="API_CLIENT", entity_id=client.id, detail={"channel": client.channel.code},
+            )
+        return Response(APIClientSerializer(client).data)

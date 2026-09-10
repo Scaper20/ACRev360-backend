@@ -72,7 +72,12 @@ def test_arrears_consolidation_conserves_outstanding(scoped, make_revenue_item):
     item_b = make_revenue_item(council, code="MNYITEM2", rate=7000)
 
     bill_a = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_a, "quantity": 1}], actor=admin)
-    bill_b = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_b, "quantity": 1}], actor=admin)
+    # force=True: this deliberately sets up two concurrent open bills for one
+    # payer/year to exercise consolidation — the very thing the duplicate-bill
+    # guard (see test_duplicate_bill.py) now blocks by default.
+    bill_b = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_b, "quantity": 1}], actor=admin, force=True,
+    )
 
     outstanding_before = bill_a.balance + bill_b.balance
     assert outstanding_before == 17000
@@ -102,7 +107,10 @@ def test_bill_detail_lists_which_prior_bills_were_consolidated(scoped, authed_ap
     item_b = make_revenue_item(council, code="MNYITEM3", rate=7000)
 
     bill_a = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_a, "quantity": 1}], actor=admin)
-    bill_b = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_b, "quantity": 1}], actor=admin)
+    # force=True — see test_arrears_consolidation_conserves_outstanding.
+    bill_b = issue_bill(
+        council_id=council.id, payer=payer, lines=[{"council_revenue_item": item_b, "quantity": 1}], actor=admin, force=True,
+    )
     consolidated = issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
 
     r = authed_api_client(admin).get(f"/api/v1/bills/{consolidated.id}/detail")
@@ -167,9 +175,16 @@ def test_multi_level_consolidation_includes_full_recursive_line_history(scoped, 
     assert bill3.arrears_amount == Decimal("10000")
     assert bill3.total_amount == Decimal("10000")
 
-    # Model-level: the recursive invariant itself.
+    # Model-level: the recursive invariant itself. Summed via current_amount,
+    # not line_amount — since PR4 (FIFO allocation + itemized arrears),
+    # arrears carried forward are materialized as real BillLines at every
+    # consolidation hop (not just a bill-level lump sum), so a line's full
+    # line_amount at one level already includes money a deeper level's line
+    # also restates; current_amount is each line's own fresh contribution at
+    # the point it was first billed, so it sums exactly once per naira across
+    # the whole chain no matter how many times it's been rolled forward.
     all_lines = bill3.all_arrears_lines()
-    assert sum((line.line_amount for line in all_lines), start=Decimal("0")) == bill3.total_amount
+    assert sum((line.current_amount for line in all_lines), start=Decimal("0")) == bill3.total_amount
     assert {line.assessment.council_revenue_item.harmonised_code for line in all_lines} == {
         item_a.harmonised_code, item_b.harmonised_code,
     }
@@ -184,8 +199,10 @@ def test_multi_level_consolidation_includes_full_recursive_line_history(scoped, 
     assert superseded[0]["amount"] == "10000.00"
     codes = {line["harmonised_code"] for line in superseded[0]["lines"]}
     assert codes == {item_a.harmonised_code, item_b.harmonised_code}
-    line_sum = sum((Decimal(line["line_amount"]) for line in superseded[0]["lines"]), start=Decimal("0"))
-    assert line_sum == Decimal(superseded[0]["amount"])
+    # current_amount, not line_amount — same reasoning as the model-level
+    # check above, now over the serialized (JSON) lines.
+    current_sum = sum((Decimal(line["current_amount"]) for line in superseded[0]["lines"]), start=Decimal("0"))
+    assert current_sum == Decimal(superseded[0]["amount"])
 
 
 @pytest.mark.django_db(transaction=True)

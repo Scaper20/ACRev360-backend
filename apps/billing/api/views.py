@@ -21,7 +21,7 @@ from apps.billing.api.serializers import (
 )
 from apps.audit.services import audit
 from apps.billing.models import Assessment, Bill, BillLine
-from apps.billing.services import BillingError, add_bill_line, delete_bill_line, issue_bill, update_bill_line
+from apps.billing.services import BillingError, DuplicateBill, add_bill_line, delete_bill_line, issue_bill, update_bill_line
 from apps.common.filtering import (
     StableOrderingFilter,
     apply_date_range,
@@ -179,6 +179,12 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
                 bill_all_drafts=data["bill_all_drafts"],
                 roll_arrears=data["roll_arrears"],
                 actor=request.user,
+                force=data.get("force", False),
+            )
+        except DuplicateBill as exc:
+            return Response(
+                {"error": str(exc), "duplicate_of": BillSerializer(exc.existing).data},
+                status=status.HTTP_409_CONFLICT,
             )
         except BillingError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
