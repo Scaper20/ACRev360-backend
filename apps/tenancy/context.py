@@ -8,6 +8,14 @@ Two ways this gets set:
   2. Explicitly, for the handful of public/anonymous endpoints (bill lookup, receipt
      verification) that resolve their own target council from the request itself
      (a bill_ref's prefix, or by trying each active council) rather than from a user.
+
+**Writing a data migration (RunPython)?** Neither of the above applies — a migration
+gets no ambient context at all, and runs as the same non-superuser role RLS applies
+to. A bare queryset against any RLS-protected table (most CouncilScopedModel tables —
+grep `ENABLE ROW LEVEL SECURITY` for the current list) silently matches zero rows, and
+reports success. This shipped for real on 2026-09-10 and destroyed production data —
+see docs/CHANGELOG.md. Use `apps.tenancy.migration_helpers.for_each_council` instead of
+a bare queryset in any RunPython that touches one of those tables.
 """
 from contextlib import contextmanager
 

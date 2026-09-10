@@ -46,7 +46,18 @@ forgotten.
   error — this has produced a false "the data is gone" scare at least once. If a
   diagnostic query looks suspiciously empty, verify via `docker compose exec postgres
   psql -U acrev360 -d acrev360` (the Postgres superuser bypasses RLS entirely) before
-  concluding data is actually missing.
+  concluding data is actually missing. **This applies just as much to `RunPython` data
+  migrations** — they run as the same non-superuser role RLS applies to, and this one
+  isn't hypothetical: it shipped for real (2026-09-10, see that entry below) and
+  destroyed production data because the follow-up migration dropped the very column the
+  backfill was supposed to read from, before anyone noticed the backfill had matched
+  zero rows. Use `apps.tenancy.migration_helpers.for_each_council` for any RunPython
+  touching an RLS-protected model (which is most `CouncilScopedModel` tables — grep
+  `ENABLE ROW LEVEL SECURITY` for the current list) instead of writing a bare queryset.
+  pytest will not catch a broken one either: the test DB is migrated while still empty,
+  so a data migration's transform step never runs against real pre-existing rows in
+  that flow — see `tests/test_migration_helpers.py`, which tests the helper directly
+  against real pre-existing data with no ambient context, the actual failure condition.
 - **This Docker setup has no bind mount** on `web`/`celery-*` — every backend source
   edit needs `docker compose build web && docker compose up -d web` before it's visible,
   and `pip install -r requirements/dev.txt` again inside the fresh container before
@@ -158,6 +169,161 @@ forgotten.
   file reached `master` once already and 400'd every request to the other service (Django's
   `ALLOWED_HOSTS` check rejects any request whose `Host:` header isn't on the list) with no
   crash, no traceback — just silent request-level rejection. See the entry below.
+
+---
+
+## 2026-09-10 — Extensive post-incident review: reverse_payment/overpayment bug, N+1s, name-split duplication, and other findings fixed
+
+**Ask:** after the wipe+migration-fix incident above, an extensive multi-angle
+review (line-by-line diff, removed-behavior audit, cross-file tracer, reuse,
+simplification, efficiency, altitude, conventions) of the whole 10-PR batch
+(`33194b1..master`), looking for further bugs or unprofessional work, with
+fixes applied and tested.
+
+**Most serious finding — independently surfaced by five of the eight review
+angles:** `reverse_payment()` (apps/payments/services.py) was never updated
+when FIFO allocation + overpayment credit landed. `post_payment()` only
+credits `bill.amount_paid` with the FIFO-`applied` portion of a payment,
+routing any overpayment `leftover` to `Payer.credit_balance` instead — but
+`reverse_payment()` still subtracted the *full* `payment.amount` from
+`amount_paid` and never touched `credit_balance`. Reversing an overpaid
+payment on a bill that also had other confirmed payments could wipe out a
+different payment's legitimate contribution to `amount_paid` (clamped at 0
+in the simple case), while the phantom credit balance stayed live forever.
+Fixed by deriving the actually-applied portion from the payment's own
+`PaymentAllocation` rows (no new bookkeeping needed — they already record
+exactly this) and clawing back the leftover credit on reversal. New tests:
+`test_reversing_an_overpayment_claws_back_only_what_was_actually_credited`,
+`test_reversing_an_overpayment_does_not_wipe_a_prior_payments_contribution`
+(tests/test_fifo_allocation_and_arrears.py).
+
+**Other fixes from the same pass:**
+- `live_reconciliation_summary`'s `?date=` query param crashed (uncaught
+  `ValueError` → 500) on a malformed value — no other date-taking endpoint in
+  this codebase skips validation this way. Now routed through
+  `apps.common.filtering.parse_date` like everywhere else.
+- `update_bill_line()` could drive `BillLine.current_amount` (and
+  `Assessment.amount`) negative by setting `line_amount` below the line's own
+  `arrears_amount` — no validation existed for this once lines could carry a
+  fixed arrears component. Now raises `BillingError` (400), and the view
+  action that calls it — which had never caught `BillingError` at all, a
+  second gap the same review pass found — now does.
+- Business/consultant name → first/last split was reinvented three times
+  (`apps/accounts/api/views.py`'s consultant-as-payer flow, both seed
+  scripts) with a naive `.partition(" ")` that dumped every token past the
+  first into `last_name`, contradicting the actual convention `Payer.
+  first_name`'s docstring and the `0007_backfill_payer_names` migration both
+  already establish. Factored into one canonical `apps.registry.services.
+  split_full_name`, used everywhere (including by the migration itself now).
+- `apps/common/api/reports.py` hand-validated `date_from`/`date_to` and never
+  validated `ward_id`/`consultant_id`/`revenue_item_id` at all, instead of
+  reusing `apps.common.filtering.parse_date`/`parse_int` like every other
+  list endpoint in this codebase — an invalid `ward_id` reached the ORM
+  directly and would 500 instead of 400. Now reuses the same helpers.
+- N+1s fixed: `_allocate_fifo` (apps/payments/services.py) queried
+  `BillLine.paid_amount` per line inside its `select_for_update()` loop —
+  Postgres rejects `FOR UPDATE` combined with `GROUP BY`/aggregates in one
+  query, so this couldn't just be annotated; fixed by batching the
+  paid-so-far lookup into one grouped query up front instead. Settlement
+  drill-down (`_settlement_bill_rows`) re-aggregated `collected` per bill in
+  a loop instead of annotating it on the queryset directly. Reconciliation's
+  live summary computed a per-channel platform total it then discarded
+  unused — split into a narrower `_match_feed_rows_for_channel` that only
+  computes what the caller actually needs.
+
+**Not fixed, flagged only** (would need a product decision, not just an
+engineering one): `apps/fieldops/services.get_worklist` (the field agent's
+own worklist) is intentionally ward-scoped rather than scoped to
+`assigned_agent`/`enumerated_by` — this predates PR7's payer-assignment
+feature and may be correct (an agent physically covering a ward needs to see
+every payer there, not just their administratively-assigned ones) or may
+need reconciling with the new assignment feature's intent. Left as-is
+pending a call from whoever owns that product decision. A handful of other
+duplicated-formula/duplicated-condition findings (commission calculation in
+two places, consultant-scoping condition in two places, an `outstanding`
+calculation repeated instead of added as a `BillLine` property, a dead
+`APIClient.is_expired()` method) were logged but not fixed — real but lower
+severity than the above, noted here so they aren't rediscovered from scratch.
+
+**Gotchas:** the local test machine hit `argon2.exceptions.HashingError:
+Memory allocation error` intermittently across unrelated tests when running
+the full ~280-test suite in one process (up to 107 spurious errors in one
+run) — confirmed via isolated re-runs that every one of those tests passes
+cleanly on its own; this is memory pressure from argon2's deliberately heavy
+hashing parameters (`memory_cost=102400`, `parallelism=8` — Django's own
+argon2 defaults, chosen for a real reason, see this file's `PASSWORD_HASHERS`
+comment) compounding over a long-lived single pytest process on a
+resource-constrained machine, not a code regression. If the full suite shows
+a wall of unrelated `argon2` errors, re-run the affected tests in a smaller
+batch before assuming something broke.
+
+---
+
+## 2026-09-10 — Production data loss from the RLS-blocked backfill migrations; both databases wiped and reseeded clean
+
+**Found:** verifying PR9 (payer name split) and PR4 (FIFO allocation) against
+the live frontend/API showed every existing payer's name blank and every
+existing bill line's `current_amount`/`arrears_amount` at `0.00`, even though
+`apps.registry.migrations.0007_backfill_payer_names` and `apps.billing.
+migrations.0004_backfill_billline_position_and_current_amount` both showed as
+applied in `django_migrations`. Root cause (see the `for_each_council`
+gotcha added above): both migrations ran a bare queryset against an
+RLS-protected table (`payer`, `bill`) with no `app.council_id` session
+variable set, which Postgres RLS silently resolves to zero matching rows —
+not an error, so the migration reported success while doing nothing.
+
+**Severity differed sharply between the two:** the billing side was fully
+recoverable (`BillLine.line_amount` was never touched or dropped — the
+backfill only needed to copy it into `current_amount`, which just hadn't
+happened yet). The registry side was not: `0007`'s backfill silently matched
+zero rows, and `0008_remove_payer_full_name` dropped the `full_name` column
+one migration (and about one second of wall-clock time, same deploy) later —
+by the time anyone could notice the backfill hadn't run, the source data it
+would have read from was already gone. Checked every other place a name
+could conceivably survive (`AuditLog.detail` on `PAYER_ENUMERATED` only ever
+stored `payer_ref`, never the name; no other table snapshots it) — genuinely
+unrecoverable from within the database itself.
+
+**Decision (given no available point-in-time backup to restore from, and
+only 6 affected payer rows in production at the time):** wipe both databases
+completely — `DROP SCHEMA public CASCADE` + fresh `migrate` + `seed_kuje` —
+rather than attempt a partial recovery of already-corrupted data. This also
+meant the two broken migrations could be fixed in place (not bolted on as a
+follow-up `0009`/`0005`), since a clean re-migrate from an empty schema never
+exercises the bug at all (nothing to backfill in an empty table either way).
+
+**Fix, and the actual precaution:** both migrations rewritten to use a new
+`apps.tenancy.migration_helpers.for_each_council(apps, fn)` helper, which
+sets `app.council_id` correctly per council before calling `fn`. Prominent
+warnings added at the two places an engineer would actually be looking —
+`apps/tenancy/context.py`'s own docstring, and this file's recurring-themes
+section above — plus a real regression test
+(`tests/test_migration_helpers.py`) that reproduces the exact failure
+condition (a bare query with no council context sees real, pre-existing data
+as if it doesn't exist) and proves the helper avoids it. This is the
+concrete test that would have caught the original bug before it shipped;
+neither of the two broken migrations had any test coverage at all, since
+pytest's test database is migrated while still empty and every test fixture
+sets its own council context before creating data — a broken and a correct
+backfill migration look identical to that flow.
+
+**Verification:** both databases dropped/recreated/migrated/reseeded, then
+confirmed against the actual live deployed API
+(`https://acrev360-backend.onrender.com/api/v1/health` and
+`/api/v1/auth/login` with the new seeded admin credentials), not just the
+database directly — both returned 200 with correct data post-wipe.
+
+**Gotchas:** the fresh admin passwords generated for this (one per
+environment) were shown once in the session that created them and are not
+recoverable from anywhere in this repo — if you don't have them, reset via
+`seed_kuje` again (safe on an already-seeded council; it does not re-wipe
+anything) or Django's own password-reset tooling. Any other environment
+restored from a pre-2026-09-10 backup of either database will still have the
+original bug's symptoms (blank names, zeroed line amounts) and needs the
+same treatment — re-running `migrate` alone will *not* fix it retroactively,
+since these two migrations already show as applied there too; a fresh wipe,
+or a hand-written one-off data-repair migration for that specific restore,
+would be needed.
 
 ---
 
