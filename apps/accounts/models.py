@@ -48,7 +48,10 @@ class AppUser(AbstractBaseUser, PermissionsMixin):
 
     username = models.CharField(max_length=64, unique=True)
     full_name = models.CharField(max_length=160)
-    email = models.EmailField(blank=True)
+    #: The login identifier (see AppTokenObtainPairSerializer) — required and
+    #: unique, though USERNAME_FIELD itself deliberately stays "username" to
+    #: avoid touching Django admin/permissions internals that key off it too.
+    email = models.EmailField(unique=True)
     phone = models.CharField(max_length=32, blank=True)
 
     council = models.ForeignKey(Council, on_delete=models.PROTECT, null=True, blank=True, related_name="users")

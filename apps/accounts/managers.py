@@ -7,6 +7,15 @@ class AppUserManager(BaseUserManager):
     def _create_user(self, username, password, **extra_fields):
         if not username:
             raise ValueError("username is required")
+        # email is unique+required at the model level (PR8), but none of the
+        # onboarding flows that create agents/consultants/revenue officers/
+        # stakeholders collect one today — auto-assigning a placeholder here,
+        # in the one place every creation path funnels through, is what keeps
+        # every one of them working without having to patch each serializer/
+        # view individually. Real emails get collected later as a follow-up;
+        # this only needs to be unique, not deliverable, and username already
+        # is unique, so this always is too.
+        extra_fields.setdefault("email", f"{username}@placeholder.acrev360.local")
         user = self.model(username=username, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)

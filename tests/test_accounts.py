@@ -191,7 +191,7 @@ def test_stakeholder_creation_and_login(scoped, authed_api_client, api_client):
     assert user.access_level == AppRole.GLOBAL_VIEW
     assert user.check_password("acrev360-2026")
 
-    login = api_client.post("/api/v1/auth/login", {"username": "newstake2", "password": "acrev360-2026"}, format="json")
+    login = api_client.post("/api/v1/auth/login", {"email": user.email, "password": "acrev360-2026"}, format="json")
     assert login.status_code == 200, login.content
 
 
