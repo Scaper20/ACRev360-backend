@@ -11,7 +11,7 @@ class AppTokenObtainPairSerializer(TokenObtainPairSerializer):
     set the RLS context by decoding the token alone — no DB query needed before the
     tenant context is known. See apps/tenancy/middleware.py.
 
-    Logs in by email, not username (PR8) — but AppUser.USERNAME_FIELD stays
+    Logs in by email, not username — but AppUser.USERNAME_FIELD stays
     "username" deliberately (lower blast radius: Django admin/permissions
     internals key off USERNAME_FIELD too, and there's no reason to touch
     those). So this can't just set `username_field = "email"` and let the
