@@ -226,9 +226,10 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         # The firm as a payer, billed for its own registration — see item 7 of
         # the frontend's backend requirements doc. enumerated_by defaults to
         # the onboarding admin, same as any other admin-enumerated payer.
+        first_name, _, last_name = instance.consultant_name.partition(" ")
         payer, _ = create_payer(
             council_id=instance.council_id, actor=self.request.user,
-            payer_type=Payer.BUSINESS, full_name=instance.consultant_name, ward=ward,
+            payer_type=Payer.BUSINESS, first_name=first_name, last_name=last_name, ward=ward,
         )
         instance.registration_payer = payer
         instance.save(update_fields=["registration_payer"])

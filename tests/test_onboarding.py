@@ -61,7 +61,7 @@ def test_fresh_council_onboards_configures_and_bills_end_to_end():
         # Enumerate a payer and bill them.
         payer = Payer.objects.create(
             council=council, payer_ref="C-0000001", payer_type=Payer.BUSINESS,
-            full_name="Onboarding Test Payer", ward=ward, enumerated_by=admin,
+            first_name="Onboarding", last_name="Test Payer", ward=ward, enumerated_by=admin,
         )
         bill = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
         assert bill.bill_ref.startswith("NEW/")

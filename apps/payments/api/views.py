@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
 from apps.billing.models import Bill
+from apps.common.filtering import name_search_q
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.api.serializers import (
@@ -73,7 +74,7 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         q = params.get("q")
         if q:
             qs = qs.filter(
-                Q(payment_ref__icontains=q) | Q(bill__bill_ref__icontains=q) | Q(bill__payer__full_name__icontains=q)
+                Q(payment_ref__icontains=q) | Q(bill__bill_ref__icontains=q) | name_search_q(q, prefix="bill__payer")
             )
         date_from = params.get("date_from")
         if date_from:
@@ -191,7 +192,8 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(
-                Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q) | Q(payment__bill__payer__full_name__icontains=q)
+                Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q)
+                | name_search_q(q, prefix="payment__bill__payer")
             )
         return qs
 

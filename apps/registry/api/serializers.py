@@ -7,10 +7,13 @@ class PayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payer
         fields = [
-            "id", "payer_ref", "payer_type", "full_name", "phone", "email", "address", "ward",
-            "nin_bvn_hash", "tin", "business_size", "kyc_status", "created_at",
+            "id", "payer_ref", "payer_type", "first_name", "middle_name", "last_name", "full_name",
+            "phone", "email", "address", "ward", "nin_bvn_hash", "tin", "business_size", "kyc_status", "created_at",
         ]
-        read_only_fields = ["id", "payer_ref", "kyc_status", "created_at"]
+        # full_name isn't a model field (it's a read-only display property —
+        # see Payer.full_name) so DRF already treats it as read-only
+        # automatically; listed here for clarity all the same.
+        read_only_fields = ["id", "payer_ref", "kyc_status", "created_at", "full_name"]
 
 
 class CreatePayerSerializer(serializers.ModelSerializer):
@@ -26,7 +29,7 @@ class CreatePayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payer
         fields = [
-            "payer_type", "full_name", "phone", "email", "address", "ward",
+            "payer_type", "first_name", "middle_name", "last_name", "phone", "email", "address", "ward",
             "nin_bvn_hash", "tin", "business_size", "revenue_item_ids", "force", "assigned_consultant_id",
         ]
 

@@ -15,8 +15,31 @@ is a 400 naming the offending param instead.
 import datetime
 from decimal import Decimal, InvalidOperation
 
+from django.db.models import Q
 from rest_framework import serializers
 from rest_framework.filters import OrderingFilter
+
+
+def name_search_q(q, *, prefix=""):
+    """A multi-word payer-name search: each whitespace-separated token must
+    appear in at least one of first_name/middle_name/last_name — not
+    necessarily the same one, and not necessarily in the stored order — so a
+    query like "Existing One" matches first_name="Existing", last_name="One"
+    even though no single stored column contains that two-word phrase
+    (Payer.full_name is a derived property, not a DB column, so it can't be
+    queried directly at all — see the PR9 migration that split it).
+    `prefix` is the relation path to the Payer from whatever model the
+    queryset is actually on, e.g. "payer" or "bill__payer" — empty when the
+    queryset's own model already is Payer."""
+    p = f"{prefix}__" if prefix else ""
+    combined = Q()
+    for token in q.split():
+        combined &= (
+            Q(**{f"{p}first_name__icontains": token})
+            | Q(**{f"{p}middle_name__icontains": token})
+            | Q(**{f"{p}last_name__icontains": token})
+        )
+    return combined
 
 
 def parse_int(params, name):

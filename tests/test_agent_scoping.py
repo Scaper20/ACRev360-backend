@@ -28,11 +28,11 @@ def scoped(make_council, make_ward, make_user, make_consultant, make_revenue_ite
         agent_b = make_user(council, username="ags-agent-b", access_level=AppRole.AGENT, consultant=consultant)
         payer_a = Payer.objects.create(
             council=council, payer_ref="C-0000101", payer_type=Payer.BUSINESS,
-            full_name="Registered By A", phone="08050000001", ward=ward, enumerated_by=agent_a,
+            first_name="Registered", last_name="By A", phone="08050000001", ward=ward, enumerated_by=agent_a,
         )
         payer_b = Payer.objects.create(
             council=council, payer_ref="C-0000102", payer_type=Payer.BUSINESS,
-            full_name="Registered By B", phone="08050000002", ward=ward, enumerated_by=agent_b,
+            first_name="Registered", last_name="By B", phone="08050000002", ward=ward, enumerated_by=agent_b,
         )
         item = make_revenue_item(council, code="AGSITEM", rate=10000)
         channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.OTC)

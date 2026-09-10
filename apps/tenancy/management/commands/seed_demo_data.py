@@ -210,9 +210,11 @@ class Command(BaseCommand):
                 [Payer.VERIFIED, Payer.PENDING, Payer.FLAGGED], weights=[70, 20, 10]
             )[0]
 
+            first_name, _, last_name = name.partition(" ")
             try:
                 payer, _drafts = create_payer(
-                    council_id=council.id, actor=enumerator, payer_type=payer_type, full_name=name,
+                    council_id=council.id, actor=enumerator, payer_type=payer_type,
+                    first_name=first_name, last_name=last_name,
                     phone=phone, address=f"{random.randint(1, 200)} {ward.ward_name} Road", ward=ward,
                     business_size=business_size, kyc_status=kyc_status,
                 )

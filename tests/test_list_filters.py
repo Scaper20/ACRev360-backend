@@ -77,11 +77,14 @@ def test_payer_ordering_both_directions(scoped, authed_api_client, make_payer):
     make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Zzz Last Payer", phone="09040000002")
     client = authed_api_client(scoped["admin"])
 
-    asc = client.get("/api/v1/payers?ordering=full_name")
+    # full_name is a derived display property post-PR9 (see Payer.full_name),
+    # not a real column — ordering now goes by the real last_name/first_name
+    # columns instead.
+    asc = client.get("/api/v1/payers?ordering=last_name")
     assert asc.status_code == 200, asc.content
     assert asc.json()["results"][0]["full_name"] == "Aaa First Payer"
 
-    desc = client.get("/api/v1/payers?ordering=-full_name")
+    desc = client.get("/api/v1/payers?ordering=-last_name")
     assert desc.json()["results"][0]["full_name"] == "Zzz Last Payer"
 
 

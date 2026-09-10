@@ -26,6 +26,7 @@ from apps.common.filtering import (
     StableOrderingFilter,
     apply_date_range,
     apply_payer_dimension_filters,
+    name_search_q,
     parse_decimal,
     parse_int,
 )
@@ -146,7 +147,7 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
 
         q = params.get("q")
         if q:
-            qs = qs.filter(models.Q(bill_ref__icontains=q) | models.Q(payer__full_name__icontains=q))
+            qs = qs.filter(models.Q(bill_ref__icontains=q) | name_search_q(q, prefix="payer"))
         return qs
 
     def create(self, request, *args, **kwargs):
