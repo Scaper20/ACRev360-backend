@@ -365,6 +365,11 @@ def update_bill_line(*, line: BillLine, line_amount, actor):
     """line_amount replaces the line's total; the arrears portion carried on
     it (if any, from roll_arrears) is preserved and current_amount absorbs
     the rest, matching how the split is created in the first place."""
+    if line_amount < line.arrears_amount:
+        raise BillingError(
+            f"line_amount ({line_amount}) can't be less than this line's own arrears_amount "
+            f"({line.arrears_amount}) — that would make current_amount negative."
+        )
     old_amount = line.line_amount
     line.current_amount = line_amount - line.arrears_amount
     line.line_amount = line_amount

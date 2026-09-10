@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.payments.models import POSTerminal
 from apps.registry.models import Payer
+from apps.registry.services import split_full_name
 from apps.revenue.models import CouncilRevenueItem, RateBand, RateSchedule, RevenueCategory, RevenueItemTemplate
 from apps.tenancy.context import set_council_context
 from apps.tenancy.models import Council, CouncilConfig, WardZone
@@ -76,10 +77,11 @@ def make_user(db, make_role):
 @pytest.fixture
 def make_payer(db):
     def _make(council, ward, actor, name="Test Payer", phone="08010000000"):
-        first_name, _, last_name = name.partition(" ")
+        first_name, middle_name, last_name = split_full_name(name)
         return Payer.objects.create(
             council=council, payer_ref=f"C-{Payer.objects.filter(council=council).count() + 1:07d}",
-            payer_type=Payer.BUSINESS, first_name=first_name, last_name=last_name, phone=phone, ward=ward, enumerated_by=actor,
+            payer_type=Payer.BUSINESS, first_name=first_name, middle_name=middle_name, last_name=last_name,
+            phone=phone, ward=ward, enumerated_by=actor,
         )
 
     return _make

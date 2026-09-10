@@ -9,7 +9,7 @@ from django.db import transaction
 
 from apps.billing.services import issue_bill
 from apps.payments.models import PaymentChannel
-from apps.payments.services import post_payment
+from apps.payments.services import post_payment, reverse_payment
 from apps.tenancy.context import set_council_context
 
 
@@ -195,3 +195,96 @@ def test_receipt_api_exposes_the_payments_own_allocation_slice(scoped, authed_ap
     # the bill-level line total (paid_amount) reflects the same single
     # payment here, but is a conceptually different number (cumulative).
     assert row["lines"][0]["paid_amount"] == "40.00"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reversing_an_overpayment_claws_back_only_what_was_actually_credited(scoped, make_revenue_item):
+    """Bug found in review: reverse_payment() used to subtract the full
+    original payment.amount from bill.amount_paid, even though post_payment()
+    only ever credited the FIFO-applied portion there (the rest went to
+    Payer.credit_balance). Reversing an overpaid payment must undo exactly
+    what was actually applied — not the raw amount — and claw back the
+    credit it created."""
+    council, payer, admin, channel = scoped["council"], scoped["payer"], scoped["admin"], scoped["channel"]
+    item = make_revenue_item(council, code="REVFIFO", rate=20)
+    bill = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+
+    payment = post_payment(council_id=council.id, bill=bill, channel=channel, amount=30, posted_by=admin)
+    bill.refresh_from_db()
+    payer.refresh_from_db()
+    assert bill.amount_paid == 20
+    assert payer.credit_balance == 10
+
+    reverse_payment(payment=payment, actor=admin, reason="test reversal")
+
+    bill.refresh_from_db()
+    payer.refresh_from_db()
+    assert bill.amount_paid == 0
+    assert payer.credit_balance == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reversing_an_overpayment_does_not_wipe_a_prior_payments_contribution(scoped, make_revenue_item):
+    """The full-amount subtraction bug was especially dangerous when a bill
+    already had other confirmed payments on it: subtracting the raw
+    (over-)payment amount could clobber money a *different* payment
+    legitimately contributed."""
+    council, payer, admin, channel = scoped["council"], scoped["payer"], scoped["admin"], scoped["channel"]
+    item1 = make_revenue_item(council, code="REVFIFO2", rate=20)
+    item2 = make_revenue_item(council, code="REVFIFO3", rate=20)
+    bill = issue_bill(
+        council_id=council.id, payer=payer,
+        lines=[{"council_revenue_item": item1, "quantity": 1}, {"council_revenue_item": item2, "quantity": 1}],
+        actor=admin,
+    )
+
+    first_payment = post_payment(council_id=council.id, bill=bill, channel=channel, amount=20, posted_by=admin)
+    second_payment = post_payment(council_id=council.id, bill=bill, channel=channel, amount=25, posted_by=admin)
+    bill.refresh_from_db()
+    payer.refresh_from_db()
+    assert bill.amount_paid == 40  # fully paid (20 + 20 applied)
+    assert payer.credit_balance == 5  # 25 - 20 outstanding = 5 leftover
+
+    reverse_payment(payment=second_payment, actor=admin, reason="test reversal")
+
+    bill.refresh_from_db()
+    payer.refresh_from_db()
+    # first_payment's contribution must survive untouched.
+    assert bill.amount_paid == 20
+    assert payer.credit_balance == 0
+    assert first_payment.txn_status == "CONFIRMED"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_bill_line_rejects_amount_below_its_own_arrears(scoped, authed_api_client, make_revenue_item):
+    """Bug found in review: editing a consolidated line's total down below its
+    carried arrears_amount drove current_amount (and Assessment.amount)
+    negative, silently. Must be a clean 400, not corrupted data."""
+    council, payer, admin = scoped["council"], scoped["payer"], scoped["admin"]
+    item = make_revenue_item(council, code="NEGCHK", rate=100)
+    bill1 = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    bill2 = issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
+    line = bill2.lines.get(assessment__council_revenue_item=item)
+    assert line.arrears_amount == 100
+
+    r = authed_api_client(admin).put(f"/api/v1/bills/{bill2.id}/lines/{line.id}", {"line_amount": "50"}, format="json")
+    assert r.status_code == 400, r.content
+    line.refresh_from_db()
+    assert line.current_amount == 0  # unchanged, not driven negative
+    assert line.arrears_amount == 100
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_bill_line_accepts_amount_at_or_above_its_own_arrears(scoped, authed_api_client, make_revenue_item):
+    council, payer, admin = scoped["council"], scoped["payer"], scoped["admin"]
+    item = make_revenue_item(council, code="NEGCHK2", rate=100)
+    bill1 = issue_bill(council_id=council.id, payer=payer, lines=[{"council_revenue_item": item, "quantity": 1}], actor=admin)
+    bill2 = issue_bill(council_id=council.id, payer=payer, roll_arrears=True, actor=admin)
+    line = bill2.lines.get(assessment__council_revenue_item=item)
+
+    r = authed_api_client(admin).put(f"/api/v1/bills/{bill2.id}/lines/{line.id}", {"line_amount": "150"}, format="json")
+    assert r.status_code == 200, r.content
+    line.refresh_from_db()
+    assert line.arrears_amount == 100
+    assert line.current_amount == 50
+    assert line.line_amount == 150

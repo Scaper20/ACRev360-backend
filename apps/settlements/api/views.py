@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -30,28 +30,26 @@ def _settlement_bill_rows(settlement: CommissionSettlement) -> list[dict]:
     bill of the consultant's payers with a confirmed payment inside the
     settlement's period, each bill's own collected-in-period amount, and its
     share of commission at the settlement's own (snapshotted) rate. Status is
-    the settlement's — it describes the period, not any one bill in it."""
+    the settlement's — it describes the period, not any one bill in it.
+
+    `collected` is annotated directly on the queryset (one query total)
+    rather than re-aggregated per bill in the loop below — a settlement
+    covering hundreds of bills previously cost one extra query per bill."""
+    period_filter = Q(
+        payments__txn_status=Payment.CONFIRMED,
+        payments__created_at__date__gte=settlement.period_start,
+        payments__created_at__date__lte=settlement.period_end,
+    )
     bills = (
-        Bill.objects.filter(
-            council_id=settlement.council_id,
-            payer__enumerated_by__consultant_id=settlement.consultant_id,
-            payments__txn_status=Payment.CONFIRMED,
-            payments__created_at__date__gte=settlement.period_start,
-            payments__created_at__date__lte=settlement.period_end,
-        )
+        Bill.objects.filter(council_id=settlement.council_id, payer__enumerated_by__consultant_id=settlement.consultant_id)
+        .filter(period_filter)
         .distinct()
         .select_related("payer")
+        .annotate(collected=Sum("payments__amount", filter=period_filter))
     )
     rows = []
     for bill in bills:
-        collected = (
-            bill.payments.filter(
-                txn_status=Payment.CONFIRMED,
-                created_at__date__gte=settlement.period_start,
-                created_at__date__lte=settlement.period_end,
-            ).aggregate(total=Sum("amount"))["total"]
-            or Decimal("0")
-        )
+        collected = bill.collected or Decimal("0")
         commission = (collected * settlement.commission_rate / Decimal("100")).quantize(Decimal("0.01"))
         rows.append({
             "bill_id": bill.id,

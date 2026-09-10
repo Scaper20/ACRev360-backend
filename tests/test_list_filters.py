@@ -73,8 +73,12 @@ def test_payer_filter_by_date_range(scoped, authed_api_client, make_payer):
 
 @pytest.mark.django_db(transaction=True)
 def test_payer_ordering_both_directions(scoped, authed_api_client, make_payer):
-    make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Aaa First Payer", phone="09040000001")
-    make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Zzz Last Payer", phone="09040000002")
+    # Distinct last names (not just distinct full strings) — "Aaa First
+    # Payer" / "Zzz Last Payer" both correctly split to last_name="Payer"
+    # under split_full_name's 3-token convention, which ties them and
+    # defeats the point of this test.
+    make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Aaa Alpha", phone="09040000001")
+    make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Zzz Zulu", phone="09040000002")
     client = authed_api_client(scoped["admin"])
 
     # full_name is a derived display property post-PR9 (see Payer.full_name),
@@ -82,10 +86,10 @@ def test_payer_ordering_both_directions(scoped, authed_api_client, make_payer):
     # columns instead.
     asc = client.get("/api/v1/payers?ordering=last_name")
     assert asc.status_code == 200, asc.content
-    assert asc.json()["results"][0]["full_name"] == "Aaa First Payer"
+    assert asc.json()["results"][0]["full_name"] == "Aaa Alpha"
 
     desc = client.get("/api/v1/payers?ordering=-last_name")
-    assert desc.json()["results"][0]["full_name"] == "Zzz Last Payer"
+    assert desc.json()["results"][0]["full_name"] == "Zzz Zulu"
 
 
 @pytest.mark.django_db(transaction=True)

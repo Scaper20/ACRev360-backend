@@ -22,7 +22,6 @@ common.scoping.portfolio_filter; settlements has its own direct consultant_id
 filter since it has no payer to walk through).
 """
 import csv
-import datetime
 import io
 
 from django.db.models import Count, Exists, F, OuterRef, Sum
@@ -36,6 +35,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
 from apps.billing.models import Bill, BillLine
+from apps.common.filtering import parse_date, parse_int
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.models import Payment
@@ -272,20 +272,14 @@ class ReportsView(APIView):
 
         params = request.query_params
         f = {
-            "date_from": params.get("date_from"),
-            "date_to": params.get("date_to"),
-            "ward_id": params.get("ward_id"),
-            "consultant_id": params.get("consultant_id"),
-            "revenue_item_id": params.get("revenue_item_id"),
+            "date_from": parse_date(params, "date_from"),
+            "date_to": parse_date(params, "date_to"),
+            "ward_id": parse_int(params, "ward_id"),
+            "consultant_id": parse_int(params, "consultant_id"),
+            "revenue_item_id": parse_int(params, "revenue_item_id"),
         }
         if f["revenue_item_id"] and entity != BILLS:
             return Response({"error": "revenue_item_id only applies to BILLS"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            for key in ("date_from", "date_to"):
-                if f[key]:
-                    datetime.date.fromisoformat(f[key])
-        except ValueError:
-            return Response({"error": f"{key} must be an ISO date (YYYY-MM-DD)"}, status=status.HTTP_400_BAD_REQUEST)
 
         export = params.get("export", "").lower()
         if export not in ("", "csv"):

@@ -23,7 +23,7 @@ from apps.enforcement.services import refresh_debt
 from apps.payments.models import ChannelTransactionFeed, PaymentChannel, POSTerminal
 from apps.payments.services import post_payment
 from apps.registry.models import Payer
-from apps.registry.services import DuplicatePayer, create_payer
+from apps.registry.services import DuplicatePayer, create_payer, split_full_name
 from apps.revenue.models import ConsultantPortfolio, CouncilRevenueItem, RateBand
 from apps.settlements.services import compute_settlements
 from apps.reconciliation.services import run_reconciliation
@@ -210,11 +210,11 @@ class Command(BaseCommand):
                 [Payer.VERIFIED, Payer.PENDING, Payer.FLAGGED], weights=[70, 20, 10]
             )[0]
 
-            first_name, _, last_name = name.partition(" ")
+            first_name, middle_name, last_name = split_full_name(name)
             try:
                 payer, _drafts = create_payer(
                     council_id=council.id, actor=enumerator, payer_type=payer_type,
-                    first_name=first_name, last_name=last_name,
+                    first_name=first_name, middle_name=middle_name, last_name=last_name,
                     phone=phone, address=f"{random.randint(1, 200)} {ward.ward_name} Road", ward=ward,
                     business_size=business_size, kyc_status=kyc_status,
                 )

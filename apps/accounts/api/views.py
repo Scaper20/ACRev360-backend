@@ -36,7 +36,7 @@ from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
 from apps.registry.api.serializers import PayerSerializer
 from apps.registry.models import Payer
-from apps.registry.services import create_payer
+from apps.registry.services import create_payer, split_full_name
 from apps.revenue.models import AgentPortfolio, ConsultantPortfolio, CouncilRevenueItem, RateBand
 from apps.tenancy.models import WardZone
 
@@ -226,10 +226,10 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         # The firm as a payer, billed for its own registration — see item 7 of
         # the frontend's backend requirements doc. enumerated_by defaults to
         # the onboarding admin, same as any other admin-enumerated payer.
-        first_name, _, last_name = instance.consultant_name.partition(" ")
+        first_name, middle_name, last_name = split_full_name(instance.consultant_name)
         payer, _ = create_payer(
             council_id=instance.council_id, actor=self.request.user,
-            payer_type=Payer.BUSINESS, first_name=first_name, last_name=last_name, ward=ward,
+            payer_type=Payer.BUSINESS, first_name=first_name, middle_name=middle_name, last_name=last_name, ward=ward,
         )
         instance.registration_payer = payer
         instance.save(update_fields=["registration_payer"])

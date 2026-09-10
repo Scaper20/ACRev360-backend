@@ -276,7 +276,10 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
 
         serializer = UpdateLineSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        line = update_bill_line(line=line, line_amount=serializer.validated_data["line_amount"], actor=request.user)
+        try:
+            line = update_bill_line(line=line, line_amount=serializer.validated_data["line_amount"], actor=request.user)
+        except BillingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(BillLineDetailSerializer(line).data)
 
 

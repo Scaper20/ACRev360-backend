@@ -1,5 +1,3 @@
-import datetime
-
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -8,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
+from apps.common.filtering import parse_date
 from apps.common.permissions import access_level_permission
 from apps.payments.models import PaymentChannel
 from apps.reconciliation.api.serializers import (
@@ -70,8 +69,7 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         """Always-current dashboard view alongside the manual `run` action
         above — computed fresh on every call, no ReconciliationRun triggered
         or required. Defaults to today; ?date=YYYY-MM-DD for any other day."""
-        date_param = request.query_params.get("date")
-        run_date = datetime.date.fromisoformat(date_param) if date_param else None
+        run_date = parse_date(request.query_params, "date")
         summary = live_reconciliation_summary(council_id=request.user.council_id, run_date=run_date)
         return Response(LiveSummarySerializer(summary).data)
 

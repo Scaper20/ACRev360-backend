@@ -13,22 +13,21 @@ class ReconciliationError(Exception):
     pass
 
 
-def _match_feed_rows(*, council_id, channel, run_date):
+def _match_feed_rows_for_channel(*, council_id, channel, run_date):
     """The one matching rule: a bank feed row is matched if there's a platform
-    Payment with the exact same bank_txn_ref and amount. Shared by
-    run_reconciliation (which persists the result as a Run + Exceptions) and
-    the live summary (which doesn't persist anything) — one definition of
-    "matched", not two that can quietly drift apart.
+    Payment with the exact same bank_txn_ref and amount. The core building
+    block both `_match_feed_rows` (adds the platform-side total, for
+    run_reconciliation) and `live_reconciliation_summary` (which computes its
+    own all-channel platform total once, not per channel — see there) share,
+    so "matched" has one definition, not two that can quietly drift apart.
 
-    Returns (total_platform, total_bank, matches, unmatched_rows) where
-    `matches` is {feed_row_id: Payment | None} and `unmatched_rows` is the
+    Returns (total_bank, matches, unmatched_rows) where `matches` is
+    {feed_row_id: Payment | None} and `unmatched_rows` is the
     ChannelTransactionFeed rows with no match.
     """
     payments = Payment.objects.filter(
         council_id=council_id, channel=channel, txn_status=Payment.CONFIRMED, created_at__date=run_date
     )
-    total_platform = payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
-
     feed_rows = list(
         ChannelTransactionFeed.objects.filter(council_id=council_id, channel=channel, received_at__date=run_date)
     )
@@ -42,6 +41,22 @@ def _match_feed_rows(*, council_id, channel, run_date):
         if match is None:
             unmatched_rows.append(row)
 
+    return total_bank, matches, unmatched_rows
+
+
+def _match_feed_rows(*, council_id, channel, run_date):
+    """Adds the platform-side total to `_match_feed_rows_for_channel`, for
+    run_reconciliation's own totals. Returns (total_platform, total_bank,
+    matches, unmatched_rows)."""
+    total_platform = (
+        Payment.objects.filter(
+            council_id=council_id, channel=channel, txn_status=Payment.CONFIRMED, created_at__date=run_date
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+    total_bank, matches, unmatched_rows = _match_feed_rows_for_channel(
+        council_id=council_id, channel=channel, run_date=run_date
+    )
     return total_platform, total_bank, matches, unmatched_rows
 
 
@@ -116,7 +131,7 @@ def live_reconciliation_summary(*, council_id, run_date=None) -> dict:
     unmatched_credits = []
     channels = PaymentChannel.objects.exclude(code__in=PaymentChannel.NO_FEED_EXPECTED)
     for channel in channels:
-        _platform, channel_bank_total, _matches, unmatched_rows = _match_feed_rows(
+        channel_bank_total, _matches, unmatched_rows = _match_feed_rows_for_channel(
             council_id=council_id, channel=channel, run_date=run_date
         )
         total_bank += channel_bank_total
