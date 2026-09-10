@@ -21,10 +21,13 @@ are scoped to their own portfolio the same way as everywhere else (see
 common.scoping.portfolio_filter; settlements has its own direct consultant_id
 filter since it has no payer to walk through).
 """
+import csv
 import datetime
+import io
 
 from django.db.models import Count, Exists, F, OuterRef, Sum
 from django.db.models.functions import TruncDate
+from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
@@ -200,6 +203,23 @@ def _settlements_report(request, group_by, f):
 
 _BUILDERS = {PAYERS: _payers_report, BILLS: _bills_report, PAYMENTS: _payments_report, SETTLEMENTS: _settlements_report}
 
+
+def _rows_to_csv(rows, *, entity):
+    """Same rows the on-screen (JSON) report already computed — no second
+    query, just a different serialization of _BUILDERS[entity]'s output."""
+    buffer = io.StringIO()
+    fieldnames = list(rows[0].keys()) if rows else ["message"]
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    if rows:
+        writer.writerows(rows)
+    else:
+        writer.writerow({"message": "No data for the selected filters"})
+
+    response = HttpResponse(buffer.getvalue(), content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="{entity.lower()}_report.csv"'
+    return response
+
 _ReportResponseSerializer = inline_serializer(
     "ReportResponse",
     {
@@ -222,6 +242,12 @@ class ReportsView(APIView):
             OpenApiParameter("ward_id", OpenApiTypes.INT),
             OpenApiParameter("consultant_id", OpenApiTypes.INT),
             OpenApiParameter("revenue_item_id", OpenApiTypes.INT, description="BILLS only"),
+            OpenApiParameter(
+                "export", OpenApiTypes.STR,
+                description="csv — exports exactly the filtered/grouped rows shown on screen. Omit for the "
+                "normal JSON response. (Named 'export', not 'format' — DRF reserves ?format= for its own "
+                "content-negotiation and 404s on a value with no matching renderer.)",
+            ),
         ],
         responses=_ReportResponseSerializer,
         tags=["reports"],
@@ -261,5 +287,11 @@ class ReportsView(APIView):
         except ValueError:
             return Response({"error": f"{key} must be an ISO date (YYYY-MM-DD)"}, status=status.HTTP_400_BAD_REQUEST)
 
+        export = params.get("export", "").lower()
+        if export not in ("", "csv"):
+            return Response({"error": "export must be 'csv' (or omitted for JSON)"}, status=status.HTTP_400_BAD_REQUEST)
+
         rows = _BUILDERS[entity](request, group_by, f)
+        if export == "csv":
+            return _rows_to_csv(rows, entity=entity)
         return Response({"entity": entity, "group_by": group_by, "rows": rows})
