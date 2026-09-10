@@ -59,6 +59,7 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
     def get_queryset(self):
         qs = Payment.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
         qs = qs.select_related("bill", "bill__payer", "channel", "terminal", "posted_by")
+        qs = qs.prefetch_related("allocations__bill_line__assessment__council_revenue_item")
         qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
 
         params = self.request.query_params
@@ -185,7 +186,10 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         qs = (
             Receipt.objects.filter(council_id=self.request.user.council_id)
             .select_related("payment__bill__payer")
-            .prefetch_related("payment__bill__lines")
+            .prefetch_related(
+                "payment__bill__lines",
+                "payment__allocations__bill_line__assessment__council_revenue_item",
+            )
             .order_by("-created_at")
         )
         qs = portfolio_filter(qs, self.request, payer_path="payment__bill__payer")

@@ -3,13 +3,29 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from apps.billing.api.serializers import BillLineDetailSerializer
-from apps.payments.models import APIClient, PaymentChannel, POSTerminal, Payment, Receipt
+from apps.payments.models import APIClient, PaymentAllocation, PaymentChannel, POSTerminal, Payment, Receipt
 
 
 class PaymentChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentChannel
         fields = ["id", "code", "provider"]
+
+
+class PaymentAllocationSerializer(serializers.ModelSerializer):
+    """How much of a payment landed on which bill line — the FIFO breakdown
+    itself (see payments.services.post_payment), not just each line's
+    resulting paid_amount total. Nested off Payment/Receipt rather than a
+    dedicated endpoint, matching how this codebase already nests BillLine
+    detail off Bill/Receipt elsewhere."""
+
+    harmonised_code = serializers.CharField(source="bill_line.assessment.council_revenue_item.harmonised_code", read_only=True)
+    item_name = serializers.CharField(source="bill_line.assessment.council_revenue_item.item_name", read_only=True)
+
+    class Meta:
+        model = PaymentAllocation
+        fields = ["id", "bill_line", "harmonised_code", "item_name", "amount", "created_at"]
+        read_only_fields = fields
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -27,6 +43,7 @@ class PaymentSerializer(serializers.ModelSerializer):
     # transaction, so a real Payment is never actually missing one.
     receipt_ref = serializers.CharField(source="receipt.receipt_ref", read_only=True, default=None)
     qr_token = serializers.CharField(source="receipt.qr_token", read_only=True, default=None)
+    allocations = PaymentAllocationSerializer(many=True, read_only=True)
 
     class Meta:
         model = Payment
@@ -34,6 +51,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "id", "payment_ref", "bill", "bill_ref", "channel", "channel_code",
             "amount", "bank_txn_ref", "txn_status", "created_at", "full_name", "payer_ref",
             "terminal", "terminal_code", "posted_by", "posted_by_name", "receipt_ref", "qr_token",
+            "allocations",
         ]
         read_only_fields = ["id", "payment_ref", "txn_status", "created_at"]
 
@@ -55,16 +73,22 @@ class ReceiptSerializer(serializers.ModelSerializer):
     bill_ref = serializers.CharField(source="payment.bill.bill_ref", read_only=True)
     full_name = serializers.CharField(source="payment.bill.payer.full_name", read_only=True)
     amount = serializers.DecimalField(source="payment.amount", max_digits=14, decimal_places=2, read_only=True)
-    # What this payment was actually for — the bill's own line items, same
-    # nested-field pattern BillDetailSerializer already uses for `lines`.
-    # Payments are recorded at the bill level, not per-line, so this shows
-    # everything the bill covers rather than a per-naira allocation across
-    # lines (post_payment() has no such allocation to draw from).
+    # What the bill covers overall — every line, with its running totals
+    # (current_amount/arrears_amount/paid_amount), same nested-field pattern
+    # BillDetailSerializer uses for `lines`.
     lines = BillLineDetailSerializer(source="payment.bill.lines", many=True, read_only=True)
+    # What THIS specific payment did — its own FIFO breakdown across those
+    # lines (see payments.services.post_payment), distinct from `lines`
+    # above: a part-paid bill's lines show cumulative totals across every
+    # payment ever made against them, this shows only this payment's slice.
+    allocations = PaymentAllocationSerializer(source="payment.allocations", many=True, read_only=True)
 
     class Meta:
         model = Receipt
-        fields = ["id", "receipt_ref", "payment", "bill_ref", "full_name", "amount", "lines", "qr_token", "verified_count", "created_at"]
+        fields = [
+            "id", "receipt_ref", "payment", "bill_ref", "full_name", "amount", "lines", "allocations",
+            "qr_token", "verified_count", "created_at",
+        ]
         read_only_fields = fields
 
 
