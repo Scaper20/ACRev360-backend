@@ -161,6 +161,44 @@ forgotten.
 
 ---
 
+## 2026-09-10 — `docs/openapi-schema.yaml` regenerated; PaymentAllocation exposed at the API level
+
+**Ask:** two follow-ups after verifying the 10-PR batch (cash channel, API key
+hardening, duplicate-bill guard, FIFO allocation + itemized arrears, settlement
+drill-down, live reconciliation summary, agent scoping/payer assignment, email
+login, payer name split, report CSV export — none of which have their own
+changelog entries yet, a gap worth closing in a future pass) against the live
+schema: (1) regenerate the static export, (2) add allocation-level detail —
+the FIFO breakdown itself, not just each line's resulting `paid_amount`.
+
+**Resolved:** `docs/openapi-schema.yaml` was flagged in the batch's own PR1
+work as stale/unwired (last touched 2026-08-16, nothing in the repo treats it
+as authoritative) and deliberately left alone twice pending this decision.
+Decision: keep it, regenerate via `python manage.py spectacular --file
+docs/openapi-schema.yaml --validate` (0 errors). Whoever owns keeping it in
+sync going forward should re-run that command after schema-affecting changes;
+nothing currently does this automatically (no CI step, no pre-commit hook).
+
+**Allocation detail:** `PaymentAllocationSerializer` (apps/payments/api/
+serializers.py) nested as `allocations` on both `PaymentSerializer` and
+`ReceiptSerializer` — a payment's own FIFO slice across bill lines, distinct
+from `BillLineDetail`'s `paid_amount` (that's the line's cumulative total
+across every payment ever made against it, this is just one payment's
+contribution). No dedicated endpoint — nested field, matching how this
+codebase already nests `BillLineDetail` off `Bill`/`Receipt` elsewhere rather
+than giving every child concept its own CRUD resource.
+
+**Gotchas:** the `allocations` nested field walks `bill_line__assessment__
+council_revenue_item` per row for `harmonised_code`/`item_name` — both
+`PaymentViewSet.get_queryset()` and `ReceiptViewSet.get_queryset()` needed a
+matching `prefetch_related()` added, or list views silently reintroduce an
+N+1 (same class of bug the terminal-list N+1 fix and `ReceiptSerializer.lines`
+already had to guard against — see the recurring-themes note above these
+dated entries). A new consumer of `PaymentAllocation` elsewhere needs the same
+prefetch, not just a nested serializer field.
+
+---
+
 ## 2026-09-03 — Fix: multi-level consolidation dropped the oldest arrears lines
 
 **Found:** reported directly against the arrears line-item feature added earlier this
