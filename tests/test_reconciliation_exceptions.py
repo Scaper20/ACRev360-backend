@@ -91,3 +91,29 @@ def test_global_exceptions_includes_channel_and_run_date(scoped, authed_api_clie
     row = next(row for row in r.json() if row["id"] == exc.id)
     assert row["channel_code"] == PaymentChannel.POS
     assert row["run_date"] == scoped["run"].run_date.isoformat()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cash_channel_cannot_be_reconciled(scoped, authed_api_client):
+    """CASH has no bank-side feed by definition — the run action must reject it
+    outright rather than silently producing a run with 0 exceptions that looks
+    balanced by accident."""
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/reconciliation/run",
+        {"date": datetime.date.today().isoformat(), "channel_code": PaymentChannel.CASH},
+        format="json",
+    )
+    assert r.status_code == 400, r.content
+    assert "CASH" in r.json()["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_run_reconciliation_service_rejects_no_feed_channels(scoped):
+    from apps.reconciliation.services import ReconciliationError, run_reconciliation
+
+    cash_channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.CASH)
+    with pytest.raises(ReconciliationError):
+        run_reconciliation(
+            council_id=scoped["council"].id, channel=cash_channel,
+            run_date=datetime.date.today(), actor=scoped["admin"],
+        )
