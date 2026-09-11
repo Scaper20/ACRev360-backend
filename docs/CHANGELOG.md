@@ -21,6 +21,57 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Backend: fixed two real RBAC gaps the frontend found live on production, added tests/test_rbac_matrix.py
+
+**Ask:** none directly — a response to the frontend team's council-tier RBAC
+wiring pass (see "Frontend: wired up council-tier RBAC roles" below), which
+logged into the real `qa_council_*` production accounts (since
+`docs/RBAC_EXPANSION_DESIGN.md`'s own cited source of truth,
+`tests/test_rbac_matrix.py`, didn't actually exist yet — an oversight from
+the original RBAC-expansion pass) and found genuine divergences between the
+design doc's prose and what the endpoints actually allowed.
+
+**Found (both confirmed live, not just in the doc):**
+- `GET /api/v1/payers` 403'd for `COUNCIL_IGR_HEAD`/`COUNCIL_TREASURY`/
+  `COUNCIL_AUDITOR` — `PayerViewSet.permission_classes` was never actually
+  touched in the original RBAC-expansion pass, despite the design doc
+  claiming COUNCIL_AUDITOR gets read access "across payers, bills,
+  payments..." All three already read the same payer's name/ref embedded in
+  `BillSerializer`/`PaymentSerializer` — being blocked from the dedicated
+  Payer endpoint was inconsistent, not intentionally narrower.
+- `COUNCIL_IT` could create a field agent (`FieldAgentViewSet`) or a
+  revenue officer (`SubConsultantViewSet.revenue_officers`) but couldn't
+  list agents or consultants to reach either flow or see what it had
+  already created — `get_permissions()`'s create branch had `COUNCIL_IT` on
+  both viewsets, the list/retrieve branch didn't.
+
+**Fix:** `apps/registry/api/views.py` (`PayerViewSet`), `apps/accounts/api/
+views.py` (`FieldAgentViewSet`, `SubConsultantViewSet`) — added the missing
+levels to each viewset's read (list/retrieve) permission branch. `docs/
+RBAC_EXPANSION_DESIGN.md`'s prose corrected to match (also documents
+`COUNCIL_IGR_HEAD`'s reports access, which the code already granted via
+`_COUNCIL_READ_LEVELS` but the prose summary never mentioned). New `tests/
+test_rbac_matrix.py` — the exhaustive permission-matrix file the design doc
+had been citing since it was written, built for real this time: one row
+per viewset/action asserting its actual `permission_classes`/
+`get_permissions()` output against the intended set, both fast (pure
+introspection, no DB) and precise (would have caught both gaps above
+immediately, rather than needing a frontend engineer to log into
+production to find them).
+
+**Gotchas:** `tests/test_rbac_matrix.py` asserts two different things
+depending on how a permission is wired — a `get_permissions()` branch
+(instantiate the view, set `.action`/`.request.method`, call
+`get_permissions()`) vs. an `@action(..., permission_classes=[...])`
+decorator (read straight off the bound method's `.kwargs`, since only
+DRF's real dispatch — not a bare `ViewClass()` instantiation — reassigns
+`self.permission_classes` from it). Adding a new permission-gated
+action/viewset without a corresponding row here means this file stops
+being the actual source of truth it claims to be; add the row in the same
+change.
+
+---
+
 ## 2026-09-11 — Frontend: UI/UX pass on apps/portal — sidebar contrast failure + missing focus states (AppShell)
 
 **Ask:** the third leg of the `ui-ux-pro-max` audit series (portal, then field, now

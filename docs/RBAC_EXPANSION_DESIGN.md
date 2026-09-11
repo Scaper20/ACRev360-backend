@@ -161,31 +161,51 @@ viewset/action × access level, asserted directly against each view's
 executable source of truth for "who can hit what," kept in sync with this
 doc rather than duplicating the table twice by hand.
 
-Summary of the shape (full detail in the test file):
+Summary of the shape (full detail in the test file — this prose is a
+summary, not the source of truth; if the two disagree, trust the test):
 - **`COUNCIL_AUDITOR`** — added to every read path (list/retrieve/GET
   actions) across payers, bills, payments, receipts, debt cases,
   reconciliation, settlements, audit log, field agents, sub-consultants,
   reports, dashboard. Never added to a create/update/delete/mutating
-  action.
+  action. (`PayerViewSet` was missed entirely in the first pass — every
+  council-tier read role 403'd there despite already reading the same
+  payer's name/ref embedded in `BillSerializer` etc. Confirmed live against
+  production by the frontend team and fixed; see the 2026-09-11 CHANGELOG
+  entry. This is exactly the class of gap `tests/test_rbac_matrix.py` now
+  exists to catch before it ships again.)
 - **`COUNCIL_IGR_HEAD`** — added everywhere `COUNCIL_ADMIN` appears on
   field-agent management, billing/payments/receipts, reconciliation
-  (including running a reconciliation), debt cases, audit log — but *not*
-  sub-consultant onboarding/contract terms or stakeholder-account
-  management (matrix scopes IGR head to agents/collections/reconciliation,
-  not firm-level commercial terms or ACDSL-relationship-adjacent
-  Stakeholder accounts).
+  (including running a reconciliation), debt cases, audit log, **and
+  reports** (via `_COUNCIL_READ_LEVELS` in `apps/common/api/reports.py`,
+  applied to every entity) — but *not* sub-consultant onboarding/contract
+  terms or stakeholder-account management (matrix scopes IGR head to
+  agents/collections/reconciliation/reporting, not firm-level commercial
+  terms or ACDSL-relationship-adjacent Stakeholder accounts).
 - **`COUNCIL_TREASURY`** — read-only on billing/payments/receipts, full
   access to reconciliation and reports/settlements (its actual job); no
   agent management.
 - **`COUNCIL_IT`** — added to every `AppUser`-account-creation endpoint
   (field agents, revenue officers, stakeholders) plus the new
-  `invite_ratepayer` action; explicitly excluded from every financial
-  viewset.
+  `invite_ratepayer` action, **and to list/retrieve on the same viewsets**
+  (`FieldAgentViewSet`, `SubConsultantViewSet`) — a role that can create a
+  resource always needs to be able to list it, that's not a separate grant
+  to weigh. (Originally missed on both viewsets' list/retrieve branches —
+  `COUNCIL_IT` could create an agent but not see the list it just created
+  it into; same gap on `SubConsultantViewSet`, blocking the path to its own
+  `revenue_officers` action. Confirmed live against production by the
+  frontend team and fixed; see the 2026-09-11 CHANGELOG entry.) Explicitly
+  excluded from `PayerViewSet` and every financial viewset — its job is
+  account management, never payer PII or money. Not excluded from
+  read-only reference data (`wards`, `departments`, `revenue-items`) — that
+  data isn't payer-identifying or transactional, the same reasoning
+  `GLOBAL_VIEW` already gets those on; "zero financial access" in the
+  matrix means transactional/ledger data (bills, payments, settlements),
+  not a public-facing fee schedule.
 - **`CONSULTANT_STAFF`** — read-only mirror of `CONSULTANT` (portfolio
   scoping is identical via `scoping.py`); `FieldAgentViewSet` gained a
   `get_permissions()` split (create vs. read) specifically so this role
-  (and `COUNCIL_AUDITOR`/`COUNCIL_IGR_HEAD`) can read without inheriting
-  create rights that used to be bundled at class level.
+  (and `COUNCIL_AUDITOR`/`COUNCIL_IGR_HEAD`/`COUNCIL_IT`) can read without
+  inheriting create rights that used to be bundled at class level.
 - **`AGENT_SUPERVISOR`** — read access matching `AGENT`'s existing
   endpoints plus `FieldAgentViewSet.assign_payer` (the "reassign" action),
   all narrowed to their own ward via `scoping.py`.

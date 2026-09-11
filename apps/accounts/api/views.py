@@ -152,7 +152,13 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
     # explicitly NOT part of COUNCIL_IGR_HEAD's scope). list/retrieve are
     # widened in get_permissions() below to COMPLIANCE_VIEW/EXTERNAL_AUDITOR
     # (platform tier — "contracts" is literally what those two read) and the
-    # council-tier read additions; status_change/contract_dates/
+    # council-tier read additions, including COUNCIL_IT — it can create a
+    # revenue-officer login via the revenue_officers action below (its own
+    # narrower permission_classes), which needs it to be able to list/
+    # retrieve consultants to reach that action in the first place; missing
+    # here originally, confirmed live against production by the frontend
+    # team (2026-09-11 CHANGELOG entry) exactly the same way as
+    # FieldAgentViewSet's identical gap. status_change/contract_dates/
     # revenue_officers/portfolio below declare their own permission_classes
     # on the @action itself, which DRF applies to self.permission_classes
     # before get_permissions() runs — get_permissions()'s super() fallback
@@ -164,7 +170,8 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         if self.action in ("list", "retrieve"):
             return [access_level_permission(
                 AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
-                AppRole.COMPLIANCE_VIEW, AppRole.EXTERNAL_AUDITOR, AppRole.SUPER_ADMIN, AppRole.PLATFORM_ADMIN,
+                AppRole.COUNCIL_IT, AppRole.COMPLIANCE_VIEW, AppRole.EXTERNAL_AUDITOR, AppRole.SUPER_ADMIN,
+                AppRole.PLATFORM_ADMIN,
             )()]
         return super().get_permissions()
 
@@ -422,10 +429,16 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
 class FieldAgentViewSet(viewsets.ModelViewSet):
     """create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
     matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
-    list/retrieve widen further to CONSULTANT_STAFF/COUNCIL_AUDITOR/
-    COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions, see
-    get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
-    ward/team only) happens in get_queryset() via common.scoping."""
+    list/retrieve widen further to COUNCIL_IT/CONSULTANT_STAFF/
+    COUNCIL_AUDITOR/COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions,
+    see get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
+    ward/team only) happens in get_queryset() via common.scoping.
+
+    COUNCIL_IT was originally left off list/retrieve — could create an
+    agent but not see the list it just created it into, confirmed live
+    against production by the frontend team (2026-09-11 CHANGELOG entry).
+    A role that can create a resource always needs to be able to list it;
+    that's not a separate grant to weigh, it's the same grant."""
 
     serializer_class = FieldAgentSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
@@ -437,7 +450,7 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IT)()]
         if self.action in ("list", "retrieve"):
             return [access_level_permission(
-                AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF,
+                AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IT, AppRole.CONSULTANT_STAFF,
                 AppRole.COUNCIL_AUDITOR, AppRole.COUNCIL_IGR_HEAD, AppRole.AGENT_SUPERVISOR,
             )()]
         return super().get_permissions()

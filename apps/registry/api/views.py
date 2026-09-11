@@ -57,7 +57,21 @@ class PayerViewSet(
     # REVENUE_OFFICER is included here (list/retrieve) but excluded again in
     # get_permissions() below for create/kyc_status/DELETE — read-only, same
     # portfolio as CONSULTANT (see common.scoping.portfolio_filter).
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
+    #
+    # RBAC-expansion additions (docs/RBAC_EXPANSION_DESIGN.md) — read-only
+    # for the same structural reason (get_permissions() below never widens
+    # create/kyc_status/DELETE beyond the original four). COUNCIL_IT is
+    # deliberately NOT included: its job is account management (agents/
+    # officers/stakeholders/ratepayers), never payer PII — this was missed
+    # entirely in the first pass (every one of these five levels 403'd on
+    # this viewset despite already reading bills/payments/receipts that
+    # embed the same payer's name/ref), confirmed live against production
+    # by the frontend team; see the 2026-09-11 CHANGELOG entry.
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER,
+        AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+        AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+    )]
     lookup_value_regex = r"[0-9]+"
     # Set per-view rather than as a DEFAULT_FILTER_BACKEND — a global default
     # would silently change every other list endpoint's behavior too.
