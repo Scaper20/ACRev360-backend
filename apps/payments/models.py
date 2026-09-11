@@ -76,6 +76,12 @@ class APIClient(CouncilScopedModel):
     SCOPE_WEBHOOK_POST = API_CLIENT_SCOPE_WEBHOOK_POST
     SCOPE_CHOICES = [SCOPE_WEBHOOK_POST]
 
+    #: Human-chosen label, e.g. "FirstBank Production" — optional, blank for
+    #: keys created before this field existed. Never falls back to api_key
+    #: itself as a stored value; a blank name is exactly what it means, and
+    #: any "show something sane" fallback (channel label, etc.) belongs at
+    #: the display layer, not baked into the stored data.
+    name = models.CharField(max_length=100, blank=True)
     channel = models.ForeignKey(PaymentChannel, on_delete=models.PROTECT, related_name="api_clients")
     api_key = models.CharField(max_length=64, unique=True)
     secret_encrypted = models.CharField(max_length=256)

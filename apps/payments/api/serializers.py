@@ -108,5 +108,5 @@ class APIClientSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = APIClient
-        fields = ["id", "channel", "api_key", "is_active", "expires_at", "scopes", "last_used_at"]
+        fields = ["id", "name", "channel", "api_key", "is_active", "expires_at", "scopes", "last_used_at"]
         read_only_fields = ["id", "api_key", "last_used_at"]

@@ -2966,6 +2966,9 @@ components:
         id:
           type: integer
           readOnly: true
+        name:
+          type: string
+          maxLength: 100
         channel:
           type: integer
         api_key:
@@ -2995,6 +2998,9 @@ components:
     APIClientRequest:
       type: object
       properties:
+        name:
+          type: string
+          maxLength: 100
         channel:
           type: integer
         is_active:

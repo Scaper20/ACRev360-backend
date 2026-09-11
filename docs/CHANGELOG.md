@@ -543,6 +543,26 @@ not just schema-shape review. Caught one real bug this way that static review mi
 
 ---
 
+## 2026-09-11 — PR13: `APIClient.name` — let the admin name an API key at creation
+
+**Ask:** found while the client was reviewing the API keys screen — the
+table meant to show each key's name was actually showing the raw generated
+key string (`key_...`) instead, because there was no name field on the
+model at all to show. Nothing was mislabeled; there was genuinely nothing
+there to label it with.
+
+**Fix:** `APIClient.name` — plain `CharField(max_length=100, blank=True)`,
+never falls back to `api_key` as a *stored* value (a blank name means
+exactly that; any "show something sane" fallback like the channel label
+belongs at the display layer, which the frontend is picking up separately).
+Writable on `APIClientSerializer` — round-trips through `POST`/`GET
+/api/v1/api-clients`. Single-field `AddField` migration; existing keys come
+back with `name=""`.
+
+**Gotchas:** none.
+
+---
+
 ## 2026-09-11 — PR12: real 80 Kuje Area Council areas, replacing the 9-row placeholder ward set
 
 **Ask:** the real KAC area list (80 names) was provided, unblocking a
