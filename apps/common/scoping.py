@@ -24,21 +24,45 @@ consultant-level branch since an agent's access_level is never CONSULTANT/
 REVENUE_OFFICER, but keeping it a distinct first branch (rather than folding into
 _PORTFOLIO_SCOPED_LEVELS with special-cased lookup) is what makes it obvious at a
 glance that agents key off enumerated_by_id, not enumerated_by__consultant_id.
+
+CONSULTANT_STAFF (docs/RBAC_EXPANSION_DESIGN.md) gets the exact same portfolio
+visibility as CONSULTANT — it's read-only purely because it's never granted a
+write action in permission_classes, not because this filter narrows it further.
+
+AGENT_SUPERVISOR (matrix Decision #4: "own zone/team only, no cross-zone
+visibility") is scoped to whichever ward their own FieldAgent profile is
+assigned to — payers currently assigned to an agent in that ward, or (if
+unassigned) originally registered by one. A supervisor with no FieldAgent
+profile sees nothing rather than everything — fail closed, since that state
+should never happen in practice (provisioning always creates one).
 """
 from django.db.models import Q
 
 from apps.accounts.models import AppRole
 
-_PORTFOLIO_SCOPED_LEVELS = (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)
+_PORTFOLIO_SCOPED_LEVELS = (AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF, AppRole.REVENUE_OFFICER)
 
 
 def portfolio_filter(queryset, request, payer_path="payer"):
     user = request.user
+    prefix = f"{payer_path}__" if payer_path else ""
     if user.access_level == AppRole.AGENT:
-        prefix = f"{payer_path}__" if payer_path else ""
         return queryset.filter(
             Q(**{f"{prefix}assigned_agent_id": user.id})
             | Q(**{f"{prefix}assigned_agent__isnull": True, f"{prefix}enumerated_by_id": user.id})
+        )
+    if user.access_level == AppRole.AGENT_SUPERVISOR:
+        ward_id = getattr(getattr(user, "field_agent", None), "assigned_ward_id", None)
+        if ward_id is None:
+            return queryset.none()
+        return queryset.filter(
+            Q(**{f"{prefix}assigned_agent__field_agent__assigned_ward_id": ward_id})
+            | Q(
+                **{
+                    f"{prefix}assigned_agent__isnull": True,
+                    f"{prefix}enumerated_by__field_agent__assigned_ward_id": ward_id,
+                }
+            )
         )
     if user.access_level not in _PORTFOLIO_SCOPED_LEVELS:
         return queryset

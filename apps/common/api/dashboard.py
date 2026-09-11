@@ -181,20 +181,50 @@ class DashboardSummaryView(APIView):
 
 class DashboardGlobalView(APIView):
     """Council admin / global view only — billed vs. collected by consultant (or
-    Council Direct), matching the prototype's v_global_performance view."""
+    Council Direct), matching the prototype's v_global_performance view.
 
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.GLOBAL_VIEW)]
+    Platform-tier callers (council=null — SUPER_ADMIN, PLATFORM_ADMIN,
+    BD_VIEW, COMPLIANCE_VIEW, ANALYTICS_VIEW, FINANCE_ADMIN, EXTERNAL_AUDITOR;
+    see docs/RBAC_EXPANSION_DESIGN.md) get one of these blocks per council
+    they're entitled to see, under `councils`, rather than a single-council
+    payload — computed via apps.common.platform_scope, never an RLS bypass.
+    BD_VIEW's "no PII" constraint is exactly why it's added only here and to
+    no payer/bill/payment/settlement viewset."""
+
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.GLOBAL_VIEW, AppRole.SUPER_ADMIN, AppRole.PLATFORM_ADMIN,
+        AppRole.BD_VIEW, AppRole.COMPLIANCE_VIEW, AppRole.ANALYTICS_VIEW, AppRole.FINANCE_ADMIN,
+        AppRole.EXTERNAL_AUDITOR,
+    )]
 
     @extend_schema(responses=OpenApiResponse(_GlobalResponseSerializer), tags=["dashboard"])
     def get(self, request):
-        payments = Payment.objects.filter(council_id=request.user.council_id, txn_status=Payment.CONFIRMED)
+        if request.user.council_id is None:
+            from apps.common.platform_scope import accessible_council_ids
+            from apps.tenancy.context import council_context
+            from apps.tenancy.models import Council
+
+            blocks = []
+            for council_id in accessible_council_ids(request.user):
+                with council_context(council_id):
+                    council = Council.objects.get(pk=council_id)
+                    blocks.append({
+                        "council_id": council_id,
+                        "council_code": council.council_code,
+                        **self._compute(request, council_id),
+                    })
+            return Response({"councils": blocks})
+        return Response(self._compute(request, request.user.council_id))
+
+    def _compute(self, request, council_id):
+        payments = Payment.objects.filter(council_id=council_id, txn_status=Payment.CONFIRMED)
         by_consultant = (
             payments.values("bill__payer__enumerated_by__consultant__consultant_name")
             .annotate(collected=Sum("amount"))
             .order_by("-collected")
         )
 
-        bills = Bill.objects.filter(council_id=request.user.council_id).exclude(
+        bills = Bill.objects.filter(council_id=council_id).exclude(
             status__in=[Bill.SUPERSEDED, Bill.CANCELLED]
         )
         billed_by_consultant = bills.values(
@@ -211,7 +241,7 @@ class DashboardGlobalView(APIView):
 
         accrued_by_consultant = (
             CommissionSettlement.objects.filter(
-                council_id=request.user.council_id,
+                council_id=council_id,
                 status__in=[CommissionSettlement.COMPUTED, CommissionSettlement.APPROVED],
             )
             .values("consultant__consultant_name")
@@ -233,13 +263,14 @@ class DashboardGlobalView(APIView):
                 "status": status_map.get(raw_name),
             })
 
-        # A stakeholder may see that sub-consultants collect revenue and
-        # roughly how much, but not which one is which or how each is
-        # individually performing — that's the exact identifying detail
-        # PayerViewSet/BillViewSet/PaymentViewSet/SubConsultantViewSet are
-        # withheld from GLOBAL_VIEW for. Roll every named consultant into one
-        # anonymous line instead of a per-consultant breakdown.
-        if request.user.access_level == AppRole.GLOBAL_VIEW:
+        # A stakeholder (or BD/analytics platform viewer) may see that
+        # sub-consultants collect revenue and roughly how much, but not which
+        # one is which or how each is individually performing — that's the
+        # exact identifying detail PayerViewSet/BillViewSet/PaymentViewSet/
+        # SubConsultantViewSet are withheld from these levels for. Roll every
+        # named consultant into one anonymous line instead of a per-consultant
+        # breakdown.
+        if request.user.access_level in (AppRole.GLOBAL_VIEW, AppRole.BD_VIEW, AppRole.ANALYTICS_VIEW):
             direct = next((r for r in rows if r["consultant_name"] == "Council Direct"), None)
             named = [r for r in rows if r["consultant_name"] != "Council Direct"]
             anonymized = []
@@ -264,7 +295,7 @@ class DashboardGlobalView(APIView):
             .order_by("-collected")
         )
         payers_by_ward = (
-            Payer.objects.filter(council_id=request.user.council_id)
+            Payer.objects.filter(council_id=council_id)
             .values("ward__ward_name")
             .annotate(payers=Count("id"))
         )
@@ -278,4 +309,4 @@ class DashboardGlobalView(APIView):
             for row in by_ward
         ]
 
-        return Response({"by_consultant": rows, "by_ward": ward_rows})
+        return {"by_consultant": rows, "by_ward": ward_rows}

@@ -273,6 +273,91 @@ not just schema-shape review. Caught one real bug this way that static review mi
 
 ---
 
+## 2026-09-11 — RBAC/RLS expansion: ACDSL platform tier, expanded council/consultant/agent roles, ratepayer self-service
+
+**Ask:** `docs/acrev360-roles-permissions-matrix.md` (a planning draft inventorying
+every user type across the platform, ACDSL down to ratepayers) landed in the repo;
+implement it as the actual RLS/permissions design, "well secured," without doing
+speculative work that doesn't serve shipping.
+
+**Found:** the matrix describes ~30 roles across six tiers, several of which don't
+exist in the schema at all (an ACDSL/company tier above councils, a ratepayer
+self-service login, sub-consultant field-staff read-only accounts, time-boxed
+external-auditor grants). Implementing it as a literal spec would mean two
+undesigned epics with no real spec beyond one bullet point each — ACDSL's own
+commercial revenue-share invoicing of councils, and ratepayer self-service
+*payment* (vs. just viewing). Building either now would be exactly the kind of
+unnecessary, unreviewed work the ask itself warned against.
+
+**Fix:** wrote `docs/RBAC_EXPANSION_DESIGN.md` first — the concrete mapping from
+the matrix's prose onto real `AppRole.access_level` values, models, and
+per-endpoint wiring, with every scope decision and deliberate omission written
+down before touching code (this is now the authoritative role reference, not
+`docs/SCHEMA.md`/`V2_ARCHITECTURE.md`'s old four/five-level lists, which now just
+point at it). Then implemented:
+- 17 new `access_level` values (`AppRole.ACCESS_LEVEL_CHOICES` — accounts/models.py)
+  spanning an ACDSL platform tier (`SUPER_ADMIN`, `PLATFORM_ADMIN`, `DEVOPS_ADMIN`,
+  `BD_VIEW`, `COMPLIANCE_VIEW`, `FINANCE_ADMIN`, `SUPPORT_ADMIN`, `ANALYTICS_VIEW`,
+  `EXTERNAL_AUDITOR`), council tier (`COUNCIL_IGR_HEAD`, `COUNCIL_TREASURY`,
+  `COUNCIL_AUDITOR`, `COUNCIL_IT`), consultant tier (`CONSULTANT_STAFF`), agent tier
+  (`AGENT_SUPERVISOR`), and a ratepayer tier (`RATEPAYER`, `RATEPAYER_PROXY`).
+- **No RLS bypass anywhere** — platform-tier cross-council reads go through
+  `apps/common/platform_scope.py`'s `platform_wide_queryset`/`accessible_council_ids`,
+  which loops accessible councils in each one's own RLS context (the same pattern
+  `find_across_active_councils`/`for_each_council` already used), never a new
+  bypass policy clause. Every table stays `FORCE ROW LEVEL SECURITY`, including the
+  new `payer_delegation` table (verified directly against `pg_class`/`pg_policy`).
+- `CouncilGrant.expires_at` (new field) makes the previously-modeled-but-unused
+  grant table actually enforce the matrix's "time-boxed" external-auditor access —
+  `platform_scope.granted_council_ids` excludes expired grants.
+- Ratepayer self-service (`apps/registry/api`): `Payer.user` (OneToOne to
+  AppUser, mirrors `FieldAgent.user`), new `PayerDelegation` model (matrix Decision
+  #2's linked-account proxy model, revoke via `revoked_at` not deletion), new
+  `IsRatepayerOrDelegate` permission class + `accessible_payer_ids` — deliberately
+  NOT `access_level_permission`, so `RATEPAYER`/`RATEPAYER_PROXY` structurally can't
+  reach a staff endpoint by accident (see the closed-world test below). New
+  `RatepayerPortalViewSet` (`/api/v1/my/bills|payments|receipts|delegations`),
+  `PayerViewSet.invite_ratepayer` (staff-invoked only — no public self-registration,
+  no identity-verification design exists for that), `payer_id` JWT claim.
+- `AGENT_SUPERVISOR` ward-scoping (matrix Decision #4: own zone/team only) in
+  `apps/common/scoping.py`'s `portfolio_filter` and `FieldAgentViewSet.get_queryset` —
+  fails closed (sees nothing, not everything) if the supervisor has no own
+  `FieldAgent.assigned_ward`.
+- Threaded the new council/platform-tier read roles through every existing
+  `access_level_permission(...)` call site per `RBAC_EXPANSION_DESIGN.md`'s table —
+  billing, payments, receipts, debt cases, reconciliation, settlements, audit log,
+  sub-consultants, field agents, wards/departments, dashboard, reports. Every
+  addition is read-only unless the design doc explicitly says otherwise (reconciliation
+  run/resolve for `COUNCIL_IGR_HEAD`/`COUNCIL_TREASURY` is the one exception — matching
+  the matrix's own description of that role's actual job).
+- `ReportsView`/`DashboardGlobalView`/`AuditLogViewSet`/`APIClientViewSet`/
+  `SubConsultantViewSet`/`CommissionSettlementViewSet` gained a platform-tier branch
+  (council=null) alongside their existing single-council path.
+- New `seed_rbac_test_accounts` management command — two accounts per council-scoped
+  role (different councils/wards/firms) and one per platform-tier role, per the
+  matrix's own "Test Credentials Requirement," kept separate from
+  `seed_demo_data`/`seed_starter_data` since it's QA scaffolding, not demo data.
+- `tests/test_rbac_closed_world.py` (source-scan: `RATEPAYER`/`RATEPAYER_PROXY` can
+  never reach `access_level_permission(...)` outside `apps/registry/api`) and
+  `tests/test_rbac_expansion.py` (proxy delegation isolation incl. revocation,
+  agent-supervisor ward isolation incl. no-profile fail-closed, external-auditor
+  grant expiry, `payer_delegation` RLS enforcement).
+
+**Gotchas:** the ACDSL revenue-share invoicing feature and ratepayer self-service
+*payment* are NOT built — only the role/login and (for ratepayers) read-only
+viewing exist; don't assume `FINANCE_ADMIN`/`RATEPAYER` can do more than that
+without checking `RBAC_EXPANSION_DESIGN.md`'s "deliberately does not cover" section
+first. `ReportsView`/`DashboardGlobalView` change response shape for platform-tier
+callers (a `council_id` query param is required for Reports; Dashboard-Global
+returns a `{"councils": [...]}` wrapper instead of a flat object) — a frontend
+consuming either needs to branch on caller tier, not assume one shape. Adding a
+new access level to any existing `access_level_permission(...)` tuple is a
+security decision, not a mechanical one — check `RBAC_EXPANSION_DESIGN.md`'s
+per-endpoint table for what that role is and isn't supposed to see before copying
+a pattern from a neighboring line.
+
+---
+
 ## 2026-09-10 — Extensive post-incident review: reverse_payment/overpayment bug, N+1s, name-split duplication, and other findings fixed
 
 **Ask:** after the wipe+migration-fix incident above, an extensive multi-angle

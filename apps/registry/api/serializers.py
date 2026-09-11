@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.registry.models import EnumeratedAsset, Payer
+from apps.registry.models import EnumeratedAsset, Payer, PayerDelegation
 
 
 class PayerSerializer(serializers.ModelSerializer):
@@ -55,6 +55,31 @@ class EnumeratedAssetSerializer(serializers.ModelSerializer):
         model = EnumeratedAsset
         fields = ["id", "payer", "asset_type", "description", "ward", "geo_lat", "geo_lng"]
         read_only_fields = ["id"]
+
+
+class InviteRatepayerSerializer(serializers.Serializer):
+    """Write-only shape for PayerViewSet.invite_ratepayer — same pattern as
+    FieldAgentViewSet's write-only username/password create fields."""
+
+    username = serializers.CharField(max_length=64)
+    password = serializers.CharField(write_only=True)
+
+
+class PayerDelegationSerializer(serializers.ModelSerializer):
+    proxy_email = serializers.CharField(source="proxy_user.email", read_only=True)
+    proxy_full_name = serializers.CharField(source="proxy_user.full_name", read_only=True)
+
+    class Meta:
+        model = PayerDelegation
+        fields = ["id", "payer", "proxy_user", "proxy_email", "proxy_full_name", "granted_at", "revoked_at"]
+        read_only_fields = fields
+
+
+class CreateDelegationSerializer(serializers.Serializer):
+    #: Resolved to an existing AppUser with access_level=RATEPAYER_PROXY by
+    #: the view — never auto-created, since a proxy must already hold their
+    #: own login before a ratepayer can delegate to them.
+    proxy_email = serializers.EmailField()
 
 
 class DraftAssessmentSerializer(serializers.Serializer):

@@ -19,13 +19,63 @@ class AppRole(models.Model):
     AGENT = "AGENT"
     GLOBAL_VIEW = "GLOBAL_VIEW"
     REVENUE_OFFICER = "REVENUE_OFFICER"
+    # ACDSL (platform) tier — council is null on these AppUsers. See
+    # docs/RBAC_EXPANSION_DESIGN.md for the full mapping from the roles
+    # matrix draft onto these buckets, and apps/common/platform_scope.py
+    # for how cross-council read access is granted without an RLS bypass.
+    SUPER_ADMIN = "SUPER_ADMIN"
+    PLATFORM_ADMIN = "PLATFORM_ADMIN"
+    DEVOPS_ADMIN = "DEVOPS_ADMIN"
+    BD_VIEW = "BD_VIEW"
+    COMPLIANCE_VIEW = "COMPLIANCE_VIEW"
+    FINANCE_ADMIN = "FINANCE_ADMIN"
+    SUPPORT_ADMIN = "SUPPORT_ADMIN"
+    ANALYTICS_VIEW = "ANALYTICS_VIEW"
+    EXTERNAL_AUDITOR = "EXTERNAL_AUDITOR"
+    # Council tier additions
+    COUNCIL_IGR_HEAD = "COUNCIL_IGR_HEAD"
+    COUNCIL_TREASURY = "COUNCIL_TREASURY"
+    COUNCIL_AUDITOR = "COUNCIL_AUDITOR"
+    COUNCIL_IT = "COUNCIL_IT"
+    # Consultant tier addition
+    CONSULTANT_STAFF = "CONSULTANT_STAFF"
+    # Field agent tier addition
+    AGENT_SUPERVISOR = "AGENT_SUPERVISOR"
+    # Ratepayer tier — self-service, never granted a staff-facing
+    # permission; see apps/registry/api and the closed-world test.
+    RATEPAYER = "RATEPAYER"
+    RATEPAYER_PROXY = "RATEPAYER_PROXY"
     ACCESS_LEVEL_CHOICES = [
         (COUNCIL_ADMIN, "Council Admin"),
         (CONSULTANT, "Consultant"),
         (AGENT, "Agent"),
         (GLOBAL_VIEW, "Global View"),
         (REVENUE_OFFICER, "Revenue Officer"),
+        (SUPER_ADMIN, "Super Admin"),
+        (PLATFORM_ADMIN, "Platform Admin"),
+        (DEVOPS_ADMIN, "DevOps Admin"),
+        (BD_VIEW, "BD / Account Manager"),
+        (COMPLIANCE_VIEW, "Compliance View"),
+        (FINANCE_ADMIN, "Finance Admin (ACDSL)"),
+        (SUPPORT_ADMIN, "Support Admin"),
+        (ANALYTICS_VIEW, "Analytics View"),
+        (EXTERNAL_AUDITOR, "External Auditor"),
+        (COUNCIL_IGR_HEAD, "Council IGR Head"),
+        (COUNCIL_TREASURY, "Council Treasury"),
+        (COUNCIL_AUDITOR, "Council Auditor"),
+        (COUNCIL_IT, "Council IT"),
+        (CONSULTANT_STAFF, "Consultant Staff"),
+        (AGENT_SUPERVISOR, "Agent Supervisor"),
+        (RATEPAYER, "Ratepayer"),
+        (RATEPAYER_PROXY, "Ratepayer Proxy"),
     ]
+
+    #: Access levels that always carry council=null (ACDSL/platform tier),
+    #: for validation/seeding convenience — see AppUser.council's docstring.
+    PLATFORM_TIER_LEVELS = (
+        SUPER_ADMIN, PLATFORM_ADMIN, DEVOPS_ADMIN, BD_VIEW, COMPLIANCE_VIEW,
+        FINANCE_ADMIN, SUPPORT_ADMIN, ANALYTICS_VIEW, EXTERNAL_AUDITOR,
+    )
 
     name = models.CharField(max_length=64, unique=True)
     access_level = models.CharField(max_length=16, choices=ACCESS_LEVEL_CHOICES)
@@ -90,12 +140,21 @@ class CouncilGrant(TimeStampedModel):
 
     user = models.ForeignKey(AppUser, on_delete=models.CASCADE, related_name="council_grants")
     council = models.ForeignKey(Council, on_delete=models.CASCADE, related_name="oversight_grants")
+    #: Null means the grant never expires. Set for EXTERNAL_AUDITOR-style
+    #: time-boxed access (docs/acrev360-roles-permissions-matrix.md's
+    #: "likely needs a temporary/expiring access grant") — enforced by
+    #: apps.common.platform_scope.granted_council_ids, not by RLS itself.
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "council_grant"
         constraints = [
             models.UniqueConstraint(fields=["user", "council"], name="uniq_council_grant"),
         ]
+
+    @property
+    def is_expired(self) -> bool:
+        return bool(self.expires_at and self.expires_at < timezone.now())
 
 
 class SubConsultant(CouncilScopedModel):

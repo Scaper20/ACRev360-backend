@@ -69,6 +69,14 @@ class Payer(CouncilScopedModel):
     #: a separate feature. See apps.payments.services.post_payment.
     credit_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
+    #: The ratepayer's own self-service login, if one has been set up (see
+    #: PayerViewSet.invite_ratepayer) — mirrors FieldAgent.user's pattern.
+    #: Null for the vast majority of payers, who are purely backend-managed
+    #: records with no login of their own.
+    user = models.OneToOneField(
+        "accounts.AppUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="payer_profile"
+    )
+
     class Meta:
         db_table = "payer"
         indexes = [
@@ -113,3 +121,43 @@ class EnumeratedAsset(CouncilScopedModel):
 
     def __str__(self):
         return f"{self.asset_type} — {self.payer.full_name}"
+
+
+class PayerDelegation(CouncilScopedModel):
+    """A ratepayer explicitly granting another logged-in user (their proxy —
+    e.g. an accountant paying on a business's behalf) read access to their
+    own account. Implements docs/acrev360-roles-permissions-matrix.md
+    Decision #2 verbatim: "Linked-account model — proxy has own login,
+    ratepayer explicitly grants/revokes access per account."
+
+    Revocation is `revoked_at` being set, not deletion — the grant/revoke
+    history itself is worth keeping (who could see this payer's data, and
+    when), same rationale as Payment.REVERSED not deleting the payment row.
+    Only the *payer themselves* (RATEPAYER, never RATEPAYER_PROXY — a proxy
+    can't re-delegate) may create or revoke one — see
+    apps.registry.api.views.RatepayerPortalViewSet.delegations."""
+
+    payer = models.ForeignKey(Payer, on_delete=models.CASCADE, related_name="delegations")
+    proxy_user = models.ForeignKey("accounts.AppUser", on_delete=models.CASCADE, related_name="payer_delegations")
+    granted_by = models.ForeignKey(
+        "accounts.AppUser", on_delete=models.PROTECT, related_name="delegations_granted"
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "payer_delegation"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payer", "proxy_user"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_delegation_per_proxy",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.payer_id} -> {self.proxy_user_id}" + (" (revoked)" if self.revoked_at else "")
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None

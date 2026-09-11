@@ -19,8 +19,17 @@ from apps.revenue.models import AgentPortfolio, CouncilRevenueItem, RevenueCateg
 from apps.revenue.services import BandingError, change_rate, replace_rate_bands
 from apps.tenancy.models import Department
 
-READ_ONLY_LEVELS = [AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW, AppRole.REVENUE_OFFICER]
-_PORTFOLIO_SCOPED_LEVELS = (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)
+READ_ONLY_LEVELS = [
+    AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW, AppRole.REVENUE_OFFICER,
+    # RBAC-expansion council/consultant/agent-tier read additions — see
+    # docs/RBAC_EXPANSION_DESIGN.md. Revenue items aren't payer- or
+    # consultant-identifying (see CouncilRevenueItemViewSet's own docstring
+    # on why GLOBAL_VIEW already keeps this), so every new read-only role is
+    # safe to add here without the exclusions PayerViewSet/BillViewSet need.
+    AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR, AppRole.COUNCIL_IT,
+    AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+]
+_PORTFOLIO_SCOPED_LEVELS = (AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF, AppRole.REVENUE_OFFICER)
 
 
 class RevenueCategoryViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

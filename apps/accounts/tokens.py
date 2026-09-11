@@ -50,4 +50,6 @@ class AppTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["council_id"] = user.council_id
         token["access_level"] = user.access_level
         token["consultant_id"] = user.consultant_id
+        payer_profile = getattr(user, "payer_profile", None)
+        token["payer_id"] = payer_profile.id if payer_profile else None
         return token

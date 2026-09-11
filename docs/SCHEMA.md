@@ -25,16 +25,26 @@ WARD/ZONE/DISTRICT). Payers, agents, and POS terminals all attach to a ward.
 
 ## 2. Users, roles & access
 
-**`app_role`** — the four `access_level`s (`COUNCIL_ADMIN`, `CONSULTANT`, `AGENT`,
-`GLOBAL_VIEW`) each map to one or more named roles (e.g. both `COUNCIL_ADMIN` and
-`HEAD_REVENUE` roles carry the `COUNCIL_ADMIN` access level).
+**`app_role`** — each `access_level` maps to one or more named roles (e.g. both
+`COUNCIL_ADMIN` and `HEAD_REVENUE` roles carry the `COUNCIL_ADMIN` access level).
+This started as four levels; it's now a much larger set spanning an ACDSL
+platform tier, expanded council/consultant/field-agent tiers, and a ratepayer
+self-service tier — see **docs/RBAC_EXPANSION_DESIGN.md** for the authoritative,
+current list and exactly what each one can do. Don't rely on a hardcoded count
+here; that doc is kept current, this paragraph isn't.
 
 **`app_user`** — login identity. `consultant_id` is set for consultant-side users
-(managers and their agents) and null for Council-direct staff; `role_id` determines
-access level.
+(managers and their agents) and null for Council-direct staff *or* any
+platform-tier account (also council=null — see RBAC_EXPANSION_DESIGN.md);
+`role_id` determines access level. `payer_id` (via `registry.Payer.user`, a
+reverse one-to-one) is set for a ratepayer's own self-service login.
 
 **`field_agent`** — the agent-specific extension of `app_user` (one-to-one via
 `user_id`): `agent_code`, `assigned_ward_id`, `device_imei`, own lifecycle status.
+
+**`payer_delegation`** — a ratepayer explicitly granting another login
+(a RATEPAYER_PROXY account) read access to their own bills/payments/receipts.
+See RBAC_EXPANSION_DESIGN.md's ratepayer self-service section.
 
 **`audit_log`** — append-only. `action` (e.g. `BILL_ISSUED`, `RATE_CHANGED`),
 `entity_type`/`entity_id` it happened to, a JSON `detail` blob, the actor, their IP, and

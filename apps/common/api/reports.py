@@ -45,11 +45,29 @@ from apps.settlements.models import CommissionSettlement
 PAYERS, BILLS, PAYMENTS, SETTLEMENTS = "PAYERS", "BILLS", "PAYMENTS", "SETTLEMENTS"
 WARD, REVENUE_ITEM, CONSULTANT, DATE = "ward", "revenue_item", "consultant", "date"
 
+#: Council-tier read additions from docs/RBAC_EXPANSION_DESIGN.md, applied to
+#: every entity — a treasury/IGR/auditor role that can see a bill/payment
+#: directly (BillViewSet/PaymentViewSet — see those files) should be able to
+#: see the same thing aggregated here too.
+_COUNCIL_READ_LEVELS = (AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR, AppRole.CONSULTANT_STAFF)
+#: Platform-tier (council=null) levels — see ReportsView.get's council_id
+#: query-param branch below. FINANCE_ADMIN/ANALYTICS_VIEW/COMPLIANCE_VIEW/
+#: SUPER_ADMIN/PLATFORM_ADMIN read every entity; BD_VIEW and EXTERNAL_AUDITOR
+#: don't get raw payer/bill/payment rows here (BD_VIEW: "no ratepayer or
+#: agent PII by default"; EXTERNAL_AUDITOR: compliance/financial totals, not
+#: itemized payer records) — only SETTLEMENTS, which carries no payer PII.
+_PLATFORM_ALL_ENTITY_LEVELS = (
+    AppRole.SUPER_ADMIN, AppRole.PLATFORM_ADMIN, AppRole.FINANCE_ADMIN,
+    AppRole.ANALYTICS_VIEW, AppRole.COMPLIANCE_VIEW,
+)
+_PLATFORM_SETTLEMENTS_ONLY_LEVELS = (AppRole.BD_VIEW, AppRole.EXTERNAL_AUDITOR)
+
 _ENTITY_LEVELS = {
-    PAYERS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER),
-    BILLS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER),
-    PAYMENTS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER),
-    SETTLEMENTS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER),
+    PAYERS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER) + _COUNCIL_READ_LEVELS + _PLATFORM_ALL_ENTITY_LEVELS,
+    BILLS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER) + _COUNCIL_READ_LEVELS + _PLATFORM_ALL_ENTITY_LEVELS,
+    PAYMENTS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER) + _COUNCIL_READ_LEVELS + _PLATFORM_ALL_ENTITY_LEVELS,
+    SETTLEMENTS: (AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR, AppRole.CONSULTANT_STAFF)
+    + _PLATFORM_ALL_ENTITY_LEVELS + _PLATFORM_SETTLEMENTS_ONLY_LEVELS,
 }
 _ENTITY_DIMENSIONS = {
     PAYERS: (WARD, CONSULTANT, DATE),
@@ -117,8 +135,8 @@ def _apply_common_filters(qs, f, *, ward_field, consultant_field, date_field):
     return qs
 
 
-def _payers_report(request, group_by, f):
-    qs = Payer.objects.filter(council_id=request.user.council_id)
+def _payers_report(request, group_by, f, council_id):
+    qs = Payer.objects.filter(council_id=council_id)
     qs = portfolio_filter(qs, request, payer_path="")
     qs = _apply_common_filters(qs, f, ward_field="ward_id", consultant_field="enumerated_by__consultant_id", date_field="created_at")
 
@@ -129,8 +147,8 @@ def _payers_report(request, group_by, f):
     )
 
 
-def _bills_report(request, group_by, f):
-    qs = Bill.objects.filter(council_id=request.user.council_id).exclude(status__in=[Bill.SUPERSEDED, Bill.CANCELLED])
+def _bills_report(request, group_by, f, council_id):
+    qs = Bill.objects.filter(council_id=council_id).exclude(status__in=[Bill.SUPERSEDED, Bill.CANCELLED])
     qs = portfolio_filter(qs, request)
     qs = _apply_common_filters(qs, f, ward_field="payer__ward_id", consultant_field="payer__enumerated_by__consultant_id", date_field="created_at")
 
@@ -169,8 +187,8 @@ def _bills_report(request, group_by, f):
     return _aggregate(qs, group_by, field_map, date_field="created_at", aggregates=aggregates, label_defaults={CONSULTANT: "Council Direct"})
 
 
-def _payments_report(request, group_by, f):
-    qs = Payment.objects.filter(council_id=request.user.council_id, txn_status=Payment.CONFIRMED)
+def _payments_report(request, group_by, f, council_id):
+    qs = Payment.objects.filter(council_id=council_id, txn_status=Payment.CONFIRMED)
     qs = portfolio_filter(qs, request, payer_path="bill__payer")
     qs = _apply_common_filters(qs, f, ward_field="bill__payer__ward_id", consultant_field="bill__payer__enumerated_by__consultant_id", date_field="created_at")
 
@@ -181,11 +199,11 @@ def _payments_report(request, group_by, f):
     )
 
 
-def _settlements_report(request, group_by, f):
+def _settlements_report(request, group_by, f, council_id):
     # No payer to walk through (unlike the other three) — scoped directly off
     # consultant_id, same as CommissionSettlementViewSet.get_queryset.
-    qs = CommissionSettlement.objects.filter(council_id=request.user.council_id)
-    if request.user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER):
+    qs = CommissionSettlement.objects.filter(council_id=council_id)
+    if request.user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER, AppRole.CONSULTANT_STAFF):
         qs = qs.filter(consultant_id=request.user.consultant_id)
     if f.get("consultant_id"):
         qs = qs.filter(consultant_id=f["consultant_id"])
@@ -241,6 +259,12 @@ class ReportsView(APIView):
             OpenApiParameter("date_to", OpenApiTypes.DATE),
             OpenApiParameter("ward_id", OpenApiTypes.INT),
             OpenApiParameter("consultant_id", OpenApiTypes.INT),
+            OpenApiParameter(
+                "council_id", OpenApiTypes.INT,
+                description="Required for platform-tier callers (SUPER_ADMIN, PLATFORM_ADMIN, etc. — "
+                "council=null) to pick which council's report to run; ignored for council-scoped callers, "
+                "who always get their own council.",
+            ),
             OpenApiParameter("revenue_item_id", OpenApiTypes.INT, description="BILLS only"),
             OpenApiParameter(
                 "export", OpenApiTypes.STR,
@@ -258,6 +282,18 @@ class ReportsView(APIView):
             return Response({"error": f"entity must be one of {', '.join(_ENTITY_LEVELS)}"}, status=status.HTTP_400_BAD_REQUEST)
         if request.user.access_level not in _ENTITY_LEVELS[entity]:
             return Response({"error": "Not permitted for this entity"}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.user.council_id is not None:
+            council_id = request.user.council_id
+        else:
+            from apps.common.platform_scope import accessible_council_ids
+
+            council_id = parse_int(request.query_params, "council_id")
+            if council_id is None or council_id not in accessible_council_ids(request.user):
+                return Response(
+                    {"error": "council_id is required and must be one of the councils you have access to"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         group_by = request.query_params.getlist("group_by")
         if len(group_by) > 2:
@@ -285,7 +321,18 @@ class ReportsView(APIView):
         if export not in ("", "csv"):
             return Response({"error": "export must be 'csv' (or omitted for JSON)"}, status=status.HTTP_400_BAD_REQUEST)
 
-        rows = _BUILDERS[entity](request, group_by, f)
+        if request.user.council_id is None:
+            # Platform-tier caller — the request's own RLS context is NULL
+            # (no ambient council), so this report needs its own scoped
+            # context for exactly the one council it was asked to run
+            # against. Never widened beyond council_id, which was already
+            # validated above against accessible_council_ids.
+            from apps.tenancy.context import council_context
+
+            with council_context(council_id):
+                rows = _BUILDERS[entity](request, group_by, f, council_id)
+        else:
+            rows = _BUILDERS[entity](request, group_by, f, council_id)
         if export == "csv":
             return _rows_to_csv(rows, entity=entity)
         return Response({"entity": entity, "group_by": group_by, "rows": rows})

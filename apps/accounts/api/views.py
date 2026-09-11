@@ -146,21 +146,42 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
     serializer_class = SubConsultantSerializer
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
-    # Governs list/retrieve/create (and end_portfolio, which declares no
-    # override of its own). Consultant names/commission/status are exactly
-    # what a stakeholder account must not see (see StakeholderViewSet's
-    # docstring), so this is COUNCIL_ADMIN-only — a consultant's own identity
-    # is exposed instead via /auth/me (MeSerializer.consultant_name etc.).
-    # status_change and portfolio below declare their own, wider
-    # permission_classes on the @action itself — a custom get_permissions()
-    # here would silently shadow those per-action overrides (DRF applies
-    # them by setting self.permission_classes before dispatch, which only
-    # the default get_permissions() reads), so this deliberately stays a
-    # plain class attribute rather than a method.
+    # Governs create (and end_portfolio, which declares no override of its
+    # own) — COUNCIL_ADMIN-only, since onboarding/firm-level commercial terms
+    # stay a council admin decision (docs/RBAC_EXPANSION_DESIGN.md: this is
+    # explicitly NOT part of COUNCIL_IGR_HEAD's scope). list/retrieve are
+    # widened in get_permissions() below to COMPLIANCE_VIEW/EXTERNAL_AUDITOR
+    # (platform tier — "contracts" is literally what those two read) and the
+    # council-tier read additions; status_change/contract_dates/
+    # revenue_officers/portfolio below declare their own permission_classes
+    # on the @action itself, which DRF applies to self.permission_classes
+    # before get_permissions() runs — get_permissions()'s super() fallback
+    # for any action not branched here reads that already-reassigned value,
+    # so this doesn't shadow those overrides.
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
 
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [access_level_permission(
+                AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+                AppRole.COMPLIANCE_VIEW, AppRole.EXTERNAL_AUDITOR, AppRole.SUPER_ADMIN, AppRole.PLATFORM_ADMIN,
+            )()]
+        return super().get_permissions()
+
     def get_queryset(self):
-        qs = SubConsultant.objects.filter(council_id=self.request.user.council_id).order_by("consultant_name")
+        user = self.request.user
+        if user.council_id is None:
+            from apps.common.platform_scope import platform_wide_queryset
+
+            ids = [
+                obj.id
+                for obj in platform_wide_queryset(
+                    lambda council_id: SubConsultant.objects.filter(council_id=council_id), user
+                )
+            ]
+            qs = SubConsultant.objects.filter(id__in=ids).order_by("consultant_name")
+        else:
+            qs = SubConsultant.objects.filter(council_id=user.council_id).order_by("consultant_name")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
@@ -303,7 +324,14 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
 
     @extend_schema(methods=["GET"], responses=RevenueOfficerSerializer(many=True))
     @extend_schema(methods=["POST"], request=RevenueOfficerSerializer, responses=RevenueOfficerSerializer)
-    @action(detail=True, methods=["get", "post"], url_path="revenue-officers", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    @action(
+        detail=True, methods=["get", "post"], url_path="revenue-officers",
+        # COUNCIL_IT included — onboarding a login is exactly its job per
+        # docs/RBAC_EXPANSION_DESIGN.md, and this action grants no financial
+        # capability (REVENUE_OFFICER's own permissions are read-only
+        # everywhere else it appears).
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IT)],
+    )
     def revenue_officers(self, request, pk=None):
         """Onboards (or lists) REVENUE_OFFICER logins scoped to this one
         consultant — read-only accounts that get the exact same portfolio
@@ -392,23 +420,49 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
     list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by agent code or agent name")])
 )
 class FieldAgentViewSet(viewsets.ModelViewSet):
+    """create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
+    matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
+    list/retrieve widen further to CONSULTANT_STAFF/COUNCIL_AUDITOR/
+    COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions, see
+    get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
+    ward/team only) happens in get_queryset() via common.scoping."""
+
     serializer_class = FieldAgentSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
 
+    def get_permissions(self):
+        if self.action == "create":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IT)()]
+        if self.action in ("list", "retrieve"):
+            return [access_level_permission(
+                AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF,
+                AppRole.COUNCIL_AUDITOR, AppRole.COUNCIL_IGR_HEAD, AppRole.AGENT_SUPERVISOR,
+            )()]
+        return super().get_permissions()
+
     def get_queryset(self):
         user = self.request.user
         qs = FieldAgent.objects.filter(council_id=user.council_id)
-        if user.access_level == AppRole.CONSULTANT:
+        if user.access_level in (AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF):
             qs = qs.filter(user__consultant_id=user.consultant_id)
         elif user.access_level == AppRole.AGENT:
             # Only relevant to the `activity` action below (list/retrieve/
-            # create stay COUNCIL_ADMIN/CONSULTANT-only via the class-level
-            # permission_classes) — scoping here too means an agent
-            # reaching for another agent's id 404s at get_object(), rather
-            # than relying solely on activity()'s own ownership check.
+            # create stay staff-only via get_permissions() above) — scoping
+            # here too means an agent reaching for another agent's id 404s
+            # at get_object(), rather than relying solely on activity()'s
+            # own ownership check.
             qs = qs.filter(user_id=user.id)
+        elif user.access_level == AppRole.AGENT_SUPERVISOR:
+            # Own ward/team only (matrix Decision #4) — reuse
+            # portfolio_filter's own AGENT_SUPERVISOR branch by filtering on
+            # this FieldAgent row's own assigned_ward directly (there's no
+            # payer relation to walk through here, so payer_path is unused;
+            # calling portfolio_filter would need a payer hop this model
+            # doesn't have, so the ward check is inlined instead).
+            ward_id = getattr(getattr(user, "field_agent", None), "assigned_ward_id", None)
+            qs = qs.filter(assigned_ward_id=ward_id) if ward_id is not None else qs.none()
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(agent_code__icontains=q) | models.Q(user__full_name__icontains=q))
@@ -527,7 +581,14 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         return Response(AgentPortfolioSerializer(entry).data)
 
     @extend_schema(request=AssignPayerSerializer, responses=PayerSerializer)
-    @action(detail=True, methods=["post"], url_path="assign-payer")
+    @action(
+        detail=True, methods=["post"], url_path="assign-payer",
+        # Widened for AGENT_SUPERVISOR — matrix Decision #4's "reassign
+        # ratepayers/routes" is this action. get_queryset() already scopes a
+        # supervisor to their own ward's agents, so reassigning to/from
+        # outside that ward 404s before this body runs.
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT_SUPERVISOR)],
+    )
     def assign_payer(self, request, pk=None):
         """Hands an already-registered payer to this specific agent —
         get_queryset() already scopes a CONSULTANT caller to their own
@@ -567,7 +628,7 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         # scopes an AGENT caller to their own FieldAgent row (another
         # agent's id 404s before this body runs); the check below is
         # belt-and-suspenders against a future get_queryset() change.
-        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)],
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.AGENT_SUPERVISOR)],
     )
     def activity(self, request, pk=None):
         """Recent payments posted by this agent — backs both the admin/
@@ -603,7 +664,10 @@ class StakeholderViewSet(viewsets.ModelViewSet):
     management is COUNCIL_ADMIN-only both ways."""
 
     serializer_class = StakeholderSerializer
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
+    # COUNCIL_IT included — account creation is its whole purpose (see
+    # docs/RBAC_EXPANSION_DESIGN.md); it never gains read access to what a
+    # stakeholder actually sees.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IT)]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
 

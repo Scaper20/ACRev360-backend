@@ -78,13 +78,32 @@ class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
     # below already declare their own narrower COUNCIL_ADMIN-only
     # permission_classes) — a settlement is exactly the kind of "own
     # consultant's performance" data a revenue officer is meant to see.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)]
+    # COUNCIL_TREASURY/COUNCIL_AUDITOR/CONSULTANT_STAFF are read-only for the
+    # same structural reason. FINANCE_ADMIN (platform tier, council=null) is
+    # ACDSL's own commercial-side read access across every council — see
+    # docs/RBAC_EXPANSION_DESIGN.md; get_queryset below branches on
+    # user.council_id is None to serve it via platform_wide_queryset instead
+    # of a single-council filter.
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER,
+        AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR, AppRole.CONSULTANT_STAFF, AppRole.FINANCE_ADMIN,
+    )]
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
         user = self.request.user
+        if user.council_id is None:
+            from apps.common.platform_scope import platform_wide_queryset
+
+            ids = [
+                obj.id
+                for obj in platform_wide_queryset(
+                    lambda council_id: CommissionSettlement.objects.filter(council_id=council_id), user
+                )
+            ]
+            return CommissionSettlement.objects.filter(id__in=ids).order_by("-period_start")
         qs = CommissionSettlement.objects.filter(council_id=user.council_id).order_by("-period_start")
-        if user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER):
+        if user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER, AppRole.CONSULTANT_STAFF):
             qs = qs.filter(consultant_id=user.consultant_id)
         else:
             consultant_id = parse_int(self.request.query_params, "consultant_id")

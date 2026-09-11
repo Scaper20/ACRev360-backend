@@ -47,8 +47,14 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
     # REVENUE_OFFICER is included here (list/retrieve) but excluded again in
     # get_permissions() below for create — read-only, same portfolio as
     # CONSULTANT (see common.scoping.portfolio_filter). `reverse` already
-    # declares its own narrower COUNCIL_ADMIN-only permission_classes.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
+    # declares its own narrower COUNCIL_ADMIN-only permission_classes. The
+    # RBAC-expansion additions are read-only for the same reason — see
+    # BillViewSet's identical note and docs/RBAC_EXPANSION_DESIGN.md.
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER,
+        AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+        AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+    )]
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
@@ -164,8 +170,13 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     # GLOBAL_VIEW deliberately excluded — same reasoning as PaymentViewSet.
     # REVENUE_OFFICER is included here (list) but excluded again in
     # get_permissions() below for `send` — read-only, same portfolio as
-    # CONSULTANT (see common.scoping.portfolio_filter).
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
+    # CONSULTANT (see common.scoping.portfolio_filter). RBAC-expansion
+    # additions, same read-only reasoning as PaymentViewSet.
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER,
+        AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+        AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+    )]
     # Numeric-only URL matching, same as PaymentViewSet/PayerViewSet/APIClientViewSet —
     # a non-numeric id 404s cleanly at routing instead of reaching get_object().
     # (drf-spectacular types path-param ids as string regardless of this; every
@@ -277,13 +288,40 @@ class POSTerminalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 
 class APIClientViewSet(viewsets.ModelViewSet):
+    """DEVOPS_ADMIN (platform tier, council=null — docs/RBAC_EXPANSION_DESIGN.md)
+    reads/manages integration keys across every active council, matching the
+    matrix's "API keys, integration configs... no direct business-data edit
+    rights needed" — it never gets access_level_permission on any billing/
+    payment/payer viewset, only this one."""
+
     serializer_class = APIClientSerializer
+    # DEVOPS_ADMIN is platform tier (council=null) — creating a key means
+    # picking a specific council to issue it for, which this endpoint has no
+    # UX for from a councilless caller, so DEVOPS_ADMIN stays read/revoke
+    # only (see get_permissions). Issuing a new key for a given council stays
+    # that council's own COUNCIL_ADMIN's job.
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
 
+    def get_permissions(self):
+        if self.action == "create":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
+        return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.DEVOPS_ADMIN)()]
+
     def get_queryset(self):
-        return APIClient.objects.filter(council_id=self.request.user.council_id)
+        user = self.request.user
+        if user.council_id is None:
+            from apps.common.platform_scope import platform_wide_queryset
+
+            ids = [
+                obj.id
+                for obj in platform_wide_queryset(
+                    lambda council_id: APIClient.objects.filter(council_id=council_id), user
+                )
+            ]
+            return APIClient.objects.filter(id__in=ids)
+        return APIClient.objects.filter(council_id=user.council_id)
 
     def perform_create(self, serializer):
         import secrets

@@ -26,9 +26,13 @@ class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = DebtCaseSerializer
     # ListModelMixin only (no create) — `refresh`/`escalate` below already
     # declare their own narrower COUNCIL_ADMIN-only permission_classes, so
-    # REVENUE_OFFICER landing here only ever reaches `list`, scoped the same
-    # as CONSULTANT via common.scoping.portfolio_filter.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)]
+    # every level here (including the RBAC-expansion additions — see
+    # docs/RBAC_EXPANSION_DESIGN.md) only ever reaches `list`, scoped the
+    # same as CONSULTANT via common.scoping.portfolio_filter.
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER,
+        AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR, AppRole.CONSULTANT_STAFF,
+    )]
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
