@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.payments.models import ChannelTransactionFeed
 from apps.reconciliation.models import ReconciliationException, ReconciliationRun
 
 
@@ -48,3 +49,19 @@ class RunReconciliationSerializer(serializers.Serializer):
 
 class ResolveExceptionSerializer(serializers.Serializer):
     note = serializers.CharField()
+
+
+class UnmatchedCreditSerializer(serializers.ModelSerializer):
+    channel_code = serializers.CharField(source="channel.code", read_only=True)
+
+    class Meta:
+        model = ChannelTransactionFeed
+        fields = ["id", "channel_code", "bank_txn_ref", "amount", "received_at"]
+        read_only_fields = fields
+
+
+class LiveSummarySerializer(serializers.Serializer):
+    run_date = serializers.DateField()
+    total_platform = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_bank = serializers.DecimalField(max_digits=14, decimal_places=2)
+    unmatched_credits = UnmatchedCreditSerializer(many=True)

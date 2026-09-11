@@ -24,8 +24,12 @@ forgotten.
 **Recurring themes worth knowing before you read the entries below:**
 - **`common.scoping.portfolio_filter` only covers payer-shaped querysets** (bills,
   payments, payers, receipts, debt) via `enumerated_by__consultant_id`. Anything else
-  that needs consultant/agent scoping — like revenue items — needs its own hand-written
-  join. Two real bugs shipped from assuming otherwise.
+  that needs consultant/agent scoping — like revenue items, or Settlements (no payer to
+  walk through — scoped directly by `consultant_id` instead, see `CommissionSettlement
+  ViewSet.get_queryset` and the reports endpoint's own `_settlements_report`) — needs
+  its own hand-written join. Two real bugs shipped from assuming otherwise. As of
+  2026-09-01 `REVENUE_OFFICER` shares this same scoping 1:1 with `CONSULTANT` — this
+  caveat applies to both roles now, not just one.
 - **A serializer field the view sets from the URL (not client input) must be
   `read_only`**, or DRF treats it as required input the client was never asked to send,
   and the endpoint 400s on every call. Bit both `ConsultantPortfolioSerializer` and (at
@@ -42,7 +46,18 @@ forgotten.
   error — this has produced a false "the data is gone" scare at least once. If a
   diagnostic query looks suspiciously empty, verify via `docker compose exec postgres
   psql -U acrev360 -d acrev360` (the Postgres superuser bypasses RLS entirely) before
-  concluding data is actually missing.
+  concluding data is actually missing. **This applies just as much to `RunPython` data
+  migrations** — they run as the same non-superuser role RLS applies to, and this one
+  isn't hypothetical: it shipped for real (2026-09-10, see that entry below) and
+  destroyed production data because the follow-up migration dropped the very column the
+  backfill was supposed to read from, before anyone noticed the backfill had matched
+  zero rows. Use `apps.tenancy.migration_helpers.for_each_council` for any RunPython
+  touching an RLS-protected model (which is most `CouncilScopedModel` tables — grep
+  `ENABLE ROW LEVEL SECURITY` for the current list) instead of writing a bare queryset.
+  pytest will not catch a broken one either: the test DB is migrated while still empty,
+  so a data migration's transform step never runs against real pre-existing rows in
+  that flow — see `tests/test_migration_helpers.py`, which tests the helper directly
+  against real pre-existing data with no ambient context, the actual failure condition.
 - **This Docker setup has no bind mount** on `web`/`celery-*` — every backend source
   edit needs `docker compose build web && docker compose up -d web` before it's visible,
   and `pip install -r requirements/dev.txt` again inside the fresh container before
@@ -157,6 +172,506 @@ forgotten.
 
 ---
 
+## 2026-09-10 — Extensive post-incident review: reverse_payment/overpayment bug, N+1s, name-split duplication, and other findings fixed
+
+**Ask:** after the wipe+migration-fix incident above, an extensive multi-angle
+review (line-by-line diff, removed-behavior audit, cross-file tracer, reuse,
+simplification, efficiency, altitude, conventions) of the whole 10-PR batch
+(`33194b1..master`), looking for further bugs or unprofessional work, with
+fixes applied and tested.
+
+**Most serious finding — independently surfaced by five of the eight review
+angles:** `reverse_payment()` (apps/payments/services.py) was never updated
+when FIFO allocation + overpayment credit landed. `post_payment()` only
+credits `bill.amount_paid` with the FIFO-`applied` portion of a payment,
+routing any overpayment `leftover` to `Payer.credit_balance` instead — but
+`reverse_payment()` still subtracted the *full* `payment.amount` from
+`amount_paid` and never touched `credit_balance`. Reversing an overpaid
+payment on a bill that also had other confirmed payments could wipe out a
+different payment's legitimate contribution to `amount_paid` (clamped at 0
+in the simple case), while the phantom credit balance stayed live forever.
+Fixed by deriving the actually-applied portion from the payment's own
+`PaymentAllocation` rows (no new bookkeeping needed — they already record
+exactly this) and clawing back the leftover credit on reversal. New tests:
+`test_reversing_an_overpayment_claws_back_only_what_was_actually_credited`,
+`test_reversing_an_overpayment_does_not_wipe_a_prior_payments_contribution`
+(tests/test_fifo_allocation_and_arrears.py).
+
+**Other fixes from the same pass:**
+- `live_reconciliation_summary`'s `?date=` query param crashed (uncaught
+  `ValueError` → 500) on a malformed value — no other date-taking endpoint in
+  this codebase skips validation this way. Now routed through
+  `apps.common.filtering.parse_date` like everywhere else.
+- `update_bill_line()` could drive `BillLine.current_amount` (and
+  `Assessment.amount`) negative by setting `line_amount` below the line's own
+  `arrears_amount` — no validation existed for this once lines could carry a
+  fixed arrears component. Now raises `BillingError` (400), and the view
+  action that calls it — which had never caught `BillingError` at all, a
+  second gap the same review pass found — now does.
+- Business/consultant name → first/last split was reinvented three times
+  (`apps/accounts/api/views.py`'s consultant-as-payer flow, both seed
+  scripts) with a naive `.partition(" ")` that dumped every token past the
+  first into `last_name`, contradicting the actual convention `Payer.
+  first_name`'s docstring and the `0007_backfill_payer_names` migration both
+  already establish. Factored into one canonical `apps.registry.services.
+  split_full_name`, used everywhere (including by the migration itself now).
+- `apps/common/api/reports.py` hand-validated `date_from`/`date_to` and never
+  validated `ward_id`/`consultant_id`/`revenue_item_id` at all, instead of
+  reusing `apps.common.filtering.parse_date`/`parse_int` like every other
+  list endpoint in this codebase — an invalid `ward_id` reached the ORM
+  directly and would 500 instead of 400. Now reuses the same helpers.
+- N+1s fixed: `_allocate_fifo` (apps/payments/services.py) queried
+  `BillLine.paid_amount` per line inside its `select_for_update()` loop —
+  Postgres rejects `FOR UPDATE` combined with `GROUP BY`/aggregates in one
+  query, so this couldn't just be annotated; fixed by batching the
+  paid-so-far lookup into one grouped query up front instead. Settlement
+  drill-down (`_settlement_bill_rows`) re-aggregated `collected` per bill in
+  a loop instead of annotating it on the queryset directly. Reconciliation's
+  live summary computed a per-channel platform total it then discarded
+  unused — split into a narrower `_match_feed_rows_for_channel` that only
+  computes what the caller actually needs.
+
+**Not fixed, flagged only** (would need a product decision, not just an
+engineering one): `apps/fieldops/services.get_worklist` (the field agent's
+own worklist) is intentionally ward-scoped rather than scoped to
+`assigned_agent`/`enumerated_by` — this predates PR7's payer-assignment
+feature and may be correct (an agent physically covering a ward needs to see
+every payer there, not just their administratively-assigned ones) or may
+need reconciling with the new assignment feature's intent. Left as-is
+pending a call from whoever owns that product decision. A handful of other
+duplicated-formula/duplicated-condition findings (commission calculation in
+two places, consultant-scoping condition in two places, an `outstanding`
+calculation repeated instead of added as a `BillLine` property, a dead
+`APIClient.is_expired()` method) were logged but not fixed — real but lower
+severity than the above, noted here so they aren't rediscovered from scratch.
+
+**Gotchas:** the local test machine hit `argon2.exceptions.HashingError:
+Memory allocation error` intermittently across unrelated tests when running
+the full ~280-test suite in one process (up to 107 spurious errors in one
+run) — confirmed via isolated re-runs that every one of those tests passes
+cleanly on its own; this is memory pressure from argon2's deliberately heavy
+hashing parameters (`memory_cost=102400`, `parallelism=8` — Django's own
+argon2 defaults, chosen for a real reason, see this file's `PASSWORD_HASHERS`
+comment) compounding over a long-lived single pytest process on a
+resource-constrained machine, not a code regression. If the full suite shows
+a wall of unrelated `argon2` errors, re-run the affected tests in a smaller
+batch before assuming something broke.
+
+---
+
+## 2026-09-10 — Production data loss from the RLS-blocked backfill migrations; both databases wiped and reseeded clean
+
+**Found:** verifying PR9 (payer name split) and PR4 (FIFO allocation) against
+the live frontend/API showed every existing payer's name blank and every
+existing bill line's `current_amount`/`arrears_amount` at `0.00`, even though
+`apps.registry.migrations.0007_backfill_payer_names` and `apps.billing.
+migrations.0004_backfill_billline_position_and_current_amount` both showed as
+applied in `django_migrations`. Root cause (see the `for_each_council`
+gotcha added above): both migrations ran a bare queryset against an
+RLS-protected table (`payer`, `bill`) with no `app.council_id` session
+variable set, which Postgres RLS silently resolves to zero matching rows —
+not an error, so the migration reported success while doing nothing.
+
+**Severity differed sharply between the two:** the billing side was fully
+recoverable (`BillLine.line_amount` was never touched or dropped — the
+backfill only needed to copy it into `current_amount`, which just hadn't
+happened yet). The registry side was not: `0007`'s backfill silently matched
+zero rows, and `0008_remove_payer_full_name` dropped the `full_name` column
+one migration (and about one second of wall-clock time, same deploy) later —
+by the time anyone could notice the backfill hadn't run, the source data it
+would have read from was already gone. Checked every other place a name
+could conceivably survive (`AuditLog.detail` on `PAYER_ENUMERATED` only ever
+stored `payer_ref`, never the name; no other table snapshots it) — genuinely
+unrecoverable from within the database itself.
+
+**Decision (given no available point-in-time backup to restore from, and
+only 6 affected payer rows in production at the time):** wipe both databases
+completely — `DROP SCHEMA public CASCADE` + fresh `migrate` + `seed_kuje` —
+rather than attempt a partial recovery of already-corrupted data. This also
+meant the two broken migrations could be fixed in place (not bolted on as a
+follow-up `0009`/`0005`), since a clean re-migrate from an empty schema never
+exercises the bug at all (nothing to backfill in an empty table either way).
+
+**Fix, and the actual precaution:** both migrations rewritten to use a new
+`apps.tenancy.migration_helpers.for_each_council(apps, fn)` helper, which
+sets `app.council_id` correctly per council before calling `fn`. Prominent
+warnings added at the two places an engineer would actually be looking —
+`apps/tenancy/context.py`'s own docstring, and this file's recurring-themes
+section above — plus a real regression test
+(`tests/test_migration_helpers.py`) that reproduces the exact failure
+condition (a bare query with no council context sees real, pre-existing data
+as if it doesn't exist) and proves the helper avoids it. This is the
+concrete test that would have caught the original bug before it shipped;
+neither of the two broken migrations had any test coverage at all, since
+pytest's test database is migrated while still empty and every test fixture
+sets its own council context before creating data — a broken and a correct
+backfill migration look identical to that flow.
+
+**Verification:** both databases dropped/recreated/migrated/reseeded, then
+confirmed against the actual live deployed API
+(`https://acrev360-backend.onrender.com/api/v1/health` and
+`/api/v1/auth/login` with the new seeded admin credentials), not just the
+database directly — both returned 200 with correct data post-wipe.
+
+**Gotchas:** the fresh admin passwords generated for this (one per
+environment) were shown once in the session that created them and are not
+recoverable from anywhere in this repo — if you don't have them, reset via
+`seed_kuje` again (safe on an already-seeded council; it does not re-wipe
+anything) or Django's own password-reset tooling. Any other environment
+restored from a pre-2026-09-10 backup of either database will still have the
+original bug's symptoms (blank names, zeroed line amounts) and needs the
+same treatment — re-running `migrate` alone will *not* fix it retroactively,
+since these two migrations already show as applied there too; a fresh wipe,
+or a hand-written one-off data-repair migration for that specific restore,
+would be needed.
+
+---
+
+## 2026-09-10 — `docs/openapi-schema.yaml` regenerated; PaymentAllocation exposed at the API level
+
+**Ask:** two follow-ups after verifying the 10-PR batch (cash channel, API key
+hardening, duplicate-bill guard, FIFO allocation + itemized arrears, settlement
+drill-down, live reconciliation summary, agent scoping/payer assignment, email
+login, payer name split, report CSV export — none of which have their own
+changelog entries yet, a gap worth closing in a future pass) against the live
+schema: (1) regenerate the static export, (2) add allocation-level detail —
+the FIFO breakdown itself, not just each line's resulting `paid_amount`.
+
+**Resolved:** `docs/openapi-schema.yaml` was flagged in the batch's own PR1
+work as stale/unwired (last touched 2026-08-16, nothing in the repo treats it
+as authoritative) and deliberately left alone twice pending this decision.
+Decision: keep it, regenerate via `python manage.py spectacular --file
+docs/openapi-schema.yaml --validate` (0 errors). Whoever owns keeping it in
+sync going forward should re-run that command after schema-affecting changes;
+nothing currently does this automatically (no CI step, no pre-commit hook).
+
+**Allocation detail:** `PaymentAllocationSerializer` (apps/payments/api/
+serializers.py) nested as `allocations` on both `PaymentSerializer` and
+`ReceiptSerializer` — a payment's own FIFO slice across bill lines, distinct
+from `BillLineDetail`'s `paid_amount` (that's the line's cumulative total
+across every payment ever made against it, this is just one payment's
+contribution). No dedicated endpoint — nested field, matching how this
+codebase already nests `BillLineDetail` off `Bill`/`Receipt` elsewhere rather
+than giving every child concept its own CRUD resource.
+
+**Gotchas:** the `allocations` nested field walks `bill_line__assessment__
+council_revenue_item` per row for `harmonised_code`/`item_name` — both
+`PaymentViewSet.get_queryset()` and `ReceiptViewSet.get_queryset()` needed a
+matching `prefetch_related()` added, or list views silently reintroduce an
+N+1 (same class of bug the terminal-list N+1 fix and `ReceiptSerializer.lines`
+already had to guard against — see the recurring-themes note above these
+dated entries). A new consumer of `PaymentAllocation` elsewhere needs the same
+prefetch, not just a nested serializer field.
+
+---
+
+## 2026-09-03 — Fix: multi-level consolidation dropped the oldest arrears lines
+
+**Found:** reported directly against the arrears line-item feature added earlier this
+week (see the "arrears line-item detail (item 6)" entry below). Repro: bill1 (item A,
+₦5,000) → bill2 consolidates bill1 via `roll_arrears=True` and adds its own line (item
+B, ₦5,000), so bill2.total_amount = ₦10,000 → bill3 consolidates bill2 via
+`roll_arrears=True` with no new lines of its own, so bill3.arrears_amount = ₦10,000.
+`GET /bills/{bill3.id}/detail`'s `superseded_bills` correctly listed bill2 (the one
+entry in `bill3.supersedes` — bill1 is already `SUPERSEDED` by the time bill3 rolls up,
+so `issue_bill`'s `open_bills` query never sees it again, and it never appears in
+`bill3.supersedes` directly), but that entry's `lines` showed only item B (bill2's own
+direct line) — item A silently missing, `sum(lines) = 5000` against a stated `amount`
+of `10000`. Root cause: `SupersededBillSerializer.lines` sourced from the bare `lines`
+manager (`bill.lines.all()`), which only ever reaches one bill's *own* direct lines,
+never a further level of that bill's own `supersedes` chain.
+
+**Fixed:** new `Bill.all_arrears_lines()` (`apps/billing/models.py`) — a bill's own
+`lines.all()` plus, recursively, `all_arrears_lines()` of every bill in its own
+`supersedes.all()`. Deliberately a `Bill` method, not serializer logic, so the
+invariant ("sum of all lines always equals the total, at any consolidation depth") is
+directly testable without going through the API. `SupersededBillSerializer.lines` now
+sources from it (`source="all_arrears_lines"` — DRF auto-invokes a zero-arg method the
+same way it resolves a property, no `SerializerMethodField` needed). No schema/contract
+change — same field name, same shape, just complete now.
+
+**Files:** `apps/billing/models.py`, `apps/billing/api/serializers.py`,
+`tests/test_money_invariants.py` (+1 test reproducing the exact 3-bill chain, asserting
+both the model-level `all_arrears_lines()` invariant and the API response).
+
+**Verified:** pytest against the real remote Postgres; `manage.py check` clean. Full
+`test_money_invariants.py`: 8/8 passing (includes the two existing single-level
+superseded-bills tests, confirming the recursion is a no-op change for a chain that's
+only one level deep). The new multi-level test failed once first, on its own wrong
+expected numbers — it reused `scoped["item"]` assuming ₦5,000 to match the repro's
+figures, but that fixture item is actually ₦10,000 — fixed by using two explicit
+₦5,000 items instead; not a defect in `all_arrears_lines()` itself, which was correct
+on the first attempt (the failure was `arrears_amount == 15000 != expected 10000`,
+i.e. the *test's* arithmetic was wrong, not a missing/extra line).
+
+**Gotchas:**
+- **A bill's `lines` and its recursive `all_arrears_lines()` diverge the moment a
+  superseded bill had a *partial* payment before being rolled up.** `all_arrears_lines()`
+  returns lines at their full billed `line_amount`, unaware of any payment; `amount`
+  on `SupersededBillSerializer` (sourced from `balance`) reflects what was actually
+  still owed. No partial-payment case was in the reported repro or is covered by the
+  new test — if `sum(lines) != amount` ever shows up for a *real* bill, check payment
+  history on the superseded bill before assuming this fix regressed; it's a pre-existing,
+  separate characteristic (the `amount` field's own docstring already documents that it's
+  frozen at balance-at-supersession-time, not face value) that this pass didn't touch or
+  attempt to reconcile.
+- **This recurses to unbounded depth with no `prefetch_related` covering it fully** — the
+  existing prefetch calls in `BillViewSet.bill_detail`/`PublicBillLookupView` only cover
+  ~2 levels (`supersedes__lines__assessment__...`), so a 3+ level chain falls back to
+  per-level lazy queries beyond that. Correct either way; only a performance
+  consideration, and arrears chains this deep are not expected to be common. If they
+  become common, prefetching an unbounded recursive relation needs a different approach
+  (e.g. a recursive CTE) rather than deepening the existing `Prefetch` chain further.
+
+---
+
+## 2026-09-03 — Detailed reporting via the existing Payer/Bill list endpoints (filter/sort), not new ones
+
+**Ask:** frontend needs detailed reporting on Payers and Bills — filterable, sortable,
+paginated *rows* (the Payer Registry and Bills List pages), as distinct from `/reports`'s
+aggregate counts/sums added earlier today. Explicit constraint: extend the existing
+endpoints additively via optional query params, same serializers and response shapes, and
+leave `/reports` intact for the aggregate side.
+
+**Added — `apps/common/filtering.py` (new):** `parse_int`/`parse_date`/`parse_decimal`,
+`apply_payer_dimension_filters`, `apply_date_range`, and `StableOrderingFilter`. The
+parsers exist because a malformed param (`?ward_id=abc`, `?date_from=garbage`) raises a
+bare `ValueError`/`django.core.exceptions.ValidationError` from the ORM, and neither is a
+DRF `APIException` — so it skips `acrev360_exception_handler` and 500s (same class of
+problem as the uncaught `IntegrityError` already in the recurring themes above). Every
+new filter goes through them, so bad input is a 400 naming the param.
+
+**Added — `GET /payers`:** `ward_id`, `consultant_id`, `date_from`/`date_to`
+(registration date), and `ordering` over `full_name`/`created_at`/`payer_ref`/
+`kyc_status`. `q`, pagination, serializer and default `full_name` ordering unchanged.
+
+**Added — `GET /bills`:** `ward_id`, `consultant_id`, `revenue_item_id`,
+`date_from`/`date_to` (issue date = `created_at`; `due_date` is sortable but not
+range-filtered — say so if that's wanted), `value_min`/`value_max` over `total_amount`,
+and `ordering` over `total_amount`/`due_date`/`bill_ref`/`created_at`/`amount_paid`/
+`status`. `q`, `payer`, `status` unchanged.
+
+**Fixed — `/reports` double-counted a multi-band bill when filtered by revenue item:**
+found while tracing the `lines__assessment__council_revenue_item_id` join the new
+`/bills?revenue_item_id=` filter was asked to reuse. `_bills_report` applied that filter
+as a join and then summed *bill-level* columns (`total_amount - arrears_amount`,
+`arrears_amount`, balance) — the join duplicates the bill row once per matching line, so a
+bill carrying two lines for the same item under different rate bands had its totals
+counted twice. `Count("id", distinct=True)` was already protected; the `Sum`s weren't.
+Now filtered via `Exists()` on that path. The `group_by=revenue_item` path deliberately
+keeps the join: its measure is per-line `line_amount` (unaffected by row multiplication),
+and the shared join is what makes "filter to item X, grouped by item" show only X.
+No change to the endpoint's contract, params or response shape.
+
+**Files:** `apps/common/filtering.py` (new), `apps/registry/api/views.py`,
+`apps/billing/api/views.py`, `apps/common/api/reports.py`,
+`tests/test_list_filters.py` (new), `tests/test_reports.py`.
+
+**Verified:** 36/36 on the directly-affected suites (`test_list_filters` 14 new,
+`test_reports` 17 incl. a new double-count regression test, `test_search_filters`,
+`test_serializers`), plus a regression pass over every other suite that calls
+`/api/v1/payers` or `/api/v1/bills` (`test_accounts`, `test_audit_fixes`,
+`test_dashboard`, `test_money_invariants`, `test_rate_bands`). pytest against the real
+remote Postgres; no running server/frontend exercised. `manage.py check` clean.
+
+**Gotchas:**
+- **`.distinct()` is mandatory on `?revenue_item_id=`** for the *list* endpoint, and
+  `Exists()` (not a join) for any *bill-level aggregate* — both for the same underlying
+  reason: `add_bill_line`/`issue_bill` merge lines only when item **and** band **and**
+  tier all match, so two lines with the same `council_revenue_item_id` under different
+  bands is normal, intended data. Any future filter that joins through `lines` inherits
+  this trap.
+- **`consultant_id` is a narrowing filter layered on top of `portfolio_filter`, never a
+  replacement.** A CONSULTANT/REVENUE_OFFICER passing another firm's id gets the (empty)
+  intersection, not that firm's rows — there's a test pinning exactly this. Don't
+  "simplify" by reordering it ahead of `portfolio_filter` or making it an either/or.
+- **`filter_backends` is set per-view, deliberately, not as `DEFAULT_FILTER_BACKENDS`** —
+  a global default would apply `OrderingFilter` to every list endpoint in the project at
+  once, including ones whose ordering is load-bearing elsewhere.
+- **`StableOrderingFilter` appends a `pk` tiebreaker** because sorting a paginated list by
+  a non-unique column (`total_amount`, `due_date`, `full_name` all tie in real data)
+  otherwise lets Postgres return tied rows in a different order per page request — a row
+  repeats on one page and never appears on the other. Use it, not plain `OrderingFilter`,
+  for any future paginated sort.
+- An unrecognised `?ordering=` value is silently ignored (DRF's `remove_invalid_fields`
+  drops anything outside `ordering_fields` and falls back to the default) rather than
+  400ing — intentional, matching DRF's own behavior, but worth knowing when a sort
+  "doesn't work" and returns 200.
+
+---
+
+## 2026-09-01 — Frontend backend-requirements batch, part 2: KYC fields, ad-hoc report endpoint
+
+**Ask:** the two items deliberately left open in part 1 below — item 2 (KYC field
+storage format) and item 4 (report module scope), which the frontend explicitly asked
+to define together rather than have guessed at. User picked: hashed ID storage, all
+four entities (Payers/Bills/Payments/Settlements), all four dimensions (ward,
+revenue_item, consultant, date), and an ad-hoc query builder over fixed templates.
+
+**Added — KYC fields (item 2):** `SubConsultant.authorized_signatory_{name,id_type,
+id_hash}` + `registered_address`; `FieldAgent.{id_type,id_hash,next_of_kin_name,
+next_of_kin_phone}`. Storage follows `Payer.nin_bvn_hash`'s exact existing precedent —
+confirmed that field is a plain `CharField` the caller hands an already-hashed value
+into (the one real hashing call in this codebase, `hashlib.sha256(...).hexdigest()`,
+lives in `seed_starter_data.py`'s own local seed helper, not a server-side utility) —
+so no new hashing logic was added, just matching field shapes. Both exposed on
+list/detail, accepted at onboarding only (no dedicated edit endpoint — wasn't asked for,
+unlike contract dates in part 1).
+
+**Added — ad-hoc report endpoint (item 4):** `GET /api/v1/reports?entity=...
+&group_by=...&<filters>` (`apps/common/api/reports.py`, registered directly in
+`config/api_urls.py` — same lightweight pattern as `DashboardSummaryView`/
+`DashboardGlobalView`, no new Django app). Deliberately *not* a fully free-form query
+builder (arbitrary client-picked joins) — that's dynamic ORM construction from
+untrusted input, a much bigger and riskier surface. Instead: any of the 4 entities x up
+to 2 of that entity's allowed dimensions x its filters, from a fixed validated
+combinatorial space, returning already-aggregated rows (counts/sums as quoted decimal
+strings, matching every other money field in this API) — never raw identity-level
+records. Each entity's access mirrors its own direct endpoint exactly rather than
+inventing a new visibility rule: GLOBAL_VIEW excluded everywhere payer/bill identity is
+involved (same allow-list boundary as always), AGENT excluded from SETTLEMENTS
+(matching `CommissionSettlementViewSet`), CONSULTANT/REVENUE_OFFICER scoped via the same
+`portfolio_filter` used everywhere else (Settlements has no payer to walk through, so
+it's scoped directly by `consultant_id`, matching `CommissionSettlementViewSet.
+get_queryset` — same as part 1's Gotcha about `portfolio_filter` only covering
+payer-shaped querysets). `revenue_item` grouping on BILLS fans out per `BillLine` rather
+than per `Bill` (a multi-item bill has no single "the" item) — matches
+`DashboardSummaryView`'s existing `by_item` breakdown convention rather than inventing a
+different one.
+
+**Fixed — small consistency gap found while building this:** `CommissionSettlementViewSet`
+didn't have `REVENUE_OFFICER` yet (added in part 1 to Payer/Bill/Payment/Receipt/
+DebtCase/CouncilRevenueItem, but settlements was missed) — added here so a revenue
+officer sees the same settlement data through both `/settlements` directly and
+`/reports?entity=SETTLEMENTS`, rather than only the latter.
+
+**Files:** `apps/accounts/{models.py,api/serializers.py}`, `apps/settlements/api/views.py`,
+`apps/common/api/reports.py` (new), `config/api_urls.py`, migration
+`accounts/0003_fieldagent_id_hash_fieldagent_id_type_and_more.py`,
+`tests/{test_accounts.py,test_reports.py}` (latter new).
+
+**Verified:** via pytest against the real (remote Render) Postgres database, same caveat
+as part 1 (no running server / frontend exercised). 21/21 passing (16 report tests + 2
+KYC round-trip tests + 4 settlements-touched `test_search_filters` tests, re-run after
+touching `CommissionSettlementViewSet`) — one initial failure
+(`test_bills_report_group_by_revenue_item_fans_out_lines`) was a bug in the test's own
+fixture (two revenue items both left on `make_revenue_item`'s default `name="Test Item"`,
+so the report's `item_name`-based grouping correctly merged them into one bucket), not
+the feature — fixed the test, not the code. `manage.py check` and
+`makemigrations --check` both clean.
+
+**Gotchas:**
+- `docs/openapi-schema.yaml` is a stale, unwired static export (last touched 2026-08-16,
+  no script/CI reference anywhere in the repo) — `API_REFERENCE.md` already says the live
+  `/api/schema/` is the real source of truth and a checked-in static export is exactly
+  what it says *not* to rely on. Left as-is; flagged rather than silently regenerated
+  since nothing in the repo currently treats it as authoritative — confirm with Scaper20
+  before deciding whether to keep maintaining it or drop it.
+- The reports endpoint's `revenue_item` dimension only exists for BILLS — PAYERS/PAYMENTS
+  have no clean per-item link (a payment applies against a whole bill's balance, not an
+  itemized charge; a payer isn't "one" revenue item). Requesting it for those 400s with a
+  clear message rather than silently ignoring it.
+
+---
+
+## 2026-09-01 — Frontend backend-requirements batch, part 1: contract dates, Department, revenue officer role, arrears line-item detail, consultants as billed payers
+
+**Ask:** frontend audited the outstanding feature list and wrote up exactly what the
+backend needed before any of it could be built — 7 items, several with open design
+questions the frontend explicitly flagged rather than guessing at. Grounded each answer
+in the actual code (SubConsultant/FieldAgent/AppUser models, portfolio_filter,
+roll_arrears, status_change) before proposing anything; user confirmed 4 of the open
+decisions via AskUserQuestion before implementation started. This entry covers items 1,
+3, 5, 6, 7 — items 2 (KYC) and 4 (reports) needed a further round of decisions, see part
+2 above.
+
+**Added — contract dates (item 1):** `SubConsultant.contract_start_date`/
+`contract_end_date` (nullable — open-ended contract), `is_contract_expired` computed
+property (dashboard-flag only, no auto status transition — this codebase has no
+state-machine or scheduled-job infra for SubConsultant.status, and none was added here).
+Editable post-onboarding via a new `POST /consultants/{id}/contract_dates` action,
+COUNCIL_ADMIN-only, validates start <= end against whichever of the pair is already set.
+
+**Added — Department (item 5):** new `apps.tenancy.Department` model (council-scoped,
+matching every other reference model here — WardZone included), own RLS policy in its
+migration per this codebase's own convention (every tenant-scoped table gets one in the
+same migration that creates it). `GET/POST/PATCH /departments`, and
+`POST /revenue-items/{id}/department` (`department_id`, nullable to clear) to assign —
+mirrors the existing `rate`/`rate-bands` per-field-action pattern on
+`CouncilRevenueItemViewSet` rather than a generic edit endpoint. `?department=` filter
+added to the revenue-items list. No Department concept existed anywhere before this.
+
+**Added — revenue officer role (item 3):** new `REVENUE_OFFICER` access level, scoped
+identically to `CONSULTANT` in `common.scoping.portfolio_filter` (same
+`enumerated_by__consultant_id` walk) — enforced read-only by staying off every mutation
+endpoint's `permission_classes`/`get_permissions()`, not by any check inside
+`portfolio_filter` itself. Wired into `PayerViewSet`, `BillViewSet`, `PaymentViewSet`,
+`ReceiptViewSet` (list only, not `send`), `DebtCaseViewSet`, `CouncilRevenueItemViewSet`.
+Onboarded via `POST/GET /consultants/{id}/revenue-officers`, COUNCIL_ADMIN-only, mirrors
+`StakeholderViewSet`'s existing onboarding shape.
+
+**Added — arrears line-item detail (item 6):** `SupersededBillSerializer` (used by both
+`BillViewSet.bill_detail` and the public bill-lookup view) now nests each superseded
+bill's own `BillLine`s. This is read-only — `issue_bill(roll_arrears=True)` was already
+confirmed to never touch a superseded bill's lines (it only flips status to SUPERSEDED
+and sums `.balance` into the new bill's `arrears_amount`), so the data was already
+there, just unexposed. Deliberately *not* the alternative (flagging individual
+BillLines as "carried forward from arrears") — that would have meant touching
+`issue_bill`'s merge logic, which its own docstring flags as protecting a real invariant
+(arrears consolidation never double-counts).
+
+**Added — consultants as billed payers (item 7):** `SubConsultant.registration_payer`
+(nullable OneToOne to `Payer` — null only for consultants onboarded before this).
+Onboarding now requires `registration_ward_id`, auto-creates the firm as a `Payer`
+(BUSINESS type) via the existing `create_payer()` service, and auto-issues a
+registration bill via `issue_bill()` against the seeded Contractors item's existing
+flat-rate "Consultancy" band (`30010048`, ₦120,000) — confirmed this band already
+existed rather than adding a new item. `status_change` now rejects `PENDING→ACTIVE`
+while that bill has an open balance (`ISSUED`/`PART_PAID`/`OVERDUE`).
+
+**Fixed — real gap found while scoping item 7:** `FieldAgentViewSet.perform_create`'s
+council-admin-driven branch already required the parent `SubConsultant` to be `ACTIVE`;
+the CONSULTANT-role self-service branch (a manager onboarding their own agent) never
+checked status at all — a `PENDING` or `SUSPENDED` manager could onboard field agents.
+Both branches now agree.
+
+**Files:** `apps/accounts/{models.py,api/serializers.py,api/views.py}`,
+`apps/tenancy/{models.py,api/serializers.py,api/views.py,api/urls.py}`,
+`apps/revenue/{models.py,api/serializers.py,api/views.py}`, `apps/common/scoping.py`,
+`apps/billing/api/{serializers.py,views.py}`, `apps/registry/api/views.py`,
+`apps/payments/api/views.py`, `apps/enforcement/api/views.py`, migrations
+`accounts/0002_...`, `tenancy/0002_department.py`,
+`revenue/0005_councilrevenueitem_department.py`,
+`tests/{conftest.py,test_accounts.py,test_money_invariants.py,test_departments.py}` (new).
+
+**Verified:** via pytest against the real (remote Render) Postgres database — not
+manually exercised through a running server or the frontend (a separate repo, not
+present here). 146/146 passing: 36 pre-existing `test_accounts.py` tests (confirming no
+regression), 29 new/changed, 75 across every other viewset/module this touched
+(`test_revenue_items_portfolio`, `test_dashboard`, `test_audit_fixes`, `test_rate_bands`,
+`test_search_filters`, `test_bill_line_merging`, `test_tenancy_rls`), 6 more
+(`test_onboarding`, `test_receipt_delivery`). `manage.py check` and
+`makemigrations --check` both clean.
+
+**Gotchas:**
+- Onboarding a consultant now hard-fails (400, not a silent skip) on any council that
+  hasn't run `seed_kuje`/`seed_rate_bands` yet — the `30010048`/"Consultancy" band has
+  to exist first. Worth knowing before onboarding a consultant on a fresh council.
+- Caught myself nearly widening `add_line`'s (and `kyc_status`'s) narrower
+  COUNCIL_ADMIN-only `permission_classes` while adding `REVENUE_OFFICER` — a
+  `get_permissions()` override branching on `self.request.method == "POST"` clobbers
+  *every* POST action on that viewset, not just the intended one, since DRF resolves an
+  `@action`'s own `permission_classes` by setting it as an instance attribute before
+  `get_permissions()` runs. Branch on `self.action` (e.g. `== "create"`), not
+  `self.request.method`, whenever a viewset has more than one POST-handling action —
+  `PayerViewSet`/`BillViewSet`/`PaymentViewSet` all do this correctly now; check this
+  pattern before adding another role to any viewset with narrower per-action overrides.
+- `common.scoping.portfolio_filter`'s existing "only covers payer-shaped querysets"
+  caveat (see recurring themes above) now also applies to `REVENUE_OFFICER`, not just
+  `CONSULTANT` — same rule, wider audience.
+- `GLOBAL_VIEW` was deliberately *not* added anywhere in this batch (still the same
+  allow-list as before) — `REVENUE_OFFICER` and `GLOBAL_VIEW` are different roles with
+  different scoping, don't conflate them later.
 ## 2026-09-03 — Follow-up: multi-level arrears chains now fully itemize
 
 **Found:** verifying the single-level itemization above with a *second* consolidation

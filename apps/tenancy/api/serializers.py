@@ -1,12 +1,19 @@
 from rest_framework import serializers
 
-from apps.tenancy.models import Council, CouncilConfig, WardZone
+from apps.tenancy.models import Council, CouncilConfig, Department, WardZone
 
 
 class WardZoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = WardZone
         fields = ["id", "ward_code", "ward_name", "zone_type"]
+        read_only_fields = ["id"]
+
+
+class DepartmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Department
+        fields = ["id", "department_name", "department_code", "head_name", "head_phone"]
         read_only_fields = ["id"]
 
 

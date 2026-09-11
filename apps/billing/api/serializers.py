@@ -31,11 +31,18 @@ class BillLineDetailSerializer(serializers.ModelSerializer):
     quantity = serializers.DecimalField(source="assessment.quantity", max_digits=10, decimal_places=2, read_only=True)
     band_label = serializers.CharField(source="assessment.rate_band.label", read_only=True, default=None)
     tier_label = serializers.CharField(source="assessment.rate_tier.label", read_only=True, default=None)
+    paid_amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
 
     class Meta:
         model = BillLine
-        fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "line_amount", "band_label", "tier_label"]
-        read_only_fields = ["id", "assessment", "harmonised_code", "item_name", "quantity", "band_label", "tier_label"]
+        fields = [
+            "id", "assessment", "harmonised_code", "item_name", "quantity", "line_amount",
+            "current_amount", "arrears_amount", "paid_amount", "band_label", "tier_label",
+        ]
+        read_only_fields = [
+            "id", "assessment", "harmonised_code", "item_name", "quantity",
+            "current_amount", "arrears_amount", "paid_amount", "band_label", "tier_label",
+        ]
 
 
 class SupersededBillSerializer(serializers.Serializer):
@@ -49,10 +56,25 @@ class SupersededBillSerializer(serializers.Serializer):
     hand-built dicts — a dict would need this same "amount" key, and DRF's
     DecimalField-to-string formatting only happens by going through this
     serializer, not by building a response dict by hand (see the git history
-    on PublicBillLookupView for the bug that shipped from doing that once)."""
+    on PublicBillLookupView for the bug that shipped from doing that once).
+
+    `lines` exposes each superseded bill's own itemized BillLines — issue_bill's
+    roll_arrears never touches them, it only flips the prior bill's status to
+    SUPERSEDED and sums its balance into the new bill's arrears_amount. So the
+    line-level detail behind that lump sum was always sitting right here,
+    unexposed — this is a read-only addition, no new storage or change to
+    roll_arrears itself.
+
+    Sources `lines` from Bill.all_arrears_lines(), not the bare `lines`
+    manager — a superseded bill that was itself a consolidation (e.g.
+    000006 -> 000010, then 000010 -> 000011) needs its *own* superseded
+    history included too, not just its direct lines, or a second (or
+    deeper) level of consolidation silently drops the oldest lines. See
+    Bill.all_arrears_lines's docstring."""
 
     bill_ref = serializers.CharField()
     amount = serializers.DecimalField(source="balance", max_digits=14, decimal_places=2)
+    lines = BillLineDetailSerializer(source="all_arrears_lines", many=True, read_only=True)
 
 
 class BillDetailSerializer(BillSerializer):
@@ -88,6 +110,7 @@ class IssueBillSerializer(serializers.Serializer):
     lines = BillLineEntrySerializer(many=True, required=False, default=list)
     bill_all_drafts = serializers.BooleanField(default=False)
     roll_arrears = serializers.BooleanField(default=False)
+    force = serializers.BooleanField(required=False, default=False, write_only=True)
 
 
 class AddLineSerializer(serializers.Serializer):

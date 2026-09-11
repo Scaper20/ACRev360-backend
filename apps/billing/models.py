@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 from apps.tenancy.models import CouncilScopedModel
@@ -93,18 +95,71 @@ class Bill(CouncilScopedModel):
     def balance(self):
         return self.total_amount - self.amount_paid
 
+    def all_arrears_lines(self):
+        """This bill's own BillLines, plus (recursively) every BillLine
+        belonging to each bill this one directly or indirectly superseded.
+
+        A bill consolidated more than once (e.g. 000006 -> 000010 -> 000011)
+        previously only surfaced the immediate predecessor's own direct
+        lines — `bill.supersedes.all()` is one level of the chain, not the
+        whole thing, so 000011's superseded-bill breakdown silently dropped
+        000006's line once 000010 (itself a consolidation of 000006) got
+        superseded in turn. Recursing through `supersedes` at each level
+        instead of just reading `.lines` fixes that. See
+        apps.billing.api.serializers.SupersededBillSerializer, the one
+        caller of this — kept as a Bill method rather than serializer logic
+        so it's usable (and testable) independent of the API layer.
+
+        A returned line's own `line_amount` is NOT safe to sum across the
+        whole result to reconstruct a total: since itemized arrears
+        (BillLine.arrears_amount), a line at one level can restate money a
+        deeper level's line also carries — summing `current_amount` instead
+        gives the correct, exactly-once total (see
+        test_multi_level_consolidation_includes_full_recursive_line_history).
+        """
+        lines = list(self.lines.all())
+        for prior in self.supersedes.all():
+            lines.extend(prior.all_arrears_lines())
+        return lines
+
 
 class BillLine(models.Model):
     """Join table between bill and assessment — each line carries its own
     `line_amount`, which can be admin-overridden per payer without touching the
-    item's standard rate."""
+    item's standard rate.
+
+    `line_amount` is always `current_amount + arrears_amount` — kept as its
+    own field (rather than a derived property) because update_bill_line lets
+    an admin override it directly; current_amount is adjusted to match. A
+    revenue item billed this cycle AND carrying prior-year arrears is one
+    line with both amounts set, not two rows — see issue_bill(roll_arrears=True).
+    """
 
     bill = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="lines")
     assessment = models.ForeignKey("billing.Assessment", on_delete=models.PROTECT, related_name="bill_lines")
     line_amount = models.DecimalField(max_digits=14, decimal_places=2)
+    current_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    arrears_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    #: Insertion order — FIFO payment allocation walks lines in this order.
+    #: Postgres gives no ordering guarantee without an explicit column/ORDER BY.
+    position = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "bill_line"
+        ordering = ["position", "id"]
 
     def __str__(self):
         return f"{self.bill.bill_ref} line {self.pk}"
+
+    @property
+    def paid_amount(self):
+        """Sum of this line's PaymentAllocations from CONFIRMED payments only —
+        a reversed payment's allocations are left in place as history (same
+        "mark, don't delete" discipline as Payment itself) but must not count
+        here, or this would drift from Bill.amount_paid."""
+        from apps.payments.models import Payment
+
+        total = self.allocations.filter(payment__txn_status=Payment.CONFIRMED).aggregate(
+            total=models.Sum("amount")
+        )["total"]
+        return total or Decimal("0")

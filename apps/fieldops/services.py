@@ -6,6 +6,7 @@ from django.db.models.functions import Coalesce
 
 from apps.billing.models import Bill
 from apps.billing.services import BillingError
+from apps.common.filtering import name_search_q
 from apps.fieldops.models import MobileSyncRecord
 from apps.payments.models import PaymentChannel, POSTerminal
 from apps.payments.services import PaymentRejected, post_payment
@@ -29,7 +30,7 @@ def get_worklist(*, council_id, agent, q=None):
 
     qs = Payer.objects.filter(council_id=council_id, ward_id=agent.assigned_ward_id)
     if q:
-        qs = qs.filter(Q(full_name__icontains=q) | Q(payer_ref__icontains=q))
+        qs = qs.filter(name_search_q(q) | Q(payer_ref__icontains=q))
 
     non_terminal = ~Q(bills__status__in=Bill.TERMINAL_STATUSES)
     qs = qs.annotate(
@@ -37,7 +38,7 @@ def get_worklist(*, council_id, agent, q=None):
             Sum(F("bills__total_amount") - F("bills__amount_paid"), filter=non_terminal),
             Decimal("0"),
         )
-    ).order_by("-outstanding", "full_name")
+    ).order_by("-outstanding", "last_name", "first_name")
     return qs
 
 

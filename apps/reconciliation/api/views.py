@@ -6,16 +6,18 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
+from apps.common.filtering import parse_date
 from apps.common.permissions import access_level_permission
 from apps.payments.models import PaymentChannel
 from apps.reconciliation.api.serializers import (
     GlobalExceptionSerializer,
+    LiveSummarySerializer,
     ReconciliationRunSerializer,
     ResolveExceptionSerializer,
     RunReconciliationSerializer,
 )
 from apps.reconciliation.models import ReconciliationException, ReconciliationRun
-from apps.reconciliation.services import run_reconciliation
+from apps.reconciliation.services import ReconciliationError, live_reconciliation_summary, run_reconciliation
 
 
 class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -31,10 +33,13 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         serializer = RunReconciliationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         channel, _ = PaymentChannel.objects.get_or_create(code=serializer.validated_data["channel_code"])
-        recon = run_reconciliation(
-            council_id=request.user.council_id, channel=channel,
-            run_date=serializer.validated_data["date"], actor=request.user,
-        )
+        try:
+            recon = run_reconciliation(
+                council_id=request.user.council_id, channel=channel,
+                run_date=serializer.validated_data["date"], actor=request.user,
+            )
+        except ReconciliationError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ReconciliationRunSerializer(recon).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -54,6 +59,19 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         exception.resolved_by = request.user
         exception.save(update_fields=["note", "resolved_at", "resolved_by"])
         return Response(ReconciliationRunSerializer(exception.run).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("date", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False)],
+        responses=LiveSummarySerializer,
+    )
+    @action(detail=False, methods=["get"], url_path="live-summary")
+    def live_summary(self, request):
+        """Always-current dashboard view alongside the manual `run` action
+        above — computed fresh on every call, no ReconciliationRun triggered
+        or required. Defaults to today; ?date=YYYY-MM-DD for any other day."""
+        run_date = parse_date(request.query_params, "date")
+        summary = live_reconciliation_summary(council_id=request.user.council_id, run_date=run_date)
+        return Response(LiveSummarySerializer(summary).data)
 
     @extend_schema(
         parameters=[OpenApiParameter("resolved", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False)],

@@ -22,3 +22,19 @@ class ComputeSettlementsSerializer(serializers.Serializer):
 
 class SettlementStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=CommissionSettlement.STATUS_CHOICES)
+
+
+class SettlementBillSerializer(serializers.Serializer):
+    bill_id = serializers.IntegerField()
+    bill_ref = serializers.CharField()
+    payer_name = serializers.CharField()
+    collected = serializers.DecimalField(max_digits=14, decimal_places=2)
+    commission = serializers.DecimalField(max_digits=14, decimal_places=2)
+    status = serializers.ChoiceField(choices=CommissionSettlement.STATUS_CHOICES)
+
+
+class MySettlementSummarySerializer(serializers.Serializer):
+    total_this_year = serializers.DecimalField(max_digits=14, decimal_places=2)
+    approved_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    settled_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    bills = SettlementBillSerializer(many=True)

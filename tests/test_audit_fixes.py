@@ -45,7 +45,7 @@ def test_registering_payer_with_banded_item_400s_not_500s(scoped, authed_api_cli
     resp = client.post(
         "/api/v1/payers",
         {
-            "payer_type": "INDIVIDUAL", "full_name": "Should Not Be Created", "ward": scoped["ward"].id,
+            "payer_type": "INDIVIDUAL", "first_name": "Should", "last_name": "Not Be Created", "ward": scoped["ward"].id,
             "revenue_item_ids": [scoped["item"].id],
         },
         format="json",
@@ -63,7 +63,7 @@ def test_admin_can_assign_registered_payer_to_a_consultant(scoped, authed_api_cl
     client = authed_api_client(scoped["admin"])
     resp = client.post(
         "/api/v1/payers",
-        {"payer_type": "INDIVIDUAL", "full_name": "Assigned Payer", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
+        {"payer_type": "INDIVIDUAL", "first_name": "Assigned", "last_name": "Payer", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
         format="json",
     )
     assert resp.status_code == 201, resp.data
@@ -78,7 +78,7 @@ def test_registering_payer_without_consultant_assignment_defaults_to_actor(scope
     client = authed_api_client(scoped["admin"])
     resp = client.post(
         "/api/v1/payers",
-        {"payer_type": "INDIVIDUAL", "full_name": "Self Registered Payer", "ward": scoped["ward"].id},
+        {"payer_type": "INDIVIDUAL", "first_name": "Self", "last_name": "Registered Payer", "ward": scoped["ward"].id},
         format="json",
     )
     assert resp.status_code == 201, resp.data
@@ -97,7 +97,7 @@ def test_non_admin_cannot_assign_payer_to_a_different_consultant(scoped, authed_
     client = authed_api_client(caller)
     resp = client.post(
         "/api/v1/payers",
-        {"payer_type": "INDIVIDUAL", "full_name": "Sneaky Assignment", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
+        {"payer_type": "INDIVIDUAL", "first_name": "Sneaky", "last_name": "Assignment", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
         format="json",
     )
     assert resp.status_code == 201, resp.data
@@ -111,7 +111,7 @@ def test_assigning_payer_to_consultant_with_no_login_is_rejected(scoped, authed_
     client = authed_api_client(scoped["admin"])
     resp = client.post(
         "/api/v1/payers",
-        {"payer_type": "INDIVIDUAL", "full_name": "Should Not Be Created", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
+        {"payer_type": "INDIVIDUAL", "first_name": "Should", "last_name": "Not Be Created", "ward": scoped["ward"].id, "assigned_consultant_id": consultant.id},
         format="json",
     )
     assert resp.status_code == 400, resp.data

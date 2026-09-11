@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
 from apps.billing.models import Bill
+from apps.common.filtering import name_search_q
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.api.serializers import (
@@ -43,12 +44,22 @@ from apps.tenancy.context import find_across_active_councils
 class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     # GLOBAL_VIEW deliberately excluded — payments carry payer full_name/payer_ref
     # and posted_by_name, exactly what a stakeholder account must not see.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # REVENUE_OFFICER is included here (list/retrieve) but excluded again in
+    # get_permissions() below for create — read-only, same portfolio as
+    # CONSULTANT (see common.scoping.portfolio_filter). `reverse` already
+    # declares its own narrower COUNCIL_ADMIN-only permission_classes.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = Payment.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
         qs = qs.select_related("bill", "bill__payer", "channel", "terminal", "posted_by")
+        qs = qs.prefetch_related("allocations__bill_line__assessment__council_revenue_item")
         qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
 
         params = self.request.query_params
@@ -64,7 +75,7 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         q = params.get("q")
         if q:
             qs = qs.filter(
-                Q(payment_ref__icontains=q) | Q(bill__bill_ref__icontains=q) | Q(bill__payer__full_name__icontains=q)
+                Q(payment_ref__icontains=q) | Q(bill__bill_ref__icontains=q) | name_search_q(q, prefix="bill__payer")
             )
         date_from = params.get("date_from")
         if date_from:
@@ -151,12 +162,20 @@ _SendReceiptResponseSerializer = inline_serializer(
 class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = ReceiptSerializer
     # GLOBAL_VIEW deliberately excluded — same reasoning as PaymentViewSet.
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
+    # REVENUE_OFFICER is included here (list) but excluded again in
+    # get_permissions() below for `send` — read-only, same portfolio as
+    # CONSULTANT (see common.scoping.portfolio_filter).
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
     # Numeric-only URL matching, same as PaymentViewSet/PayerViewSet/APIClientViewSet —
     # a non-numeric id 404s cleanly at routing instead of reaching get_object().
     # (drf-spectacular types path-param ids as string regardless of this; every
     # frontend call site already wraps the id in String(...) to match.)
     lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.action != "list":
+            return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)()]
+        return super().get_permissions()
 
     def get_queryset(self):
         # select_related for the to-one hops the serializer already walks
@@ -167,14 +186,18 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         qs = (
             Receipt.objects.filter(council_id=self.request.user.council_id)
             .select_related("payment__bill__payer")
-            .prefetch_related("payment__bill__lines")
+            .prefetch_related(
+                "payment__bill__lines",
+                "payment__allocations__bill_line__assessment__council_revenue_item",
+            )
             .order_by("-created_at")
         )
         qs = portfolio_filter(qs, self.request, payer_path="payment__bill__payer")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(
-                Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q) | Q(payment__bill__payer__full_name__icontains=q)
+                Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q)
+                | name_search_q(q, prefix="payment__bill__payer")
             )
         return qs
 
@@ -268,15 +291,35 @@ class APIClientViewSet(viewsets.ModelViewSet):
         from apps.payments.crypto import encrypt_secret
 
         secret = secrets.token_urlsafe(32)
-        serializer.save(
+        client = serializer.save(
             council_id=self.request.user.council_id,
             api_key=f"key_{secrets.token_urlsafe(16)}",
             secret_encrypted=encrypt_secret(secret),
         )
         self._plaintext_secret = secret
+        audit(
+            council_id=self.request.user.council_id, actor=self.request.user, action="API_CLIENT_CREATED",
+            entity_type="API_CLIENT", entity_id=client.id,
+            detail={"channel": client.channel.code, "expires_at": str(client.expires_at), "scopes": client.scopes},
+        )
 
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
         response.data["secret"] = self._plaintext_secret
         response.data["_secret_warning"] = "Shown once — store it now, it cannot be retrieved again."
         return response
+
+    @action(detail=True, methods=["post"])
+    def revoke(self, request, pk=None):
+        """The clean, audited way to deactivate a key — is_active is already
+        the revocation flag (see APIClient), this just exposes flipping it
+        through a real endpoint instead of a raw DB update."""
+        client = self.get_object()
+        if client.is_active:
+            client.is_active = False
+            client.save(update_fields=["is_active"])
+            audit(
+                council_id=request.user.council_id, actor=request.user, action="API_CLIENT_REVOKED",
+                entity_type="API_CLIENT", entity_id=client.id, detail={"channel": client.channel.code},
+            )
+        return Response(APIClientSerializer(client).data)

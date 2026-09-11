@@ -12,6 +12,27 @@ class DuplicatePayer(Exception):
         super().__init__(f"Possible duplicate of {duplicate_of.payer_ref}")
 
 
+def split_full_name(full_name: str) -> tuple[str, str, str]:
+    """Best-effort split of a single display-name string into
+    (first_name, middle_name, last_name): first token -> first_name, last
+    token -> last_name, everything between -> middle_name. A single-token
+    name (registered businesses, most GOVERNMENT/NGO payers) goes entirely
+    into first_name, with middle/last blank — matches Payer.first_name's own
+    documented convention (apps/registry/models.py). The one place this
+    tokenization rule should live — every call site that needs to turn a
+    legacy or externally-supplied full-name string into these three fields
+    (registry.migrations.0007_backfill_payer_names, consultant-as-payer
+    registration, demo/seed data) imports this rather than re-deriving it,
+    since a second, subtly different implementation had already crept into
+    three separate call sites before this was factored out."""
+    tokens = full_name.split()
+    if not tokens:
+        return "", "", ""
+    if len(tokens) == 1:
+        return tokens[0], "", ""
+    return tokens[0], " ".join(tokens[1:-1]), tokens[-1]
+
+
 @transaction.atomic
 def create_payer(*, council_id, actor, revenue_item_ids=None, force=False, enumerated_by=None, **fields) -> tuple[Payer, int]:
     """Individual and business registration are separate flows with distinct ID

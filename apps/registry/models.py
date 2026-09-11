@@ -29,7 +29,12 @@ class Payer(CouncilScopedModel):
 
     payer_ref = models.CharField(max_length=48, unique=True, blank=True)
     payer_type = models.CharField(max_length=16, choices=PAYER_TYPE_CHOICES)
-    full_name = models.CharField(max_length=200)
+    first_name = models.CharField(max_length=100)
+    middle_name = models.CharField(max_length=100, blank=True)
+    #: A single-token name (registered businesses, most GOVERNMENT/NGO payers)
+    #: lives entirely in first_name, with last_name left blank — see the
+    #: 0006 data migration for the same rule applied to pre-existing rows.
+    last_name = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=32, blank=True)
     email = models.EmailField(blank=True)
     address = models.CharField(max_length=255, blank=True)
@@ -50,15 +55,38 @@ class Payer(CouncilScopedModel):
         "accounts.AppUser", on_delete=models.PROTECT, related_name="enumerated_payers"
     )
 
+    #: Set via FieldAgentViewSet.assign_payer — once set, this payer comes out
+    #: of the general consultant-team pool for portfolio-scoping purposes
+    #: (see apps.common.scoping.portfolio_filter): only this agent (and the
+    #: consultant manager, who still sees the whole team) can see it, even if
+    #: a *different* agent originally registered it (enumerated_by).
+    assigned_agent = models.ForeignKey(
+        "accounts.AppUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_payers"
+    )
+
+    #: Unapplied money — the leftover when a payment exceeds a bill's
+    #: outstanding balance. Not auto-consumed against a future bill; that's
+    #: a separate feature. See apps.payments.services.post_payment.
+    credit_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
     class Meta:
         db_table = "payer"
         indexes = [
-            models.Index(fields=["council", "full_name"]),
+            models.Index(fields=["council", "last_name", "first_name"]),
             models.Index(fields=["council", "phone"]),
         ]
 
     def __str__(self):
         return f"{self.payer_ref or '(unsaved)'} {self.full_name}"
+
+    @property
+    def full_name(self) -> str:
+        """Read-only display reconstruction — every consumer that only ever
+        read this name (receipts, bill/payment/debt serializers, search
+        result labels) keeps working unchanged; only ORM-level filtering and
+        ordering had to move to the real first_name/middle_name/last_name
+        columns, since a property isn't queryable at the database level."""
+        return " ".join(part for part in (self.first_name, self.middle_name, self.last_name) if part)
 
 
 class EnumeratedAsset(CouncilScopedModel):

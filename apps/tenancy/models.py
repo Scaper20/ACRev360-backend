@@ -53,6 +53,33 @@ class WardZone(CouncilScopedModel):
         return self.ward_name
 
 
+class Department(CouncilScopedModel):
+    """A council administrative department that revenue items can be grouped
+    under — see CouncilRevenueItem.department. Council-scoped like every other
+    reference model here (WardZone included) since departmental structure
+    varies council to council."""
+
+    department_name = models.CharField(max_length=160)
+    department_code = models.CharField(max_length=32, blank=True)
+    head_name = models.CharField(max_length=160, blank=True)
+    head_phone = models.CharField(max_length=32, blank=True)
+    legal_basis = models.CharField(
+        max_length=120, blank=True,
+        help_text="The bye-law provision constituting this department, e.g. "
+        "'Part II, Section 6' — from the council's departmental schedule.",
+    )
+
+    class Meta:
+        db_table = "department"
+        constraints = [
+            models.UniqueConstraint(fields=["council", "department_name"], name="uniq_department_name_per_council"),
+        ]
+        ordering = ["department_name"]
+
+    def __str__(self):
+        return self.department_name
+
+
 class CouncilConfig(TimeStampedModel):
     """
     Everything that was hardcoded for KAC in the prototype becomes a per-council

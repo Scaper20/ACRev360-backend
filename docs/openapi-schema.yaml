@@ -14,6 +14,11 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by agent code or agent name
       tags:
       - v1
       security:
@@ -75,9 +80,10 @@ paths:
     get:
       operationId: v1_agents_activity_retrieve
       description: |-
-        Recent payments posted by this agent. The full daily-returns rollup
-        (`agent_daily_return`, worklist, offline sync) is fieldops — deferred to
-        V2_ARCHITECTURE.md §11 phase 4, out of this build pass.
+        Recent payments posted by this agent — backs both the admin/
+        consultant detail view and the mobile app's status view. The
+        fieldops app (worklist, offline sync) builds on top of this rather
+        than duplicating it — see fieldops.services.get_worklist.
       parameters:
       - in: path
         name: id
@@ -95,6 +101,142 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentActivityResponse'
+          description: ''
+  /api/v1/agents/{id}/assign-payer:
+    post:
+      operationId: v1_agents_assign_payer_create
+      description: |-
+        Hands an already-registered payer to this specific agent —
+        get_queryset() already scopes a CONSULTANT caller to their own
+        agents, so reaching this for another firm's agent 404s before this
+        body runs, same as `portfolio` above. Once assigned, the payer comes
+        out of the general consultant-team pool for scoping purposes (see
+        apps.common.scoping.portfolio_filter) — only this agent, and the
+        consultant manager, see it from here on.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignPayerRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssignPayerRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssignPayerRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payer'
+          description: ''
+  /api/v1/agents/{id}/portfolio:
+    get:
+      operationId: v1_agents_portfolio_list
+      description: |-
+        Which revenue items this specific agent may handle — an optional
+        further narrowing of their own consultant's ConsultantPortfolio (see
+        AgentPortfolio's docstring). get_queryset() already scopes a
+        CONSULTANT caller to their own agents, so no extra ownership check is
+        needed here beyond get_object() itself — a consultant reaching this
+        for another firm's agent 404s before this method body ever runs.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentPortfolio'
+          description: ''
+    post:
+      operationId: v1_agents_portfolio_create
+      description: |-
+        Which revenue items this specific agent may handle — an optional
+        further narrowing of their own consultant's ConsultantPortfolio (see
+        AgentPortfolio's docstring). get_queryset() already scopes a
+        CONSULTANT caller to their own agents, so no extra ownership check is
+        needed here beyond get_object() itself — a consultant reaching this
+        for another firm's agent 404s before this method body ever runs.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentPortfolioRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AgentPortfolioRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AgentPortfolioRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPortfolio'
+          description: ''
+  /api/v1/agents/{id}/portfolio/{portfolio_id}/end:
+    post:
+      operationId: v1_agents_portfolio_end_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      - in: path
+        name: portfolio_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPortfolio'
           description: ''
   /api/v1/api-clients:
     get:
@@ -163,6 +305,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIClient'
           description: ''
+  /api/v1/api-clients/{id}/revoke:
+    post:
+      operationId: v1_api_clients_revoke_create
+      description: |-
+        The clean, audited way to deactivate a key — is_active is already
+        the revocation flag (see APIClient), this just exposes flipping it
+        through a real endpoint instead of a raw DB update.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/APIClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/APIClientRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+          description: ''
   /api/v1/assets:
     get:
       operationId: v1_assets_list
@@ -220,6 +399,11 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by actor username, action or entity type
       tags:
       - v1
       security:
@@ -231,6 +415,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedAuditLogList'
           description: ''
+  /api/v1/auth/change-password:
+    post:
+      operationId: v1_auth_change_password_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/auth/login:
     post:
       operationId: v1_auth_login_create
@@ -295,6 +501,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/Me'
           description: ''
+    patch:
+      operationId: v1_auth_me_partial_update
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdateProfileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdateProfileRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdateProfileRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateProfile'
+          description: ''
   /api/v1/auth/refresh:
     post:
       operationId: v1_auth_refresh_create
@@ -326,6 +556,30 @@ paths:
     get:
       operationId: v1_bills_list
       parameters:
+      - in: query
+        name: consultant_id
+        schema:
+          type: integer
+        description: Filter by the consultant whose user enumerated the bill's payer.
+          Narrows within the caller's own scope — it never widens it for a CONSULTANT/REVENUE_OFFICER.
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+        description: Issued on/after this date (inclusive)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+        description: Issued on/before this date (inclusive)
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
       - name: page
         required: false
         in: query
@@ -343,10 +597,30 @@ paths:
           type: string
         description: Search by bill reference or payer name
       - in: query
+        name: revenue_item_id
+        schema:
+          type: integer
+        description: Bills carrying a line for this revenue item
+      - in: query
         name: status
         schema:
           type: string
         description: Filter by bill status
+      - in: query
+        name: value_max
+        schema:
+          type: number
+        description: Maximum total_amount (inclusive)
+      - in: query
+        name: value_min
+        schema:
+          type: number
+        description: Minimum total_amount (inclusive)
+      - in: query
+        name: ward_id
+        schema:
+          type: integer
+        description: Filter by the bill's payer's ward
       tags:
       - v1
       security:
@@ -409,6 +683,23 @@ paths:
                 $ref: '#/components/schemas/PublicBillLookup'
           description: ''
         '404':
+          description: No response body
+  /api/v1/bills/{id}:
+    delete:
+      operationId: v1_bills_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
           description: No response body
   /api/v1/bills/{id}/detail:
     get:
@@ -646,6 +937,11 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by consultant name or contract reference
       tags:
       - v1
       security:
@@ -694,6 +990,38 @@ paths:
         required: true
       tags:
       - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubConsultant'
+          description: ''
+  /api/v1/consultants/{id}/contract_dates:
+    post:
+      operationId: v1_consultants_contract_dates_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubConsultantContractDatesRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubConsultantContractDatesRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubConsultantContractDatesRequest'
       security:
       - jwtAuth: []
       responses:
@@ -783,6 +1111,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConsultantPortfolio'
+          description: ''
+  /api/v1/consultants/{id}/revenue-officers:
+    get:
+      operationId: v1_consultants_revenue_officers_list
+      description: |-
+        Onboards (or lists) REVENUE_OFFICER logins scoped to this one
+        consultant — read-only accounts that get the exact same portfolio
+        visibility as the consultant's own manager (see common.scoping.
+        portfolio_filter), enforced by staying off every mutation endpoint's
+        permission_classes rather than by anything checked here.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRevenueOfficerList'
+          description: ''
+    post:
+      operationId: v1_consultants_revenue_officers_create
+      description: |-
+        Onboards (or lists) REVENUE_OFFICER logins scoped to this one
+        consultant — read-only accounts that get the exact same portfolio
+        visibility as the consultant's own manager (see common.scoping.
+        portfolio_filter), enforced by staying off every mutation endpoint's
+        permission_classes rather than by anything checked here.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevenueOfficerRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RevenueOfficerRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RevenueOfficerRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevenueOfficer'
           description: ''
   /api/v1/consultants/{id}/status_change:
     post:
@@ -894,6 +1293,11 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by bill reference or payer name
       tags:
       - v1
       security:
@@ -940,6 +1344,116 @@ paths:
               schema:
                 $ref: '#/components/schemas/DebtRefreshResponse'
           description: ''
+  /api/v1/departments:
+    get:
+      operationId: v1_departments_list
+      description: |-
+        List/create/edit council departments for grouping revenue items under —
+        see CouncilRevenueItemViewSet.department for the assignment side.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDepartmentList'
+          description: ''
+    post:
+      operationId: v1_departments_create
+      description: |-
+        List/create/edit council departments for grouping revenue items under —
+        see CouncilRevenueItemViewSet.department for the assignment side.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepartmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DepartmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DepartmentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+          description: ''
+  /api/v1/departments/{id}:
+    get:
+      operationId: v1_departments_retrieve
+      description: |-
+        List/create/edit council departments for grouping revenue items under —
+        see CouncilRevenueItemViewSet.department for the assignment side.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+          description: ''
+    patch:
+      operationId: v1_departments_partial_update
+      description: |-
+        List/create/edit council departments for grouping revenue items under —
+        see CouncilRevenueItemViewSet.department for the assignment side.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDepartmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDepartmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDepartmentRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+          description: ''
   /api/v1/health:
     get:
       operationId: v1_health_retrieve
@@ -956,9 +1470,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
           description: ''
-  /api/v1/payers:
+  /api/v1/mobile/sync:
+    post:
+      operationId: v1_mobile_sync_create
+      description: |-
+        Batch-replays offline-queued PAYMENT/PAYER records — see
+        fieldops.services.replay_sync_record for the idempotency and per-record
+        error handling this wraps.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SyncRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SyncRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+          description: ''
+  /api/v1/mobile/worklist:
     get:
-      operationId: v1_payers_list
+      operationId: v1_mobile_worklist_list
+      description: The agent's own ward-scoped payer list — see fieldops.services.get_worklist.
       parameters:
       - name: page
         required: false
@@ -970,7 +1515,62 @@ paths:
         name: q
         schema:
           type: string
+        description: Search by payer name or reference
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWorklistPayerList'
+          description: ''
+  /api/v1/payers:
+    get:
+      operationId: v1_payers_list
+      parameters:
+      - in: query
+        name: consultant_id
+        schema:
+          type: integer
+        description: Filter by the consultant whose user enumerated the payer. Narrows
+          within the caller's own scope — it never widens it for a CONSULTANT/REVENUE_OFFICER.
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+        description: Registered on/after this date (inclusive)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+        description: Registered on/before this date (inclusive)
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
         description: Search by name, reference or phone
+      - in: query
+        name: ward_id
+        schema:
+          type: integer
+        description: Filter by the payer's ward
       tags:
       - v1
       security:
@@ -1034,6 +1634,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/Payer'
           description: ''
+    delete:
+      operationId: v1_payers_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/payers/{id}/draft-assessments:
     get:
       operationId: v1_payers_draft_assessments_list
@@ -1044,6 +1660,12 @@ paths:
           type: string
           pattern: ^[0-9]+$
         required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
       tags:
       - v1
       security:
@@ -1057,16 +1679,85 @@ paths:
                 items:
                   $ref: '#/components/schemas/DraftAssessment'
           description: ''
+  /api/v1/payers/{id}/kyc-status:
+    post:
+      operationId: v1_payers_kyc_status_create
+      description: |-
+        Only COUNCIL_ADMIN may move a payer through KYC review — there was
+        previously no path to this at all (kyc_status was write-once at
+        creation, always PENDING).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycStatusRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KycStatusRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KycStatusRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payer'
+          description: ''
   /api/v1/payments:
     get:
       operationId: v1_payments_list
       parameters:
+      - in: query
+        name: channel
+        schema:
+          type: string
+        description: Filter by channel code
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+        description: Only payments on/after this date
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+        description: Only payments on/before this date
       - name: page
         required: false
         in: query
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: payer
+        schema:
+          type: integer
+        description: Filter to one payer's payments
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by payment ref, bill ref or payer name
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Filter by txn_status
       tags:
       - v1
       security:
@@ -1103,6 +1794,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/PostPayment'
           description: ''
+  /api/v1/payments/{id}:
+    get:
+      operationId: v1_payments_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+          description: ''
+  /api/v1/payments/{id}/reverse:
+    post:
+      operationId: v1_payments_reverse_create
+      description: Only COUNCIL_ADMIN may reverse a payment — see reverse_payment().
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReversePaymentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReversePaymentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReversePaymentRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+          description: ''
   /api/v1/receipts:
     get:
       operationId: v1_receipts_list
@@ -1113,6 +1858,11 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by receipt ref, bill ref or payer name
       tags:
       - v1
       security:
@@ -1123,6 +1873,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedReceiptList'
+          description: ''
+  /api/v1/receipts/{id}/send:
+    post:
+      operationId: v1_receipts_send_create
+      description: |-
+        Emails/SMSes the receipt to whatever contact info the payer has on
+        file. Neither channel is required to succeed — see
+        apps.payments.notifications.send_receipt for why.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendReceiptResponse'
           description: ''
   /api/v1/reconciliation:
     get:
@@ -1144,6 +1919,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedReconciliationRunList'
+          description: ''
+  /api/v1/reconciliation/exceptions:
+    get:
+      operationId: v1_reconciliation_exceptions_list
+      description: |-
+        Cross-run view of exceptions — 'browse everything unmatched' rather than
+        having to already know which run an exception belongs to. Defaults to
+        unresolved-only; ?resolved=true/false narrows either way.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: resolved
+        schema:
+          type: boolean
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedGlobalExceptionList'
           description: ''
   /api/v1/reconciliation/exceptions/{exception_id}/resolve:
     post:
@@ -1177,6 +1981,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReconciliationRun'
           description: ''
+  /api/v1/reconciliation/live-summary:
+    get:
+      operationId: v1_reconciliation_live_summary_retrieve
+      description: |-
+        Always-current dashboard view alongside the manual `run` action
+        above — computed fresh on every call, no ReconciliationRun triggered
+        or required. Defaults to today; ?date=YYYY-MM-DD for any other day.
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveSummary'
+          description: ''
   /api/v1/reconciliation/run:
     post:
       operationId: v1_reconciliation_run_create
@@ -1202,6 +2030,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReconciliationRun'
+          description: ''
+  /api/v1/reports:
+    get:
+      operationId: v1_reports_retrieve
+      parameters:
+      - in: query
+        name: consultant_id
+        schema:
+          type: integer
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: entity
+        schema:
+          type: string
+        description: PAYERS | BILLS | PAYMENTS | SETTLEMENTS
+        required: true
+      - in: query
+        name: export
+        schema:
+          type: string
+        description: csv — exports exactly the filtered/grouped rows shown on screen.
+          Omit for the normal JSON response. (Named 'export', not 'format' — DRF reserves
+          ?format= for its own content-negotiation and 404s on a value with no matching
+          renderer.)
+      - in: query
+        name: group_by
+        schema:
+          type: string
+        description: Repeatable, max 2 — ward, revenue_item, consultant, date
+      - in: query
+        name: revenue_item_id
+        schema:
+          type: integer
+        description: BILLS only
+      - in: query
+        name: ward_id
+        schema:
+          type: integer
+      tags:
+      - reports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
           description: ''
   /api/v1/revenue-categories:
     get:
@@ -1287,6 +2172,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/CouncilRevenueItem'
           description: ''
+  /api/v1/revenue-items/{id}/department:
+    post:
+      operationId: v1_revenue_items_department_create
+      description: |-
+        Only COUNCIL_ADMIN may (re)assign which department an item belongs
+        to — pass department_id: null to clear it.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetDepartmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SetDepartmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SetDepartmentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilRevenueItem'
+          description: ''
   /api/v1/revenue-items/{id}/rate:
     post:
       operationId: v1_revenue_items_rate_create
@@ -1321,10 +2242,89 @@ paths:
               schema:
                 $ref: '#/components/schemas/CouncilRevenueItem'
           description: ''
+  /api/v1/revenue-items/{id}/rate-bands:
+    post:
+      operationId: v1_revenue_items_rate_bands_create
+      description: |-
+        Replaces this item's whole band set — see replace_rate_bands. Posting
+        {"bands": []} clears banding and reverts the item to plain FLAT pricing.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceRateBandsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReplaceRateBandsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReplaceRateBandsRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilRevenueItem'
+          description: ''
   /api/v1/settlements:
     get:
       operationId: v1_settlements_list
       parameters:
+      - in: query
+        name: consultant_id
+        schema:
+          type: integer
+        description: Filter by consultant. Narrows within the caller's own scope —
+          it never widens it for a CONSULTANT/REVENUE_OFFICER, who only ever see their
+          own settlements regardless.
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by consultant name
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommissionSettlementList'
+          description: ''
+  /api/v1/settlements/{id}/bills:
+    get:
+      operationId: v1_settlements_bills_list
+      description: |-
+        Admin drill-down: one settlement's underlying bills, each with its
+        own collected amount and commission share. Same scoping as list() —
+        get_object() already applies get_queryset(), so a CONSULTANT/
+        REVENUE_OFFICER can only drill into their own settlements.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
       - name: page
         required: false
         in: query
@@ -1340,7 +2340,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedCommissionSettlementList'
+                $ref: '#/components/schemas/PaginatedSettlementBillList'
           description: ''
   /api/v1/settlements/{id}/status_change:
     post:
@@ -1407,6 +2407,120 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedCommissionSettlementList'
+          description: ''
+  /api/v1/settlements/my-summary:
+    get:
+      operationId: v1_settlements_my_summary_retrieve
+      description: |-
+        Consultant's own dashboard: this-year/approved/settled commission
+        totals plus their own per-bill list, across every settlement period
+        that falls in the current year. A consultant with no settlements
+        computed yet for this year gets zeros and an empty bill list —
+        commission isn't official until compute_settlements() has run.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MySettlementSummary'
+          description: ''
+  /api/v1/stakeholders:
+    get:
+      operationId: v1_stakeholders_list
+      description: |-
+        Read-only oversight accounts (GLOBAL_VIEW access level) — council/FCT
+        stakeholders who need a performance pulse but must never see individual
+        payer or sub-consultant identities. That boundary is enforced elsewhere
+        (GLOBAL_VIEW is deliberately absent from PayerViewSet, BillViewSet,
+        PaymentViewSet, ReceiptViewSet and SubConsultantViewSet's permissions,
+        and DashboardGlobalView anonymizes its per-consultant breakdown for this
+        role) — this viewset only manages the accounts themselves, and that
+        management is COUNCIL_ADMIN-only both ways.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStakeholderList'
+          description: ''
+    post:
+      operationId: v1_stakeholders_create
+      description: |-
+        Read-only oversight accounts (GLOBAL_VIEW access level) — council/FCT
+        stakeholders who need a performance pulse but must never see individual
+        payer or sub-consultant identities. That boundary is enforced elsewhere
+        (GLOBAL_VIEW is deliberately absent from PayerViewSet, BillViewSet,
+        PaymentViewSet, ReceiptViewSet and SubConsultantViewSet's permissions,
+        and DashboardGlobalView anonymizes its per-consultant breakdown for this
+        role) — this viewset only manages the accounts themselves, and that
+        management is COUNCIL_ADMIN-only both ways.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StakeholderRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StakeholderRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StakeholderRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stakeholder'
+          description: ''
+  /api/v1/stakeholders/{id}:
+    get:
+      operationId: v1_stakeholders_retrieve
+      description: |-
+        Read-only oversight accounts (GLOBAL_VIEW access level) — council/FCT
+        stakeholders who need a performance pulse but must never see individual
+        payer or sub-consultant identities. That boundary is enforced elsewhere
+        (GLOBAL_VIEW is deliberately absent from PayerViewSet, BillViewSet,
+        PaymentViewSet, ReceiptViewSet and SubConsultantViewSet's permissions,
+        and DashboardGlobalView anonymizes its per-consultant breakdown for this
+        role) — this viewset only manages the accounts themselves, and that
+        management is COUNCIL_ADMIN-only both ways.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stakeholder'
           description: ''
   /api/v1/terminals:
     get:
@@ -1537,10 +2651,25 @@ components:
           readOnly: true
         is_active:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null means the key never expires.
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScopesEnum'
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
       required:
       - api_key
       - channel
       - id
+      - last_used_at
     APIClientRequest:
       type: object
       properties:
@@ -1548,6 +2677,15 @@ components:
           type: integer
         is_active:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null means the key never expires.
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScopesEnum'
       required:
       - channel
     AddLineRequest:
@@ -1560,6 +2698,17 @@ components:
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
           default: '1.00'
+        rate_band_id:
+          type: integer
+          nullable: true
+        rate_tier_id:
+          type: integer
+          nullable: true
+        amount_override:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          nullable: true
       required:
       - revenue_item_id
     AgeingBucketEnum:
@@ -1588,14 +2737,63 @@ components:
       required:
       - recent_payments
       - today_total
+    AgentPortfolio:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        agent:
+          type: integer
+          readOnly: true
+        council_revenue_item:
+          type: integer
+        ward:
+          type: integer
+          nullable: true
+        effective_from:
+          type: string
+          format: date
+          readOnly: true
+        effective_to:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+      required:
+      - agent
+      - council_revenue_item
+      - effective_from
+      - effective_to
+      - id
+    AgentPortfolioRequest:
+      type: object
+      properties:
+        council_revenue_item:
+          type: integer
+        ward:
+          type: integer
+          nullable: true
+      required:
+      - council_revenue_item
     AppTokenObtainPairRequest:
       type: object
       description: |-
         Carries `council_id` on the access token itself so apps.tenancy.middleware can
         set the RLS context by decoding the token alone — no DB query needed before the
         tenant context is known. See apps/tenancy/middleware.py.
+
+        Logs in by email, not username — but AppUser.USERNAME_FIELD stays
+        "username" deliberately (lower blast radius: Django admin/permissions
+        internals key off USERNAME_FIELD too, and there's no reason to touch
+        those). So this can't just set `username_field = "email"` and let the
+        parent's validate() call authenticate(email=...) — Django's ModelBackend
+        only ever looks for the USERNAME_FIELD name ("username") in the kwargs it
+        receives, and would silently fail to authenticate anyone. Instead: resolve
+        the given email to its underlying username first, then authenticate and
+        build tokens exactly the way the stock username/password flow always did.
       properties:
-        username:
+        email:
           type: string
           writeOnly: true
           minLength: 1
@@ -1604,8 +2802,8 @@ components:
           writeOnly: true
           minLength: 1
       required:
+      - email
       - password
-      - username
     AssetTypeEnum:
       enum:
       - PREMISES
@@ -1618,6 +2816,13 @@ components:
         * `SHOP` - Shop
         * `KIOSK` - Kiosk
         * `SIGNAGE` - Signage
+    AssignPayerRequest:
+      type: object
+      properties:
+        payer_id:
+          type: integer
+      required:
+      - payer_id
     AuditLog:
       type: object
       properties:
@@ -1660,6 +2865,18 @@ components:
       - entity_id
       - entity_type
       - id
+    AuthorizedSignatoryIdTypeEnum:
+      enum:
+      - NIN
+      - PASSPORT
+      - DRIVERS_LICENSE
+      - VOTERS_CARD
+      type: string
+      description: |-
+        * `NIN` - NIN
+        * `PASSPORT` - International Passport
+        * `DRIVERS_LICENSE` - Driver's License
+        * `VOTERS_CARD` - Voter's Card
     Bill:
       type: object
       properties:
@@ -1714,11 +2931,15 @@ components:
           type: string
           format: date-time
           readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
       required:
       - amount_paid
       - arrears_amount
       - balance
       - bill_ref
+      - consultant_name
       - created_at
       - due_date
       - full_name
@@ -1782,16 +3003,25 @@ components:
           type: string
           format: date-time
           readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
         lines:
           type: array
           items:
             $ref: '#/components/schemas/BillLineDetail'
+          readOnly: true
+        superseded_bills:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupersededBill'
           readOnly: true
       required:
       - amount_paid
       - arrears_amount
       - balance
       - bill_ref
+      - consultant_name
       - created_at
       - due_date
       - full_name
@@ -1800,6 +3030,7 @@ components:
       - payer
       - payer_ref
       - status
+      - superseded_bills
       - superseded_by
       - total_amount
     BillLineDetail:
@@ -1826,13 +3057,39 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        current_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        arrears_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        paid_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        band_label:
+          type: string
+          readOnly: true
+        tier_label:
+          type: string
+          readOnly: true
       required:
+      - arrears_amount
       - assessment
+      - band_label
+      - current_amount
       - harmonised_code
       - id
       - item_name
       - line_amount
+      - paid_amount
       - quantity
+      - tier_label
     BillLineEntryRequest:
       type: object
       properties:
@@ -1843,8 +3100,31 @@ components:
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
           default: '1.00'
+        rate_band_id:
+          type: integer
+          nullable: true
+        rate_tier_id:
+          type: integer
+          nullable: true
+        amount_override:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          nullable: true
       required:
       - revenue_item_id
+    BilledByItem:
+      type: object
+      properties:
+        item_name:
+          type: string
+        billed:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - billed
+      - item_name
     BillsByStatus:
       type: object
       properties:
@@ -1870,6 +3150,20 @@ components:
         * `SMALL` - Small
         * `MEDIUM` - Medium
         * `LARGE` - Large
+    ChangePasswordRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - current_password
+      - new_password
     ChangeRateRequest:
       type: object
       properties:
@@ -1905,6 +3199,7 @@ components:
       - IB_MB
       - USSD
       - FIRSTMONIE
+      - CASH
       type: string
       description: |-
         * `POS` - POS
@@ -1912,6 +3207,22 @@ components:
         * `IB_MB` - Internet / Mobile Banking
         * `USSD` - USSD
         * `FIRSTMONIE` - FirstMonie Agent Banking
+        * `CASH` - Cash
+    CollectedByChannel:
+      type: object
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - amount
+      - code
+      - label
     CollectedByConsultant:
       type: object
       properties:
@@ -1921,9 +3232,27 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        billed:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        collection_rate:
+          type: integer
+          nullable: true
+        commission_accrued:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        status:
+          type: string
+          nullable: true
       required:
+      - billed
       - collected
+      - collection_rate
+      - commission_accrued
       - consultant_name
+      - status
     CollectedByWard:
       type: object
       properties:
@@ -1933,9 +3262,25 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        payers:
+          type: integer
       required:
       - collected
+      - payers
       - ward_name
+    CollectionsTrend:
+      type: object
+      properties:
+        d:
+          type: string
+          format: date
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - amount
+      - d
     CommissionSettlement:
       type: object
       properties:
@@ -2005,6 +3350,7 @@ components:
           readOnly: true
         consultant:
           type: integer
+          readOnly: true
         council_revenue_item:
           type: integer
         ward:
@@ -2028,15 +3374,12 @@ components:
     ConsultantPortfolioRequest:
       type: object
       properties:
-        consultant:
-          type: integer
         council_revenue_item:
           type: integer
         ward:
           type: integer
           nullable: true
       required:
-      - consultant
       - council_revenue_item
     Council:
       type: object
@@ -2165,13 +3508,28 @@ components:
         rate_id:
           type: integer
           readOnly: true
+        rate_bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateBand'
+          readOnly: true
+        department:
+          type: integer
+          readOnly: true
+          nullable: true
+        department_name:
+          type: string
+          readOnly: true
       required:
       - category
       - category_name
       - current_rate
+      - department
+      - department_name
       - harmonised_code
       - id
       - item_name
+      - rate_bands
       - rate_id
       - unit_of_charge
     CreatePayerRequest:
@@ -2179,13 +3537,26 @@ components:
       properties:
         payer_type:
           $ref: '#/components/schemas/PayerTypeEnum'
-        full_name:
+        first_name:
           type: string
           minLength: 1
-          maxLength: 200
+          maxLength: 100
+        middle_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
         phone:
           type: string
           maxLength: 32
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
         address:
           type: string
           maxLength: 255
@@ -2211,8 +3582,12 @@ components:
           type: boolean
           writeOnly: true
           default: false
+        assigned_consultant_id:
+          type: integer
+          writeOnly: true
+          nullable: true
       required:
-      - full_name
+      - first_name
       - payer_type
       - ward
     DashboardGlobalResponse:
@@ -2248,11 +3623,38 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BillsByStatus'
+        bills:
+          type: integer
+        assessments:
+          type: integer
+        payers:
+          type: integer
+        active_agents:
+          type: integer
+        by_channel:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectedByChannel'
+        by_item:
+          type: array
+          items:
+            $ref: '#/components/schemas/BilledByItem'
+        trend:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionsTrend'
       required:
+      - active_agents
+      - assessments
       - billed
+      - bills
       - bills_by_status
+      - by_channel
+      - by_item
       - collected
       - outstanding
+      - payers
+      - trend
     DebtCase:
       type: object
       properties:
@@ -2314,6 +3716,45 @@ components:
       required:
       - opened
       - updated
+    Department:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        department_name:
+          type: string
+          maxLength: 160
+        department_code:
+          type: string
+          maxLength: 32
+        head_name:
+          type: string
+          maxLength: 160
+        head_phone:
+          type: string
+          maxLength: 32
+      required:
+      - department_name
+      - id
+    DepartmentRequest:
+      type: object
+      properties:
+        department_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        department_code:
+          type: string
+          maxLength: 32
+        head_name:
+          type: string
+          maxLength: 160
+        head_phone:
+          type: string
+          maxLength: 32
+      required:
+      - department_name
     DraftAssessment:
       type: object
       properties:
@@ -2366,6 +3807,14 @@ components:
         * `ENFORCEMENT` - Enforcement
         * `LEGAL` - Legal
         * `CLOSED` - Closed
+    EntityTypeEnum:
+      enum:
+      - PAYMENT
+      - PAYER
+      type: string
+      description: |-
+        * `PAYMENT` - Payment
+        * `PAYER` - Payer
     EnumeratedAsset:
       type: object
       properties:
@@ -2444,8 +3893,29 @@ components:
         consultant_id:
           type: integer
           readOnly: true
+        agent_full_name:
+          type: string
+          readOnly: true
+        agent_phone:
+          type: string
+          readOnly: true
+        id_type:
+          oneOf:
+          - $ref: '#/components/schemas/IdTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        id_hash:
+          type: string
+          maxLength: 128
+        next_of_kin_name:
+          type: string
+          maxLength: 160
+        next_of_kin_phone:
+          type: string
+          maxLength: 32
       required:
       - agent_code
+      - agent_full_name
+      - agent_phone
       - consultant_id
       - id
       - status
@@ -2473,6 +3943,19 @@ components:
         phone:
           type: string
           writeOnly: true
+        id_type:
+          oneOf:
+          - $ref: '#/components/schemas/IdTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        id_hash:
+          type: string
+          maxLength: 128
+        next_of_kin_name:
+          type: string
+          maxLength: 160
+        next_of_kin_phone:
+          type: string
+          maxLength: 32
       required:
       - full_name
       - username
@@ -2486,6 +3969,65 @@ components:
         * `ACTIVE` - Active
         * `SUSPENDED` - Suspended
         * `EXITED` - Exited
+    GlobalException:
+      type: object
+      description: |-
+        Cross-run view of exceptions — separate from ReconciliationExceptionSerializer
+        (nested under a run) since here each row needs to identify its own run.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        run:
+          type: integer
+          readOnly: true
+        channel_code:
+          type: string
+          readOnly: true
+        run_date:
+          type: string
+          format: date
+          readOnly: true
+        feed_row:
+          type: integer
+          readOnly: true
+          nullable: true
+        bank_txn_ref:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        payment:
+          type: integer
+          readOnly: true
+          nullable: true
+        note:
+          type: string
+          readOnly: true
+        resolved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        resolved_by:
+          type: integer
+          readOnly: true
+          nullable: true
+      required:
+      - amount
+      - bank_txn_ref
+      - channel_code
+      - feed_row
+      - id
+      - note
+      - payment
+      - resolved_at
+      - resolved_by
+      - run
+      - run_date
     HealthResponse:
       type: object
       properties:
@@ -2500,6 +4042,18 @@ components:
       - service
       - status
       - time
+    IdTypeEnum:
+      enum:
+      - NIN
+      - PASSPORT
+      - DRIVERS_LICENSE
+      - VOTERS_CARD
+      type: string
+      description: |-
+        * `NIN` - NIN
+        * `PASSPORT` - International Passport
+        * `DRIVERS_LICENSE` - Driver's License
+        * `VOTERS_CARD` - Voter's Card
     IssueBillRequest:
       type: object
       properties:
@@ -2517,6 +4071,10 @@ components:
           default: false
         roll_arrears:
           type: boolean
+          default: false
+        force:
+          type: boolean
+          writeOnly: true
           default: false
       required:
       - payer_id
@@ -2574,6 +4132,9 @@ components:
           type: string
           format: date-time
           readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
         superseded_count:
           type: integer
           readOnly: true
@@ -2582,6 +4143,7 @@ components:
       - arrears_amount
       - balance
       - bill_ref
+      - consultant_name
       - created_at
       - due_date
       - full_name
@@ -2602,6 +4164,36 @@ components:
         * `PENDING` - Pending
         * `VERIFIED` - Verified
         * `FLAGGED` - Flagged
+    KycStatusRequest:
+      type: object
+      properties:
+        kyc_status:
+          $ref: '#/components/schemas/KycStatusEnum'
+      required:
+      - kyc_status
+    LiveSummary:
+      type: object
+      properties:
+        run_date:
+          type: string
+          format: date
+        total_platform:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        total_bank:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        unmatched_credits:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnmatchedCredit'
+      required:
+      - run_date
+      - total_bank
+      - total_platform
+      - unmatched_credits
     LogoutRequestRequest:
       type: object
       properties:
@@ -2650,9 +4242,39 @@ components:
         access_level:
           type: string
           readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
+        consultant_commission_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          readOnly: true
+        consultant_status:
+          type: string
+          readOnly: true
+        agent_id:
+          type: integer
+          readOnly: true
+        agent_code:
+          type: string
+          readOnly: true
+        assigned_ward_id:
+          type: integer
+          readOnly: true
+        assigned_ward_name:
+          type: string
+          readOnly: true
       required:
       - access_level
+      - agent_code
+      - agent_id
+      - assigned_ward_id
+      - assigned_ward_name
       - consultant
+      - consultant_commission_rate
+      - consultant_name
+      - consultant_status
       - council
       - council_code
       - email
@@ -2662,6 +4284,30 @@ components:
       - role
       - role_name
       - username
+    MySettlementSummary:
+      type: object
+      properties:
+        total_this_year:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        approved_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        settled_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        bills:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettlementBill'
+      required:
+      - approved_total
+      - bills
+      - settled_total
+      - total_this_year
     NullEnum:
       enum:
       - null
@@ -2738,14 +4384,23 @@ components:
         terminal_id:
           type: string
           maxLength: 32
+        bank_terminal_id:
+          type: string
+          maxLength: 32
         agent:
           type: integer
         ward:
           type: integer
         status:
           $ref: '#/components/schemas/POSTerminalStatusEnum'
+        collected:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
       required:
       - agent
+      - collected
       - id
       - terminal_id
       - ward
@@ -2897,6 +4552,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DebtCase'
+    PaginatedDepartmentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Department'
     PaginatedEnumeratedAssetList:
       type: object
       required:
@@ -2943,6 +4621,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/FieldAgent'
+    PaginatedGlobalExceptionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlobalException'
     PaginatedPOSTerminalList:
       type: object
       required:
@@ -3104,6 +4805,75 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RevenueItemTemplate'
+    PaginatedRevenueOfficerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevenueOfficer'
+    PaginatedSettlementBillList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettlementBill'
+    PaginatedStakeholderList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Stakeholder'
     PaginatedSubConsultantList:
       type: object
       required:
@@ -3150,6 +4920,66 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WardZone'
+    PaginatedWorklistPayerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorklistPayer'
+    PatchedDepartmentRequest:
+      type: object
+      properties:
+        department_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        department_code:
+          type: string
+          maxLength: 32
+        head_name:
+          type: string
+          maxLength: 160
+        head_phone:
+          type: string
+          maxLength: 32
+    PatchedUpdateProfileRequest:
+      type: object
+      description: |-
+        PATCH /auth/me — deliberately a narrow, separate serializer rather than
+        reusing MeSerializer for writes too: username/council/role/consultant/
+        access_level and the agent_*/consultant_* denormalized fields all stay
+        admin-managed, not self-service. Only what's actually "my profile" is
+        writable here.
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        phone:
+          type: string
+          maxLength: 32
     Payer:
       type: object
       properties:
@@ -3161,12 +4991,34 @@ components:
           readOnly: true
         payer_type:
           $ref: '#/components/schemas/PayerTypeEnum'
+        first_name:
+          type: string
+          maxLength: 100
+        middle_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
         full_name:
           type: string
-          maxLength: 200
+          description: |-
+            Read-only display reconstruction — every consumer that only ever
+            read this name (receipts, bill/payment/debt serializers, search
+            result labels) keeps working unchanged; only ORM-level filtering and
+            ordering had to move to the real first_name/middle_name/last_name
+            columns, since a property isn't queryable at the database level.
+          readOnly: true
         phone:
           type: string
           maxLength: 32
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
         address:
           type: string
           maxLength: 255
@@ -3194,6 +5046,7 @@ components:
           readOnly: true
       required:
       - created_at
+      - first_name
       - full_name
       - id
       - kyc_status
@@ -3211,12 +5064,34 @@ components:
           readOnly: true
         payer_type:
           $ref: '#/components/schemas/PayerTypeEnum'
+        first_name:
+          type: string
+          maxLength: 100
+        middle_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
         full_name:
           type: string
-          maxLength: 200
+          description: |-
+            Read-only display reconstruction — every consumer that only ever
+            read this name (receipts, bill/payment/debt serializers, search
+            result labels) keeps working unchanged; only ORM-level filtering and
+            ordering had to move to the real first_name/middle_name/last_name
+            columns, since a property isn't queryable at the database level.
+          readOnly: true
         phone:
           type: string
           maxLength: 32
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
         address:
           type: string
           maxLength: 255
@@ -3248,6 +5123,7 @@ components:
       required:
       - created_at
       - draft_assessments_created
+      - first_name
       - full_name
       - id
       - kyc_status
@@ -3300,16 +5176,89 @@ components:
           type: string
           format: date-time
           readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        terminal:
+          type: integer
+          nullable: true
+        terminal_code:
+          type: string
+          readOnly: true
+        posted_by:
+          type: integer
+          nullable: true
+        posted_by_name:
+          type: string
+          readOnly: true
+        receipt_ref:
+          type: string
+          readOnly: true
+        qr_token:
+          type: string
+          readOnly: true
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentAllocation'
+          readOnly: true
       required:
+      - allocations
       - amount
       - bill
       - bill_ref
       - channel
       - channel_code
       - created_at
+      - full_name
       - id
+      - payer_ref
       - payment_ref
+      - posted_by_name
+      - qr_token
+      - receipt_ref
+      - terminal_code
       - txn_status
+    PaymentAllocation:
+      type: object
+      description: |-
+        How much of a payment landed on which bill line — the FIFO breakdown
+        itself (see payments.services.post_payment), not just each line's
+        resulting paid_amount total. Nested off Payment/Receipt rather than a
+        dedicated endpoint, matching how this codebase already nests BillLine
+        detail off Bill/Receipt elsewhere.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        bill_line:
+          type: integer
+          readOnly: true
+        harmonised_code:
+          type: string
+          readOnly: true
+        item_name:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - bill_line
+      - created_at
+      - harmonised_code
+      - id
+      - item_name
     PostPayment:
       type: object
       properties:
@@ -3326,6 +5275,9 @@ components:
         bank_txn_ref:
           type: string
           default: ''
+        terminal_id:
+          type: integer
+          nullable: true
         geo:
           type: object
           additionalProperties: {}
@@ -3348,6 +5300,9 @@ components:
         bank_txn_ref:
           type: string
           default: ''
+        terminal_id:
+          type: integer
+          nullable: true
         geo:
           type: object
           additionalProperties: {}
@@ -3397,6 +5352,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BillLineDetail'
+        superseded_bills:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupersededBill'
       required:
       - address
       - amount_paid
@@ -3409,8 +5368,153 @@ components:
       - payer_ref
       - phone
       - status
+      - superseded_bills
       - total_amount
       - ward_name
+    RateBand:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        label:
+          type: string
+          readOnly: true
+          description: The gazette's sub-classification name, e.g. 'Beer parlor'.
+            Blank only when the item has exactly one band standing in for the whole
+            item (no sub-classification), e.g. Communication Mast's single Large/Medium/Small
+            triple.
+        sort_order:
+          type: integer
+          readOnly: true
+        rate_mode:
+          allOf:
+          - $ref: '#/components/schemas/RateBandRateModeEnum'
+          readOnly: true
+        flat_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        min_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        max_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateTier'
+          readOnly: true
+      required:
+      - flat_amount
+      - id
+      - label
+      - max_amount
+      - min_amount
+      - rate_mode
+      - sort_order
+      - tiers
+    RateBandEntryRateModeEnum:
+      enum:
+      - FLAT
+      - RANGE
+      - TIERED
+      type: string
+      description: |-
+        * `FLAT` - FLAT
+        * `RANGE` - RANGE
+        * `TIERED` - TIERED
+    RateBandEntryRequest:
+      type: object
+      description: |-
+        One band in a `POST .../rate-bands` replacement set. `label` may be blank
+        only when this is the item's single band (no gazetted sub-classification).
+        Which of flat_amount / min_amount+max_amount / tiers is required depends on
+        rate_mode — validated in apps.revenue.services._validate_band_spec, not here,
+        so the error message can name the offending band by label.
+      properties:
+        label:
+          type: string
+          default: ''
+          maxLength: 160
+        rate_mode:
+          $ref: '#/components/schemas/RateBandEntryRateModeEnum'
+        flat_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          nullable: true
+        min_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          nullable: true
+        max_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          nullable: true
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateTierEntryRequest'
+      required:
+      - rate_mode
+    RateBandRateModeEnum:
+      enum:
+      - FLAT
+      - RANGE
+      - TIERED
+      type: string
+      description: |-
+        * `FLAT` - Flat
+        * `RANGE` - Range
+        * `TIERED` - Tiered
+    RateTier:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        label:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        sort_order:
+          type: integer
+          readOnly: true
+      required:
+      - amount
+      - id
+      - label
+      - sort_order
+    RateTierEntryRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - amount
+      - label
     Receipt:
       type: object
       properties:
@@ -3426,10 +5530,23 @@ components:
         bill_ref:
           type: string
           readOnly: true
+        full_name:
+          type: string
+          readOnly: true
         amount:
           type: string
           format: decimal
           pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineDetail'
+          readOnly: true
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentAllocation'
           readOnly: true
         qr_token:
           type: string
@@ -3443,10 +5560,13 @@ components:
           format: date-time
           readOnly: true
       required:
+      - allocations
       - amount
       - bill_ref
       - created_at
+      - full_name
       - id
+      - lines
       - payment
       - qr_token
       - receipt_ref
@@ -3546,6 +5666,31 @@ components:
         * `BALANCED` - Balanced
         * `EXCEPTIONS` - Exceptions
         * `CLOSED` - Closed
+    ReplaceRateBandsRequest:
+      type: object
+      properties:
+        bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateBandEntryRequest'
+    ReportResponse:
+      type: object
+      properties:
+        entity:
+          type: string
+        group_by:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - entity
+      - group_by
+      - rows
     ResolveExceptionRequest:
       type: object
       properties:
@@ -3599,6 +5744,67 @@ components:
       - id
       - item_name
       - unit_of_charge
+    RevenueOfficer:
+      type: object
+      description: |-
+        Read-only, single-consultant-scoped oversight account — see
+        SubConsultantViewSet.revenue_officers. Same onboarding payload shape as
+        StakeholderSerializer, kept separate since it's a distinct role tied to
+        one consultant rather than a council-wide GLOBAL_VIEW account.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+        full_name:
+          type: string
+        phone:
+          type: string
+          maxLength: 32
+        is_active:
+          type: boolean
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - full_name
+      - id
+      - is_active
+      - username
+    RevenueOfficerRequest:
+      type: object
+      description: |-
+        Read-only, single-consultant-scoped oversight account — see
+        SubConsultantViewSet.revenue_officers. Same onboarding payload shape as
+        StakeholderSerializer, kept separate since it's a distinct role tied to
+        one consultant rather than a council-wide GLOBAL_VIEW account.
+      properties:
+        username:
+          type: string
+          minLength: 1
+        full_name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          maxLength: 32
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - full_name
+      - username
+    ReversePaymentRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          default: ''
     RunReconciliationRequest:
       type: object
       properties:
@@ -3611,6 +5817,81 @@ components:
       required:
       - channel_code
       - date
+    ScopesEnum:
+      enum:
+      - payments.webhook.post
+      type: string
+      description: '* `payments.webhook.post` - payments.webhook.post'
+    SendReceiptEmailResult:
+      type: object
+      properties:
+        attempted:
+          type: boolean
+        sent:
+          type: boolean
+        reason:
+          type: string
+        error:
+          type: string
+      required:
+      - attempted
+    SendReceiptResponse:
+      type: object
+      properties:
+        email:
+          $ref: '#/components/schemas/SendReceiptEmailResult'
+        sms:
+          $ref: '#/components/schemas/SendReceiptSmsResult'
+      required:
+      - email
+      - sms
+    SendReceiptSmsResult:
+      type: object
+      properties:
+        attempted:
+          type: boolean
+        sent:
+          type: boolean
+        reason:
+          type: string
+        error:
+          type: string
+      required:
+      - attempted
+    SetDepartmentRequest:
+      type: object
+      properties:
+        department_id:
+          type: integer
+          nullable: true
+      required:
+      - department_id
+    SettlementBill:
+      type: object
+      properties:
+        bill_id:
+          type: integer
+        bill_ref:
+          type: string
+        payer_name:
+          type: string
+        collected:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        commission:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        status:
+          $ref: '#/components/schemas/Status5d5Enum'
+      required:
+      - bill_id
+      - bill_ref
+      - collected
+      - commission
+      - payer_name
+      - status
     SettlementStatusRequest:
       type: object
       properties:
@@ -3618,6 +5899,51 @@ components:
           $ref: '#/components/schemas/Status5d5Enum'
       required:
       - status
+    Stakeholder:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+        full_name:
+          type: string
+        phone:
+          type: string
+          maxLength: 32
+        is_active:
+          type: boolean
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - full_name
+      - id
+      - is_active
+      - username
+    StakeholderRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+        full_name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          maxLength: 32
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - full_name
+      - username
     Status5d5Enum:
       enum:
       - COMPUTED
@@ -3679,17 +6005,67 @@ components:
           allOf:
           - $ref: '#/components/schemas/StatusC83Enum'
           readOnly: true
+        contract_start_date:
+          type: string
+          format: date
+          nullable: true
+        contract_end_date:
+          type: string
+          format: date
+          nullable: true
+          description: Blank for an open-ended contract.
+        is_contract_expired:
+          type: boolean
+          readOnly: true
         created_at:
           type: string
           format: date-time
           readOnly: true
+        has_login:
+          type: string
+          readOnly: true
+        registration_payer:
+          type: integer
+          readOnly: true
+          nullable: true
+        registration_payer_ref:
+          type: string
+          readOnly: true
+        authorized_signatory_name:
+          type: string
+          maxLength: 160
+        authorized_signatory_id_type:
+          oneOf:
+          - $ref: '#/components/schemas/AuthorizedSignatoryIdTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        authorized_signatory_id_hash:
+          type: string
+          maxLength: 128
+        registered_address:
+          type: string
+          maxLength: 255
       required:
       - commission_rate
       - consultant_name
       - contract_ref
       - created_at
+      - has_login
       - id
+      - is_contract_expired
+      - registration_payer
+      - registration_payer_ref
       - status
+    SubConsultantContractDatesRequest:
+      type: object
+      properties:
+        contract_start_date:
+          type: string
+          format: date
+          nullable: true
+        contract_end_date:
+          type: string
+          format: date
+          nullable: true
     SubConsultantRequest:
       type: object
       properties:
@@ -3706,10 +6082,48 @@ components:
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
           description: Percent, e.g. 30.00
+        contract_start_date:
+          type: string
+          format: date
+          nullable: true
+        contract_end_date:
+          type: string
+          format: date
+          nullable: true
+          description: Blank for an open-ended contract.
+        manager_username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        manager_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        manager_full_name:
+          type: string
+          writeOnly: true
+          minLength: 1
+        registration_ward_id:
+          type: integer
+          writeOnly: true
+        authorized_signatory_name:
+          type: string
+          maxLength: 160
+        authorized_signatory_id_type:
+          oneOf:
+          - $ref: '#/components/schemas/AuthorizedSignatoryIdTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        authorized_signatory_id_hash:
+          type: string
+          maxLength: 128
+        registered_address:
+          type: string
+          maxLength: 255
       required:
       - commission_rate
       - consultant_name
       - contract_ref
+      - registration_ward_id
     SubConsultantStatusRequest:
       type: object
       properties:
@@ -3717,6 +6131,108 @@ components:
           $ref: '#/components/schemas/StatusC83Enum'
       required:
       - status
+    SupersededBill:
+      type: object
+      description: |-
+        One prior bill folded into this one's arrears_amount via roll_arrears —
+        see billing.services.issue_bill. `amount` reads the prior bill's own
+        `balance` (aliased — a SUPERSEDED bill isn't itself called "amount"
+        anything), frozen at whatever it was the moment it was superseded (a
+        SUPERSEDED bill can never take a further payment — see post_payment's
+        terminal-state check — so its current balance is exactly what got rolled
+        in). Takes Bill instances directly (e.g. `bill.supersedes.all()`), not
+        hand-built dicts — a dict would need this same "amount" key, and DRF's
+        DecimalField-to-string formatting only happens by going through this
+        serializer, not by building a response dict by hand (see the git history
+        on PublicBillLookupView for the bug that shipped from doing that once).
+
+        `lines` exposes each superseded bill's own itemized BillLines — issue_bill's
+        roll_arrears never touches them, it only flips the prior bill's status to
+        SUPERSEDED and sums its balance into the new bill's arrears_amount. So the
+        line-level detail behind that lump sum was always sitting right here,
+        unexposed — this is a read-only addition, no new storage or change to
+        roll_arrears itself.
+
+        Sources `lines` from Bill.all_arrears_lines(), not the bare `lines`
+        manager — a superseded bill that was itself a consolidation (e.g.
+        000006 -> 000010, then 000010 -> 000011) needs its *own* superseded
+        history included too, not just its direct lines, or a second (or
+        deeper) level of consolidation silently drops the oldest lines. See
+        Bill.all_arrears_lines's docstring.
+      properties:
+        bill_ref:
+          type: string
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineDetail'
+          readOnly: true
+      required:
+      - amount
+      - bill_ref
+      - lines
+    SyncOutcome:
+      type: object
+      properties:
+        client_id:
+          type: string
+        result_ref:
+          type: string
+        detail:
+          type: object
+          additionalProperties: {}
+      required:
+      - client_id
+      - detail
+      - result_ref
+    SyncRecordInputRequest:
+      type: object
+      properties:
+        client_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        entity_type:
+          $ref: '#/components/schemas/EntityTypeEnum'
+        payload:
+          type: object
+          additionalProperties: {}
+      required:
+      - client_id
+      - entity_type
+      - payload
+    SyncRequestRequest:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncRecordInputRequest'
+      required:
+      - records
+    SyncResponse:
+      type: object
+      properties:
+        accepted:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncOutcome'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncOutcome'
+        rejected:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncOutcome'
+      required:
+      - accepted
+      - conflicts
+      - rejected
     TokenPairResponse:
       type: object
       properties:
@@ -3771,6 +6287,33 @@ components:
       required:
       - msisdn
       - text
+    UnmatchedCredit:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        channel_code:
+          type: string
+          readOnly: true
+        bank_txn_ref:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        received_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - bank_txn_ref
+      - channel_code
+      - id
+      - received_at
     UpdateLineRequest:
       type: object
       properties:
@@ -3780,6 +6323,28 @@ components:
           pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
       required:
       - line_amount
+    UpdateProfile:
+      type: object
+      description: |-
+        PATCH /auth/me — deliberately a narrow, separate serializer rather than
+        reusing MeSerializer for writes too: username/council/role/consultant/
+        access_level and the agent_*/consultant_* denormalized fields all stay
+        admin-managed, not self-service. Only what's actually "my profile" is
+        writable here.
+      properties:
+        full_name:
+          type: string
+          maxLength: 160
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        phone:
+          type: string
+          maxLength: 32
+      required:
+      - email
+      - full_name
     VerifyReceiptResponse:
       type: object
       properties:
@@ -3871,6 +6436,60 @@ components:
         * `duplicate` - duplicate
         * `accepted_unmatched` - accepted_unmatched
         * `rejected` - rejected
+    WorklistPayer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        payer_ref:
+          type: string
+          readOnly: true
+        payer_type:
+          allOf:
+          - $ref: '#/components/schemas/PayerTypeEnum'
+          readOnly: true
+        full_name:
+          type: string
+          description: |-
+            Read-only display reconstruction — every consumer that only ever
+            read this name (receipts, bill/payment/debt serializers, search
+            result labels) keeps working unchanged; only ORM-level filtering and
+            ordering had to move to the real first_name/middle_name/last_name
+            columns, since a property isn't queryable at the database level.
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+        address:
+          type: string
+          readOnly: true
+        ward:
+          type: integer
+          readOnly: true
+        ward_name:
+          type: string
+          readOnly: true
+        outstanding:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        kyc_status:
+          allOf:
+          - $ref: '#/components/schemas/KycStatusEnum'
+          readOnly: true
+      required:
+      - address
+      - full_name
+      - id
+      - kyc_status
+      - outstanding
+      - payer_ref
+      - payer_type
+      - phone
+      - ward
+      - ward_name
     ZoneTypeEnum:
       enum:
       - WARD

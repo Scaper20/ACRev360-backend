@@ -164,7 +164,7 @@ def test_sync_payer_targeting_a_different_ward_is_rejected(scoped, authed_api_cl
         {"records": [{
             "client_id": "c-payer-wrong-ward", "entity_type": "PAYER",
             "payload": {
-                "payer_type": "INDIVIDUAL", "full_name": "Wrong Ward Payer", "phone": "08030000016",
+                "payer_type": "INDIVIDUAL", "first_name": "Wrong", "last_name": "Ward Payer", "phone": "08030000016",
                 "address": "Elsewhere", "ward": scoped["ward_b"].id,
             },
         }]},
@@ -184,7 +184,7 @@ def test_sync_payer_accepted(scoped, authed_api_client):
         {"records": [{
             "client_id": "c-payer-1", "entity_type": "PAYER",
             "payload": {
-                "payer_type": "INDIVIDUAL", "full_name": "New Field Payer", "phone": "08030000011",
+                "payer_type": "INDIVIDUAL", "first_name": "New", "last_name": "Field Payer", "phone": "08030000011",
                 "address": "1 Market Rd", "ward": scoped["ward_a"].id, "revenue_item_ids": [scoped["item"].id],
             },
         }]},
@@ -206,7 +206,7 @@ def test_sync_payer_with_geo_creates_enumerated_asset(scoped, authed_api_client)
         {"records": [{
             "client_id": "c-payer-geo", "entity_type": "PAYER",
             "payload": {
-                "payer_type": "INDIVIDUAL", "full_name": "Geo Payer", "phone": "08030000014",
+                "payer_type": "INDIVIDUAL", "first_name": "Geo", "last_name": "Payer", "phone": "08030000014",
                 "address": "3 Market Rd", "ward": scoped["ward_a"].id, "geo": {"lat": "9.043200", "lng": "7.397100"},
             },
         }]},
@@ -229,7 +229,7 @@ def test_sync_payer_duplicate_phone_is_conflict_not_created_twice(scoped, authed
         {"records": [{
             "client_id": "c-payer-dupe", "entity_type": "PAYER",
             "payload": {
-                "payer_type": "INDIVIDUAL", "full_name": "Duplicate Attempt", "phone": "08030000012",
+                "payer_type": "INDIVIDUAL", "first_name": "Duplicate", "last_name": "Attempt", "phone": "08030000012",
                 "address": "2 Market Rd", "ward": scoped["ward_a"].id,
             },
         }]},

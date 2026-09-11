@@ -1,6 +1,8 @@
 import datetime
+from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from apps.audit.services import audit
@@ -11,6 +13,16 @@ from apps.revenue.models import RateBand
 
 class BillingError(Exception):
     """Raised for invalid billing operations — callers map this to a 400."""
+
+
+class DuplicateBill(Exception):
+    """Raised when a payer already has a non-terminal bill for the calendar
+    year — callers map this to a 409 carrying `existing`'s id/reference,
+    same warn-then-force contract as apps.registry.services.DuplicatePayer."""
+
+    def __init__(self, existing: Bill):
+        self.existing = existing
+        super().__init__(f"{existing.payer} already has an active bill this year: {existing.bill_ref}")
 
 
 def create_draft_assessment(
@@ -87,10 +99,17 @@ def create_draft_assessment(
 
 
 def recompute_bill(bill: Bill) -> Bill:
-    """Re-derives total_amount (billed lines + arrears) and status after any line
-    edit or payment. See TDD.md §4.4."""
-    line_total = sum((line.line_amount for line in bill.lines.all()), start=0)
-    bill.total_amount = line_total + bill.arrears_amount
+    """Re-derives total_amount and status after any line edit or payment. See
+    TDD.md §4.4.
+
+    arrears now live on the lines themselves (BillLine.arrears_amount) rather
+    than as one bill-level lump sum, so bill.arrears_amount is a derived
+    display rollup here — sum(line.line_amount) alone is the true total, not
+    that plus arrears_amount again (that field's value is already folded into
+    each line's line_amount, see issue_bill(roll_arrears=True))."""
+    lines = list(bill.lines.all())
+    bill.arrears_amount = sum((line.arrears_amount for line in lines), start=Decimal("0"))
+    bill.total_amount = sum((line.line_amount for line in lines), start=Decimal("0"))
 
     if bill.status not in Bill.TERMINAL_STATUSES:
         if bill.amount_paid >= bill.total_amount and bill.total_amount > 0:
@@ -102,7 +121,7 @@ def recompute_bill(bill: Bill) -> Bill:
         else:
             bill.status = Bill.ISSUED
 
-    bill.save(update_fields=["total_amount", "status", "updated_at"])
+    bill.save(update_fields=["total_amount", "arrears_amount", "status", "updated_at"])
     return bill
 
 
@@ -122,11 +141,34 @@ def issue_bill(
     bill_all_drafts=False,
     roll_arrears=False,
     actor,
+    force=False,
 ):
     """Three ways to build a bill, combinable — see API_REFERENCE.md 'Assessment &
     billing'. A bill built with only roll_arrears and no lines/drafts is a valid
-    pure consolidation."""
+    pure consolidation.
+
+    Each revenue item is billed yearly, so a payer should only ever have one
+    non-terminal bill per calendar year — new charges normally get added to
+    that bill via add_bill_line(), not issued as a second one. roll_arrears
+    calls are exempt from this check: consolidation is the sanctioned way to
+    issue a bill while a prior one is still open, and it immediately
+    supersedes that prior bill itself. Otherwise, an existing non-terminal
+    bill for the same payer+year raises DuplicateBill unless force=True, in
+    which case the bill is issued anyway and the override is audited.
+    """
     from apps.enforcement.services import close_debt_case_for_bill
+
+    bypassed_duplicate = None
+    if not roll_arrears:
+        existing = (
+            Bill.objects.filter(payer=payer, created_at__year=timezone.localdate().year)
+            .exclude(status__in=Bill.TERMINAL_STATUSES)
+            .first()
+        )
+        if existing is not None:
+            if not force:
+                raise DuplicateBill(existing)
+            bypassed_duplicate = existing
 
     lines = lines or []
 
@@ -187,8 +229,18 @@ def issue_bill(
         issued_by=actor,
     )
 
+    next_position = 0
+    fresh_lines_by_item: dict[int, BillLine] = {}
     for assessment in assessments:
-        BillLine.objects.create(bill=bill, assessment=assessment, line_amount=assessment.amount)
+        line = BillLine.objects.create(
+            bill=bill, assessment=assessment, line_amount=assessment.amount,
+            current_amount=assessment.amount, arrears_amount=0, position=next_position,
+        )
+        next_position += 1
+        # First fresh line wins if two lines somehow land on the same item under
+        # different bands/tiers (see the merge dict above — that only collapses
+        # identical (item, band, tier) triples, so this can still happen).
+        fresh_lines_by_item.setdefault(assessment.council_revenue_item_id, line)
         assessment.status = Assessment.BILLED
         assessment.save(update_fields=["status"])
 
@@ -199,16 +251,41 @@ def issue_bill(
             .filter(payer=payer, status__in=[Bill.ISSUED, Bill.PART_PAID, Bill.OVERDUE])
             .exclude(id=bill.id)
         )
-        arrears_total = 0
+        # Itemized by revenue item, not one bill-level lump sum: an item with
+        # both a current-cycle charge and carried arrears prints as ONE line
+        # with both columns, not two rows (see BillLine docstring). Summing
+        # each prior line's own outstanding balance (line_amount - paid_amount,
+        # paid_amount from FIFO PaymentAllocation) rather than the old bill's
+        # total balance is what makes this itemization possible at all.
+        arrears_by_item: dict[int, Decimal] = {}
+        representative_assessment: dict[int, Assessment] = {}
         for prior in open_bills:
-            arrears_total += prior.balance
             prior.status = Bill.SUPERSEDED
             prior.superseded_by = bill
             prior.save(update_fields=["status", "superseded_by", "updated_at"])
             close_debt_case_for_bill(prior)
             superseded_count += 1
-        bill.arrears_amount = arrears_total
-        bill.save(update_fields=["arrears_amount"])
+            for prior_line in prior.lines.all():
+                outstanding = prior_line.line_amount - prior_line.paid_amount
+                if outstanding <= 0:
+                    continue
+                item_id = prior_line.assessment.council_revenue_item_id
+                arrears_by_item[item_id] = arrears_by_item.get(item_id, 0) + outstanding
+                representative_assessment[item_id] = prior_line.assessment
+
+        for item_id, arrears_amt in arrears_by_item.items():
+            existing_line = fresh_lines_by_item.get(item_id)
+            if existing_line is not None:
+                existing_line.arrears_amount += arrears_amt
+                existing_line.line_amount = existing_line.current_amount + existing_line.arrears_amount
+                existing_line.save(update_fields=["arrears_amount", "line_amount"])
+            else:
+                BillLine.objects.create(
+                    bill=bill, assessment=representative_assessment[item_id],
+                    current_amount=0, arrears_amount=arrears_amt, line_amount=arrears_amt,
+                    position=next_position,
+                )
+                next_position += 1
 
     finalize_ref(bill, "bill_ref", _next_bill_ref(bill))
     recompute_bill(bill)
@@ -221,6 +298,12 @@ def issue_bill(
         entity_id=bill.id,
         detail={"bill_ref": bill.bill_ref, "total_amount": str(bill.total_amount), "superseded_count": superseded_count},
     )
+    if bypassed_duplicate is not None:
+        audit(
+            council_id=council_id, actor=actor, action="BILL_ISSUED_FORCED_DUPLICATE",
+            entity_type="BILL", entity_id=bill.id,
+            detail={"bypassed_bill_id": bypassed_duplicate.id, "bypassed_bill_ref": bypassed_duplicate.bill_ref},
+        )
     bill.superseded_count = superseded_count
     return bill
 
@@ -251,8 +334,9 @@ def add_bill_line(*, bill, council_revenue_item, quantity, actor, rate_band=None
         existing_assessment.quantity += assessment.quantity
         existing_assessment.amount += assessment.amount
         existing_assessment.save(update_fields=["quantity", "amount"])
-        existing_line.line_amount = existing_assessment.amount
-        existing_line.save(update_fields=["line_amount"])
+        existing_line.current_amount = existing_assessment.amount
+        existing_line.line_amount = existing_line.current_amount + existing_line.arrears_amount
+        existing_line.save(update_fields=["current_amount", "line_amount"])
 
         assessment.status = Assessment.CANCELLED
         assessment.save(update_fields=["status"])
@@ -266,7 +350,11 @@ def add_bill_line(*, bill, council_revenue_item, quantity, actor, rate_band=None
 
     assessment.status = Assessment.BILLED
     assessment.save(update_fields=["status"])
-    line = BillLine.objects.create(bill=bill, assessment=assessment, line_amount=assessment.amount)
+    next_position = (bill.lines.aggregate(m=Max("position"))["m"] or -1) + 1
+    line = BillLine.objects.create(
+        bill=bill, assessment=assessment, line_amount=assessment.amount,
+        current_amount=assessment.amount, arrears_amount=0, position=next_position,
+    )
     recompute_bill(bill)
     audit(council_id=bill.council_id, actor=actor, action="BILL_LINE_ADDED", entity_type="BILL", entity_id=bill.id, detail={"line_id": line.id, "amount": str(line.line_amount)})
     return line
@@ -274,10 +362,19 @@ def add_bill_line(*, bill, council_revenue_item, quantity, actor, rate_band=None
 
 @transaction.atomic
 def update_bill_line(*, line: BillLine, line_amount, actor):
+    """line_amount replaces the line's total; the arrears portion carried on
+    it (if any, from roll_arrears) is preserved and current_amount absorbs
+    the rest, matching how the split is created in the first place."""
+    if line_amount < line.arrears_amount:
+        raise BillingError(
+            f"line_amount ({line_amount}) can't be less than this line's own arrears_amount "
+            f"({line.arrears_amount}) — that would make current_amount negative."
+        )
     old_amount = line.line_amount
+    line.current_amount = line_amount - line.arrears_amount
     line.line_amount = line_amount
-    line.save(update_fields=["line_amount"])
-    line.assessment.amount = line_amount
+    line.save(update_fields=["current_amount", "line_amount"])
+    line.assessment.amount = line.current_amount
     line.assessment.save(update_fields=["amount"])
     recompute_bill(line.bill)
     audit(

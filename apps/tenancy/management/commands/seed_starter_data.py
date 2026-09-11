@@ -17,7 +17,7 @@ from django.db import transaction
 
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.registry.models import Payer
-from apps.registry.services import create_payer
+from apps.registry.services import create_payer, split_full_name
 from apps.revenue.models import CouncilRevenueItem
 from apps.tenancy.context import set_council_context
 from apps.tenancy.models import Council, WardZone
@@ -100,9 +100,11 @@ class Command(BaseCommand):
             if ward is None:
                 self.stdout.write(self.style.WARNING(f"Ward {ward_code} not found — skipping {name}"))
                 continue
+            first_name, middle_name, last_name = split_full_name(name)
             payer, draft_count = create_payer(
                 council_id=council.id, actor=enumerator, enumerated_by=enumerator,
-                payer_type=payer_type, full_name=name, phone=phone, email=email, address=f"{ward.ward_name} Road",
+                payer_type=payer_type, first_name=first_name, middle_name=middle_name, last_name=last_name,
+                phone=phone, email=email, address=f"{ward.ward_name} Road",
                 ward=ward, business_size=biz_size, tin=tin, nin_bvn_hash=nin_hash, kyc_status=kyc,
                 revenue_item_ids=rev_items,
             )

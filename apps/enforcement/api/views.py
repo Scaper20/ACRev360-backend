@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
+from apps.common.filtering import name_search_q
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.enforcement.api.serializers import DebtCaseSerializer
@@ -23,7 +24,11 @@ class DebtRefreshResponseSerializer(serializers.Serializer):
 )
 class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = DebtCaseSerializer
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+    # ListModelMixin only (no create) — `refresh`/`escalate` below already
+    # declare their own narrower COUNCIL_ADMIN-only permission_classes, so
+    # REVENUE_OFFICER landing here only ever reaches `list`, scoped the same
+    # as CONSULTANT via common.scoping.portfolio_filter.
+    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.REVENUE_OFFICER)]
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
@@ -31,7 +36,7 @@ class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
         q = self.request.query_params.get("q")
         if q:
-            qs = qs.filter(Q(bill__bill_ref__icontains=q) | Q(bill__payer__full_name__icontains=q))
+            qs = qs.filter(Q(bill__bill_ref__icontains=q) | name_search_q(q, prefix="bill__payer"))
         return qs
 
     @extend_schema(request=None, responses=DebtRefreshResponseSerializer)

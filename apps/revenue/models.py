@@ -58,6 +58,19 @@ class CouncilRevenueItem(CouncilScopedModel):
     category = models.ForeignKey(RevenueCategory, on_delete=models.PROTECT, related_name="council_items")
     unit_of_charge = models.CharField(max_length=64)
     is_active = models.BooleanField(default=True)
+    department = models.ForeignKey(
+        "tenancy.Department", on_delete=models.PROTECT, null=True, blank=True, related_name="revenue_items"
+    )
+    bye_law_reference = models.CharField(
+        max_length=64, blank=True,
+        help_text="The Part/Section of the council's bye-laws this item is charged under, "
+        "e.g. 'Part XXI' — the citation a demand notice or objection has to quote.",
+    )
+    bye_law_description = models.TextField(
+        blank=True,
+        help_text="What that bye-law provision actually authorises, in the council's own "
+        "wording — carried over verbatim rather than paraphrased.",
+    )
 
     class Meta:
         db_table = "council_revenue_item"

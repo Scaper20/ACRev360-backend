@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 from apps.accounts.managers import AppUserManager
 from apps.common.models import TimeStampedModel
@@ -17,11 +18,13 @@ class AppRole(models.Model):
     CONSULTANT = "CONSULTANT"
     AGENT = "AGENT"
     GLOBAL_VIEW = "GLOBAL_VIEW"
+    REVENUE_OFFICER = "REVENUE_OFFICER"
     ACCESS_LEVEL_CHOICES = [
         (COUNCIL_ADMIN, "Council Admin"),
         (CONSULTANT, "Consultant"),
         (AGENT, "Agent"),
         (GLOBAL_VIEW, "Global View"),
+        (REVENUE_OFFICER, "Revenue Officer"),
     ]
 
     name = models.CharField(max_length=64, unique=True)
@@ -45,7 +48,10 @@ class AppUser(AbstractBaseUser, PermissionsMixin):
 
     username = models.CharField(max_length=64, unique=True)
     full_name = models.CharField(max_length=160)
-    email = models.EmailField(blank=True)
+    #: The login identifier (see AppTokenObtainPairSerializer) — required and
+    #: unique, though USERNAME_FIELD itself deliberately stays "username" to
+    #: avoid touching Django admin/permissions internals that key off it too.
+    email = models.EmailField(unique=True)
     phone = models.CharField(max_length=32, blank=True)
 
     council = models.ForeignKey(Council, on_delete=models.PROTECT, null=True, blank=True, related_name="users")
@@ -101,10 +107,33 @@ class SubConsultant(CouncilScopedModel):
         (EXITED, "Exited"),
     ]
 
+    NIN, PASSPORT, DRIVERS_LICENSE, VOTERS_CARD = "NIN", "PASSPORT", "DRIVERS_LICENSE", "VOTERS_CARD"
+    ID_TYPE_CHOICES = [
+        (NIN, "NIN"),
+        (PASSPORT, "International Passport"),
+        (DRIVERS_LICENSE, "Driver's License"),
+        (VOTERS_CARD, "Voter's Card"),
+    ]
+
     consultant_name = models.CharField(max_length=160)
     contract_ref = models.CharField(max_length=64)
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, help_text="Percent, e.g. 30.00")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=PENDING)
+    contract_start_date = models.DateField(null=True, blank=True)
+    contract_end_date = models.DateField(null=True, blank=True, help_text="Blank for an open-ended contract.")
+    # The firm's own billable identity — set at onboarding, when a registration
+    # bill is auto-issued against it (see SubConsultantViewSet.perform_create).
+    # Null only for consultants onboarded before this existed.
+    registration_payer = models.OneToOneField(
+        "registry.Payer", on_delete=models.PROTECT, null=True, blank=True, related_name="consultant"
+    )
+    # KYC — the firm's authorized signatory. authorized_signatory_id_hash follows
+    # Payer.nin_bvn_hash's exact convention: a pre-hashed value handed in by the
+    # caller, not hashed here — this field is a plain store, not a hasher.
+    authorized_signatory_name = models.CharField(max_length=160, blank=True)
+    authorized_signatory_id_type = models.CharField(max_length=32, choices=ID_TYPE_CHOICES, blank=True)
+    authorized_signatory_id_hash = models.CharField(max_length=128, blank=True)
+    registered_address = models.CharField(max_length=255, blank=True)
 
     class Meta:
         db_table = "sub_consultant"
@@ -116,6 +145,10 @@ class SubConsultant(CouncilScopedModel):
     def __str__(self):
         return self.consultant_name
 
+    @property
+    def is_contract_expired(self):
+        return bool(self.contract_end_date and self.contract_end_date < timezone.localdate())
+
 
 class FieldAgent(CouncilScopedModel):
     ACTIVE, SUSPENDED, EXITED = "ACTIVE", "SUSPENDED", "EXITED"
@@ -125,11 +158,25 @@ class FieldAgent(CouncilScopedModel):
         (EXITED, "Exited"),
     ]
 
+    NIN, PASSPORT, DRIVERS_LICENSE, VOTERS_CARD = "NIN", "PASSPORT", "DRIVERS_LICENSE", "VOTERS_CARD"
+    ID_TYPE_CHOICES = [
+        (NIN, "NIN"),
+        (PASSPORT, "International Passport"),
+        (DRIVERS_LICENSE, "Driver's License"),
+        (VOTERS_CARD, "Voter's Card"),
+    ]
+
     user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name="field_agent")
     agent_code = models.CharField(max_length=32)
     assigned_ward = models.ForeignKey(WardZone, on_delete=models.PROTECT, null=True, blank=True, related_name="agents")
     device_imei = models.CharField(max_length=32, blank=True)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=ACTIVE)
+    # KYC — same hashed-value convention as Payer.nin_bvn_hash / SubConsultant.
+    # authorized_signatory_id_hash above.
+    id_type = models.CharField(max_length=32, choices=ID_TYPE_CHOICES, blank=True)
+    id_hash = models.CharField(max_length=128, blank=True)
+    next_of_kin_name = models.CharField(max_length=160, blank=True)
+    next_of_kin_phone = models.CharField(max_length=32, blank=True)
 
     class Meta:
         db_table = "field_agent"
