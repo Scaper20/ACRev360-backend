@@ -21,6 +21,89 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Frontend: wired up council-tier RBAC roles (IGR Head, Treasury, Auditor, IT)
+
+**Ask:** Scaper20's RBAC/RLS expansion (`docs/RBAC_EXPANSION_DESIGN.md`, commit `a3da14a`)
+added 16 new access levels — build the frontend side for the four council-scoped ones
+first (`COUNCIL_IGR_HEAD`, `COUNCIL_TREASURY`, `COUNCIL_AUDITOR`, `COUNCIL_IT`); platform-
+tier roles and the ratepayer self-service portal deferred to a later pass.
+
+**Found:** the design doc's own cited source of truth for per-role permissions
+(`tests/test_rbac_matrix.py`) doesn't exist in the repo — flagged back, got
+`FRONTEND_HANDOFF_RBAC.md` (not committed, contains live QA credentials) in response,
+which resolved most of the ambiguity but still diverged from reality in several places.
+Rather than build against either document's prose, logged in as each `qa_council_*`
+production test account and hit the real endpoints directly. Real, confirmed divergences
+from what the handoff doc implies:
+- `GET /payers` 403s for all four new roles despite `bills`/`payments`/`receipts` being
+  readable — none of them get a Payer Registry link.
+- `GET /revenue-items`, `/wards`, `/departments`, `/channels` are open to every
+  authenticated role including `COUNCIL_IT` ("zero financial access") — not gated by
+  `access_level_permission()` at all, just general authenticated reads.
+- `COUNCIL_IGR_HEAD` has `/reports` access (confirmed 200) despite not being named for it
+  in the handoff's prose summary.
+- `COUNCIL_IT` can create agents (`POST /api/v1/agents` passes its own permission check)
+  but cannot list them (`GET /api/v1/agents` 403s) — flagged back as a likely oversight,
+  since the handoff explicitly grants IT "can create agent/officer/stakeholder/ratepayer
+  logins." Same gap on `GET /api/v1/consultants` (403) vs.
+  `consultants/{id}/revenue-officers` (its own looser permission, which `COUNCIL_IT`
+  passes) — IT can create a revenue officer once it's looking at a specific consultant,
+  but can't reach the consultant list to get there.
+- `COUNCIL_TREASURY` has full settlements access but no consultant/agent management —
+  the existing `COUNCIL_ADMIN` redirect on `/settlements` (straight to `/consultants` for
+  the drill-down UI) doesn't apply to it; it now correctly lands on the flat
+  `AdminSettlementsList` view instead, with compute/advance-status enabled.
+
+**Fixed (frontend, `ACRev360-frontend`):** `nav.ts` gained four new cases built from the
+live-tested permission surface above, not the handoff's prose. `AccessLevel` now types all
+22 access levels (platform-tier and `RATEPAYER`/`RATEPAYER_PROXY` included for
+exhaustiveness, no UI yet). Per-page changes: `ReconciliationPage` (Run button — IGR and
+Treasury both have full reconciliation access), `ConsultantsPage` (revenue-officer creation
+split into its own `canCreateRevenueOfficer` flag so `COUNCIL_IT` gets exactly that one
+action, not the rest of the page's admin rights; search toolbar un-bundled from the
+admin-only onboard button, since it was hiding search from every non-admin who could
+otherwise view the page), `StakeholdersPage` (create — `COUNCIL_IT`'s grant), `AgentsPage`
+(consultant-name-lookup query widened for `COUNCIL_IGR_HEAD`/`COUNCIL_AUDITOR`, both of
+which reach this page read-only per nav), `SettlementsPage` (`isAdmin` inside
+`AdminSettlementsList` narrowed to `COUNCIL_TREASURY`, since that component is now only
+ever reached by roles that aren't `COUNCIL_ADMIN`/`CONSULTANT`), `ReportsPage` (consultant
+filter dropdown widened to every role that can actually call `GET /consultants`).
+
+**Also fixed while testing:** `BillListPage.tsx`'s "New Bill" button had *no* permission
+gate at all before this — relied entirely on the backend's own 403, invisible until a
+role that could view the page but not create a bill (`COUNCIL_IGR_HEAD`) actually reached
+it. Added a gate. Also fixed a real bug in the settlement drill-down built earlier this
+session: `GET /settlements/{id}/bills` returns a bare array, not the paginated envelope
+`PaginatedSettlementBillList` documents — same class of mismatch as `GET
+/reconciliation/exceptions` (see recurring themes below), fixed with the same defensive
+`Array.isArray(data) ? data : (data.results ?? [])` pattern.
+
+**Verified:** `tsc -b --force` clean on `apps/portal` and `apps/field`. Logged in live
+(dev proxy pointed at production, then reverted) as all four `qa_council_*_a` accounts and
+confirmed nav, page loads, and the specific fixes above (search box appears for
+non-admins on Sub-Consultants, "Compute Settlements" appears for Treasury on the
+flat settlements view, "New Stakeholder" appears for IT, "New Bill" does NOT appear for
+IGR).
+
+**Gotchas:**
+- **Add `GET /settlements/{id}/bills` to the schema-vs-runtime mismatch list** (see
+  `packages/api/src/overrides.ts`'s existing numbered list) — bare array, not paginated.
+- **`COUNCIL_IT` cannot reach `AgentsPage` or `ConsultantsPage` today** even though it can
+  create agents/revenue-officers once there — both pages' own list queries 403 for it.
+  Not linked from `nav.ts` for `COUNCIL_IT` until `FieldAgentViewSet`/`SubConsultantViewSet`
+  grant it list/retrieve. The component-level logic (`AgentsPage`'s `isAdmin`,
+  `ConsultantsPage`'s `canCreateRevenueOfficer`) already treats `COUNCIL_IT` correctly for
+  when that lands — see the comments at each nav.ts case for exactly what to add back.
+- **Don't trust a design doc's prose summary of a permission matrix over the actual
+  `permission_classes`/`get_permissions()` on each viewset** — this pass found real,
+  confirmed divergences between `RBAC_EXPANSION_DESIGN.md`'s summary table and what the
+  endpoints actually do, on both the "should have access" and "shouldn't have access"
+  sides. If a `tests/test_rbac_matrix.py` file materializes later, prefer it; until then,
+  log in as the real `qa_council_*` account and hit the endpoint rather than reading the
+  doc's role table as ground truth.
+
+---
+
 ## 2026-09-11 — Frontend: consumed the full 10-PR batch (cash channel through summary reports)
 
 **Ask:** the 10-PR backend batch (cash channel, API key hardening, duplicate-bill guard,
