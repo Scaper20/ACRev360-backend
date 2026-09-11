@@ -160,8 +160,11 @@ outstanding` must survive any consolidation — this gets a permanent regression
 - Sessions: DB/Redis-backed with expiry (v1's in-memory dict dies on restart and can't
   span replicas). Short-lived JWTs are acceptable if mobile offline flows prefer them;
   pick one, not both.
-- Role model carries over (`COUNCIL_ADMIN`, `CONSULTANT`, `AGENT`, `GLOBAL_VIEW`) with
-  one addition: FCT-level oversight roles spanning councils.
+- Role model carries over (`COUNCIL_ADMIN`, `CONSULTANT`, `AGENT`, `GLOBAL_VIEW`) as a
+  starting point; it's since grown a full ACDSL platform tier, expanded council/
+  consultant/field-agent tiers, and a ratepayer self-service tier (including
+  FCT-level oversight, exactly as anticipated here) — see docs/RBAC_EXPANSION_DESIGN.md
+  for the current, authoritative role list and what each one can actually do.
 - Webhook signature verification (HMAC) **on by default** — v1 shipped it off by default
   behind an env flag; v2 inverts that.
 

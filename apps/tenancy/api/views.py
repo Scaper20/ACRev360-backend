@@ -19,7 +19,11 @@ class WardZoneViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.request.method == "POST":
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
-        return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW)()]
+        return [access_level_permission(
+            AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW,
+            AppRole.REVENUE_OFFICER, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+            AppRole.COUNCIL_IT, AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+        )()]
 
     def get_queryset(self):
         return WardZone.objects.filter(council_id=self.request.user.council_id)
@@ -39,7 +43,11 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.request.method in ("POST", "PATCH"):
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
-        return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW, AppRole.REVENUE_OFFICER)()]
+        return [access_level_permission(
+            AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.GLOBAL_VIEW, AppRole.REVENUE_OFFICER,
+            AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+            AppRole.COUNCIL_IT, AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+        )()]
 
     def get_queryset(self):
         return Department.objects.filter(council_id=self.request.user.council_id)
@@ -50,11 +58,12 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
 class OnboardCouncilView(APIView):
     """Platform-level bootstrap: create council -> configure -> ready for
-    activate_template_item calls. Gated on Django's own is_superuser/is_staff, not
-    a business access_level — creating a new tenant sits outside any existing
-    council's context, see apps/tenancy/services.py."""
+    activate_template_item calls. Gated on Django's own is_superuser/is_staff OR
+    a SUPER_ADMIN/PLATFORM_ADMIN business login (docs/RBAC_EXPANSION_DESIGN.md) —
+    creating a new tenant sits outside any existing council's context either
+    way, see apps/tenancy/services.py."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminUser | access_level_permission(AppRole.SUPER_ADMIN, AppRole.PLATFORM_ADMIN)]
 
     @extend_schema(request=OnboardCouncilSerializer, responses={201: CouncilSerializer}, tags=["tenancy"])
     def post(self, request):

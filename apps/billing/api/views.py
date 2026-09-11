@@ -89,8 +89,16 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
     # via DashboardSummaryView/DashboardGlobalView). REVENUE_OFFICER is
     # included here (list/retrieve/bill_detail) but explicitly excluded again
     # in get_permissions() below for POST/DELETE — read-only, same portfolio
-    # as CONSULTANT (see common.scoping.portfolio_filter).
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER)]
+    # as CONSULTANT (see common.scoping.portfolio_filter). The RBAC-expansion
+    # additions (COUNCIL_IGR_HEAD/COUNCIL_TREASURY/COUNCIL_AUDITOR/
+    # CONSULTANT_STAFF/AGENT_SUPERVISOR — see docs/RBAC_EXPANSION_DESIGN.md)
+    # are read-only for the same reason: get_permissions() below never widens
+    # create/DELETE beyond the original four.
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER,
+        AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+        AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+    )]
     lookup_value_regex = r"[0-9]+"
     # Per-view, not a DEFAULT_FILTER_BACKEND — see PayerViewSet's identical note.
     filter_backends = [StableOrderingFilter]

@@ -21,14 +21,25 @@ from apps.reconciliation.services import ReconciliationError, live_reconciliatio
 
 
 class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """COUNCIL_IGR_HEAD and COUNCIL_TREASURY (docs/RBAC_EXPANSION_DESIGN.md)
+    get the same run/resolve rights as COUNCIL_ADMIN here — reconciling
+    remittances is literally their job per the matrix, unlike every other
+    viewset those two roles only read. COUNCIL_AUDITOR stays read-only."""
+
     serializer_class = ReconciliationRunSerializer
-    permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+    permission_classes = [access_level_permission(
+        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY,
+        AppRole.COUNCIL_AUDITOR,
+    )]
 
     def get_queryset(self):
         return ReconciliationRun.objects.filter(council_id=self.request.user.council_id).order_by("-run_date")
 
     @extend_schema(request=RunReconciliationSerializer, responses=ReconciliationRunSerializer)
-    @action(detail=False, methods=["post"], permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
+    @action(
+        detail=False, methods=["post"],
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY)],
+    )
     def run(self, request):
         serializer = RunReconciliationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -48,7 +59,7 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     )
     @action(
         detail=False, methods=["post"], url_path=r"exceptions/(?P<exception_id>[0-9]+)/resolve",
-        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)],
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY)],
     )
     def resolve_exception(self, request, exception_id=None):
         exception = ReconciliationException.objects.get(pk=exception_id, council_id=request.user.council_id)

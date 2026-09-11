@@ -3,7 +3,24 @@ from django.db import transaction
 from apps.audit.services import audit
 from apps.billing.services import create_draft_assessment
 from apps.common.refs import finalize_ref, placeholder_ref
-from apps.registry.models import Payer
+from apps.registry.models import Payer, PayerDelegation
+
+
+def accessible_payer_ids(user) -> list[int]:
+    """Every payer id a RATEPAYER/RATEPAYER_PROXY login may read: their own
+    linked Payer (via Payer.user), plus — for a proxy — every payer with an
+    active PayerDelegation naming them. Every action in
+    apps.registry.api.views.RatepayerPortalViewSet filters through this; it
+    is the only thing standing between one ratepayer and another's bills
+    once IsRatepayerOrDelegate has already let the request past the view-
+    level check (see that class's own docstring)."""
+    own = [user.payer_profile.id] if getattr(user, "payer_profile", None) else []
+    delegated = list(
+        PayerDelegation.objects.filter(proxy_user_id=user.id, revoked_at__isnull=True).values_list(
+            "payer_id", flat=True
+        )
+    )
+    return own + delegated
 
 
 class DuplicatePayer(Exception):
