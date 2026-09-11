@@ -45,6 +45,10 @@ class Payer(CouncilScopedModel):
     # Non-individuals only:
     tin = models.CharField(max_length=32, blank=True)
     business_size = models.CharField(max_length=16, choices=BUSINESS_SIZE_CHOICES, blank=True, null=True)
+    #: Free text for now (PR11) — no fixed picklist yet, pending real category
+    #: data to inform what that list should be. Plain CharField deliberately,
+    #: not a JSON blob, so a future normalization migration stays simple.
+    line_of_business = models.CharField(max_length=120, blank=True)
 
     kyc_status = models.CharField(max_length=16, choices=KYC_STATUS_CHOICES, default=PENDING)
     is_duplicate_of = models.ForeignKey(

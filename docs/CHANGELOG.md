@@ -543,6 +543,28 @@ not just schema-shape review. Caught one real bug this way that static review mi
 
 ---
 
+## 2026-09-11 — PR11: `Payer.line_of_business` (free text)
+
+**Ask:** add a payer's line of business, captured at registration. Originally
+spec'd as a fixed picklist, blocked on the client providing a real category
+list — that requirement was dropped before this shipped; it's now a plain
+free-text field the registering agent/consultant types in directly, no
+longer blocked on anything.
+
+**Fix:** `Payer.line_of_business` — plain `CharField(max_length=120,
+blank=True)`, no `choices=`. Exposed on both `PayerSerializer` (read) and
+`CreatePayerSerializer` (write). Single-field `AddField` migration, no data
+migration needed (new column, existing rows get the blank default).
+
+**Gotchas:** this is very likely getting normalized into a real picklist once
+there's enough real free-text data to see what people actually type and
+inform what that list should be — that's exactly why it's a plain
+`CharField` and not a JSON blob or anything cleverer: keep any future
+"promote to choices" migration a simple one-column read/rewrite, not an
+unpacking job first.
+
+---
+
 ## 2026-09-11 — RBAC/RLS expansion: ACDSL platform tier, expanded council/consultant/agent roles, ratepayer self-service
 
 **Ask:** `docs/acrev360-roles-permissions-matrix.md` (a planning draft inventorying

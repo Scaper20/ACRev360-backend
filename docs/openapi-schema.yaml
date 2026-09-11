@@ -3905,6 +3905,9 @@ components:
           - $ref: '#/components/schemas/BusinessSizeEnum'
           - $ref: '#/components/schemas/BlankEnum'
           - $ref: '#/components/schemas/NullEnum'
+        line_of_business:
+          type: string
+          maxLength: 120
         revenue_item_ids:
           type: array
           items:
@@ -5407,6 +5410,9 @@ components:
           - $ref: '#/components/schemas/BusinessSizeEnum'
           - $ref: '#/components/schemas/BlankEnum'
           - $ref: '#/components/schemas/NullEnum'
+        line_of_business:
+          type: string
+          maxLength: 120
         kyc_status:
           allOf:
           - $ref: '#/components/schemas/KycStatusEnum'
@@ -5480,6 +5486,9 @@ components:
           - $ref: '#/components/schemas/BusinessSizeEnum'
           - $ref: '#/components/schemas/BlankEnum'
           - $ref: '#/components/schemas/NullEnum'
+        line_of_business:
+          type: string
+          maxLength: 120
         kyc_status:
           allOf:
           - $ref: '#/components/schemas/KycStatusEnum'
