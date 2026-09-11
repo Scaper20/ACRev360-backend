@@ -11,3 +11,4 @@ __pycache__/
 *.egg-info/
 node_modules/
 .DS_Store
+FRONTEND_HANDOFF_RBAC.md
