@@ -543,6 +543,55 @@ not just schema-shape review. Caught one real bug this way that static review mi
 
 ---
 
+## 2026-09-11 — PR12: real 80 Kuje Area Council areas, replacing the 9-row placeholder ward set
+
+**Ask:** the real KAC area list (80 names) was provided, unblocking a
+previously-stalled item. Cross-checked against what's currently seeded on
+production (9 `WardZone` rows): 8 were already correct real area names
+(`Chibiri`, `Gaube`, `Gudun-Karya`/`Gudun Karya`, `Kabi`, `Kuje`, `Kwaku`,
+`Rubochi`, `Yenche`); only `Ivo` wasn't a real Kuje area at all — a
+placeholder with, confirmed on production, zero payers/agents/terminals
+assigned to it.
+
+**Fix:** `apps/tenancy/migrations/0004_seed_real_kac_wards.py` — a RunPython
+against `WardZone` (RLS-protected), correctly routed through
+`apps.tenancy.migration_helpers.for_each_council` rather than a bare
+queryset (see that helper's own docstring for why that distinction is not
+optional in this codebase). Only acts on the council coded `KAC` — every
+other council keeps whatever wards it already has, since this is
+Kuje-specific reference data, not a uniform transform every tenant should
+receive. Per council:
+- The 8 already-correct rows are matched by their `ward_code` and kept at
+  their existing id — nothing that already points at them (a payer's
+  `ward` FK, etc.) needs remapping. `Gudun-Karya`'s `ward_name` is
+  normalized to `Gudun Karya` (matching the real list's spelling) in place,
+  same id, since `ward_code` normalizes to `GUDUN_KARYA` either way.
+- The other 72 real areas are added as new rows.
+- `Ivo` is retired — but the migration doesn't just assume today's "zero
+  references" holds everywhere: it calls `.delete()` through the ORM (not
+  raw SQL), so every FK to `WardZone`'s existing `on_delete=PROTECT` still
+  applies, and a `ProtectedError` is caught and re-raised as a `RuntimeError`
+  naming exactly what's still pointing at it — fails the migration loudly
+  instead of silently dropping real data out from under a payer/agent/
+  terminal in some other environment.
+- `apps/tenancy/management/commands/seed_kuje.py`'s own `WARDS` list is
+  updated to the same real 80 areas, so a brand-new environment seeded from
+  scratch gets it right immediately rather than needing this migration to
+  fix it after the fact.
+
+**Gotchas:** the real-area list is duplicated (by hand) between the
+migration and `seed_kuje.py` rather than shared — a migration must stay a
+frozen, self-contained snapshot that can't safely import a list that might
+change under it later; if the list is ever corrected again, both copies
+need the edit. Tests in `tests/test_ward_migration.py` call the migration's
+`_migrate_kac_wards` function directly against real fixture data (same
+convention as `tests/test_migration_helpers.py`) — including one that
+actually attaches a payer to `Ivo` and asserts the migration raises instead
+of deleting, so this protection is exercised for real, not just assumed
+from `on_delete=PROTECT` existing on the model.
+
+---
+
 ## 2026-09-11 — PR11: `Payer.line_of_business` (free text)
 
 **Ask:** add a payer's line of business, captured at registration. Originally

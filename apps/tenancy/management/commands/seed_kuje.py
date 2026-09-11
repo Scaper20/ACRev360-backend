@@ -62,8 +62,26 @@ REVENUE_ITEMS = [
     ("30010062", "Community and Development Levy", "Per Annum", "Levies", 5000),
 ]
 
-# Real FCT Kuje Area Council wards.
-WARDS = ["Chibiri", "Gaube", "Gudun-Karya", "Ivo", "Kabi", "Kuje", "Kwaku", "Rubochi", "Yenche"]
+# The 80 real Kuje Area Council areas (alphabetical) — PR12. Was a 9-item
+# placeholder set (one of which, "Ivo", was never a real area at all); kept
+# in sync by hand with apps/tenancy/migrations/0004_seed_real_kac_wards.py's
+# own copy of this same list, which retrofits it onto any KAC council seeded
+# before this list was corrected.
+WARDS = [
+    "Achimbi", "Adegba Tashara", "Affa", "Agwai", "Ahinza", "Anguwar Madaki",
+    "Attako", "Bamishe", "Bida", "Buga", "Bugako", "Buzunkure", "Chibiri",
+    "Chida", "Chukuku", "Dafara", "Darka", "Dibe Padama", "Dnago", "Duda",
+    "Gadoro", "Gafere", "Gashe", "Gaube", "Gawu", "Gawu Kurmi", "Gidan Bawa",
+    "Gidigwai", "Gombe", "Gudun Karya", "Gumayi", "Gurufufu",
+    "Gwagwada Kpana", "Gwargwada", "Gwari-Yamma", "Gwaupe", "Huni Gade",
+    "Huni Gwari", "Jeida", "Kabi", "Kabi Kassa", "Kahoda Hannu", "Kanzo",
+    "Kasada", "Kashimoro", "Kayarda", "Kiyi", "Kuje", "Kujekwa", "Kulo",
+    "Kusaki", "Kutada", "Kutumbwa", "Kwaku", "Lanto", "Munu", "Paggi",
+    "Passali", "Rubochi", "Rubokya", "Sabe", "Sauka", "Shaji", "Shetuko",
+    "Sungba", "Takwa", "Tika", "Toto Gabiya", "Tude", "Tukpeki", "Tunbwa",
+    "Ukya", "Wumi", "Yaba", "Yanga", "Yenche", "Yewu", "Zagabutu",
+    "Zango-Kara", "Zokutu",
+]
 
 ROLES = [
     ("COUNCIL_ADMIN", AppRole.COUNCIL_ADMIN),
