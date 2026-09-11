@@ -21,6 +21,54 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Frontend: UI/UX design-audit fix pass (focus states, contrast, touch targets, mobile header)
+
+**Ask:** the newly-installed `ui-ux-pro-max` skill was used to run a UI/UX design
+critique across the whole frontend (`apps/portal`, `apps/field`, `apps/ratepayer`,
+`packages/ui`) — not a code scanner, a guideline-lookup tool queried against manually
+inspected source and real computed WCAG contrast math. It surfaced 4 findings; user said
+"Fix all of them."
+
+**Found and fixed (`ACRev360-frontend`):**
+- `packages/ui/src/components/Table.css` — `.row-click` (every clickable table row
+  app-wide) had `:hover` but no `:focus`/`:focus-visible` at all, despite `ClickableRow`
+  correctly setting `role="button"`/`tabIndex={0}`. A keyboard user tabbing through any
+  list saw zero indication of position. Added `.row-click:focus-visible` with an inset
+  `box-shadow` ring (a `<tr>` can't take a clean `outline` across its cells in every
+  browser) mirroring the existing hover treatment.
+- `packages/ui/src/components/Button.css` — `.btn` had no `:focus-visible` state at all.
+  Added a standard 2px outline. Also `.btn-sm` measured ~22px tall (5px padding + 12px
+  font), under the WCAG 24px web target-size floor — added `min-height: 24px` globally.
+- `packages/ui/src/tokens.css` — `--brass` measures 2.6–3.0:1 contrast on
+  `--canvas`/`--surface`, below the WCAG floor even for large text. Audited every real
+  usage in app code first: it's currently only ever used as text on the dark
+  `--green-900` sidebar (5.25:1, passes) — a **latent risk, not a live bug** — so fixed
+  with a warning comment on the token rather than changing any color.
+- `apps/ratepayer/src/App.tsx` + new `apps/ratepayer/src/App.css` — the ratepayer app had
+  zero media queries anywhere (confirmed via grep), relying on flexbox happening to hold
+  at narrow widths rather than deliberate design. Extracted the header to CSS classes and
+  added `@media (max-width: 420px)`: below that width, "My ACRev360 Account" hides (the
+  "AC" mark alone still identifies the app) so the signed-in user's own name and the Sign
+  Out button get the space instead. Also moved the primary tab nav (Bills/Payments/
+  Receipts/Manage Access — the single most-used control in a customer-facing app likely
+  used on a phone) off `.btn-sm` onto full `.btn` sizing, not just the 24px floor.
+
+**Verified:** `tsc -b --force` clean on `ratepayer`/`portal`/`field`. Live in-browser:
+`.btn:focus-visible` confirmed via `btn.focus()` + computed-style + a zoomed screenshot
+showing the ring; `.row-click:focus-visible` confirmed via an injected test `<table>`
+(no local login available) showing the inset box-shadow firing on focus; the 420px
+breakpoint confirmed via injected header markup at a 375px viewport — `.rp-header-name`
+computes `display: none` and a long name + Sign Out still fit on one line without
+overflow.
+
+**Gotchas:** the `--brass` fix is comment-only — if a future change starts using
+`--brass` as text color on `--canvas`/`--surface`/any light card, that's the actual bug
+the comment was written to prevent; check contrast before doing that, don't assume the
+token is safe everywhere just because it exists. `.btn-sm`'s `min-height: 24px` is a
+floor, not a target — for any *primary* control (not a secondary/table-row action),
+prefer full `.btn` sizing the way the ratepayer nav was fixed, rather than relying on the
+floor alone.
+
 ## 2026-09-11 — Frontend: built the ratepayer self-service portal (new apps/ratepayer)
 
 **Ask:** the other half of the RBAC expansion — a genuinely new, separate surface for
