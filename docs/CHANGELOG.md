@@ -21,6 +21,67 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Frontend: built the ratepayer self-service portal (new apps/ratepayer)
+
+**Ask:** the other half of the RBAC expansion — a genuinely new, separate surface for
+`RATEPAYER`/`RATEPAYER_PROXY` logins against `GET/POST /api/v1/my/*`, per
+`FRONTEND_HANDOFF_RBAC.md` §3 ("build these as new screens, not additions to the existing
+staff-facing Payer/Bill/Payment screens ... think 'customer portal', not 'admin
+dashboard'").
+
+**Built:** a third app, `apps/ratepayer`, mirroring the existing `portal`/`field` split in
+`ACRev360-frontend` — its own login screen (rejects any non-ratepayer login, same pattern
+`apps/field` uses for `AGENT`-only), a flat tab switcher (Bills/Payments/Receipts, plus a
+`RATEPAYER`-only "Manage Access" tab for delegations — no router needed, it's four flat
+views with no deep-linking requirement). Staff side: `PayerDetailModal` gained "Invite
+Ratepayer" (`COUNCIL_ADMIN`, `COUNCIL_IT`, `AGENT` per the handoff).
+
+**Found (same discipline as the council-tier pass — verified live against
+`qa_ratepayer_a`/`_b`/`_proxy` before trusting the handoff doc):**
+- All four `GET /api/v1/my/{bills,payments,receipts,delegations}` are documented as
+  paginated envelopes but return bare arrays — same class of mismatch as `GET
+  /reconciliation/exceptions` and `GET /settlements/{id}/bills` (now three instances of
+  this pattern across the API; worth considering whether `RatepayerPortalViewSet`'s "not a
+  ModelViewSet" design is worth generalizing a helper for, rather than fixing schema
+  annotations one endpoint at a time).
+- `POST /api/v1/my/delegations` is documented as returning the same paginated envelope but
+  actually 201s with the single newly-created `PayerDelegation` object.
+- The revoke action's real path is `POST /api/v1/my/{id}/revoke`, not
+  `/api/v1/my/delegations/{id}/revoke` as the handoff doc describes.
+- `COUNCIL_IT` genuinely passes `invite-ratepayer`'s permission check (confirmed via a 409
+  "already has a ratepayer login" on an already-invited test payer, not a 403).
+
+**Verified:** `tsc -b --force` clean on all three portal-family apps. Logged in live (dev
+proxy pointed at production, then reverted) as `qa_ratepayer_a` (full self-service —
+Bills/Payments/Receipts/Manage Access all render correctly against real, empty-but-correct
+data) and `qa_ratepayer_proxy` (confirmed "Manage Access" tab is correctly absent — proxies
+can't manage delegations). Confirmed the handoff's own isolation spot-check
+(`qa_ratepayer_proxy` sees `IND-0000001` only, not `IND-0000002`) survived — briefly broke
+it while testing delegation creation from `qa_ratepayer_b`, then revoked that grant
+immediately to restore the state Scaper20 set up for QA. Also verified the staff-side
+"Invite Ratepayer" flow end-to-end against a real payer, including the 409 duplicate case
+rendering as a clean toast.
+
+**Not built:** payment initiation from the ratepayer portal — no gateway endpoint exists
+yet, explicitly flagged out of scope in `RBAC_EXPANSION_DESIGN.md`'s own principle 4 ("a
+real payment-gateway decision... Read-only self-service is built; paying isn't").
+
+**Gotchas:**
+- **Add all four `GET /my/*` endpoints plus `POST /my/delegations` to the running
+  schema-vs-runtime mismatch list** (`packages/api/src/overrides.ts` #9-12) — same
+  bare-array-vs-paginated-envelope pattern now confirmed in reconciliation, settlements,
+  and ratepayer self-service. If a fourth instance turns up, it's probably worth fixing
+  the schema generation itself (or a shared drf-spectacular annotation) rather than adding
+  a fifth override.
+- **Testing delegation creation/revocation against the production QA accounts changes real
+  state** — `qa_ratepayer_b`'s delegation to `qa_ratepayer_proxy` didn't exist before this
+  session and was created + revoked during verification. The end state matches what
+  Scaper20 set up (revoked, not existing at all), but the delegation's `id` won't be `1`
+  anymore if anyone re-checks it — don't assume delegation ids are stable across QA
+  verification passes.
+
+---
+
 ## 2026-09-11 — Frontend: wired up council-tier RBAC roles (IGR Head, Treasury, Auditor, IT)
 
 **Ask:** Scaper20's RBAC/RLS expansion (`docs/RBAC_EXPANSION_DESIGN.md`, commit `a3da14a`)
