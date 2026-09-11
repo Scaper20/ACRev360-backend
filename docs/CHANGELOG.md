@@ -21,6 +21,42 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Frontend: UI/UX pass on apps/field (agent mobile PWA) — missing keyboard focus states
+
+**Ask:** run the same `ui-ux-pro-max` audit just done on `apps/portal`/`apps/ratepayer`
+against `apps/field`, the agent mobile PWA — nothing was queued backend-side at the time,
+so this was picked as a frontend-only follow-up.
+
+**Checked and passed (no bug):** touch-target sizing on the bottom nav (~55px),
+channel-picker grid (~30px), and type toggle (~32px) all clear the WCAG 24px web floor
+comfortably; every status color pair (online/offline badge, receipt status pill, queue
+conflict tag) measures 4.8:1 contrast or better; every status indicator already pairs
+color with text (not color alone). `.field-search`'s apparent "unstyled input" read
+turned out to be a false alarm from a `.focus()` timing race in the browser-tool
+check — a real click confirmed the shared `input:focus` rule does apply correctly.
+
+**Found and fixed (`ACRev360-frontend`, `apps/field/src/components/FieldShell.css`):**
+every custom interactive element in this file — bottom nav buttons, the channel-picker
+grid, the individual/business type toggle, payer worklist cards, the header's profile
+button, and the queued-records banner — is a bare `<button>` with its own
+component-specific class, so none of them inherit the shared `.btn`/`.row-click`/input
+`:focus` rules from `packages/ui`, and `FieldShell.css` itself had zero `:focus` handling
+of its own. A keyboard user tabbing through the app got no visual indication of position
+on any of its primary navigation or input controls. Added `:focus-visible` outlines to
+all six, color-matched per control (green for the green-themed controls, the warning
+brown for the queue banner, an inset white ring for the header button since it sits on
+the dark green header where green wouldn't show).
+
+**Verified:** live via injected DOM mirroring the real classes — all six fire the
+expected outline color/offset on focus. `tsc -b --force` clean (CSS-only change).
+
+**Gotchas:** any new custom `<button>` added to this app needs its own explicit
+`:focus-visible` rule — it will NOT inherit one from `.btn` or any shared component
+unless it also carries that class. This is a recurring pattern across all three
+frontend apps now (same root cause fixed on `.row-click`/`.btn` in the portal-wide
+UI/UX pass above) — check for it whenever a new bespoke button class is introduced
+anywhere in the frontend.
+
 ## 2026-09-11 — Frontend: UI/UX design-audit fix pass (focus states, contrast, touch targets, mobile header)
 
 **Ask:** the newly-installed `ui-ux-pro-max` skill was used to run a UI/UX design
