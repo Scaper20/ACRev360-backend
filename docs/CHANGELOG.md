@@ -21,6 +21,48 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Frontend: UI/UX pass on apps/portal — sidebar contrast failure + missing focus states (AppShell)
+
+**Ask:** the third leg of the `ui-ux-pro-max` audit series (portal, then field, now
+apps/portal itself) — another frontend-only follow-up with nothing queued backend-side.
+
+**Found:** `apps/portal` has no page-specific CSS beyond the two print stylesheets —
+nearly everything runs through shared `packages/ui` components already covered in the
+prior two passes. Grepped all ~30 route files for interaction anti-patterns (bare
+clickable `<div>`s, `<tr>` rows that should drill down but skip `ClickableRow`) — none
+found; every interactive row/button already goes through `ClickableRow`/`.btn`. That
+narrowed this pass to `packages/ui/src/components/AppShell.css`, the one shared
+component not yet audited.
+
+**Fixed (`ACRev360-frontend`, `packages/ui/src/components/AppShell.css`):**
+- `.nav-label` (sidebar section headers) set `opacity: 0.85` on `--brass` text over
+  `--green-900`. Full-strength `--brass` on `--green-900` measures 5.25:1, but the
+  opacity dimming pulled the effective color to ~4.13:1 — under the WCAG 4.5:1 floor for
+  normal text (this text is 10px bold, nowhere near the large-text exemption). Unlike the
+  `--brass`-as-text finding from the ratepayer pass (a latent risk with zero live usage),
+  **this one is a live, currently-rendering failure** — the sidebar section headers are
+  on screen right now, dimmed below their own token's accessible contrast for no reason
+  tied to the design intent. Fixed by dropping the opacity entirely (same color, no
+  change to visual intent).
+- `.nav a`, `.menu-btn`, `button.who` (sidebar nav links, mobile hamburger, topbar
+  profile button) had zero `:focus-visible` handling — same recurring gap as
+  `.btn`/`.row-click` (fixed in the first pass) and `apps/field`'s `FieldShell.css`
+  (fixed in the second). Added outlines matched to context (white inset ring for the two
+  controls on dark grounds, green for the topbar's `button.who`).
+
+**Verified:** `tsc -b --force` clean (CSS-only). Confirmed the opacity fix's computed
+color live (`getComputedStyle` → `rgb(192,139,44)` at `opacity: 1`, exactly `--brass`).
+Confirmed all three `:focus-visible` rules load with the expected selectors/values in
+the stylesheet, matching the byte-identical pattern already proven live via real Tab-key
+navigation on `.btn`/`.row-click` in the first pass.
+
+**Gotchas:** don't apply an `opacity` reduction to any token-colored text without
+recomputing contrast against its actual background at that opacity — `--brass` (and
+likely other tokens) are calibrated at full strength; dimming a token is not free just
+because the token itself passed its own audit. Same "every new bespoke interactive class
+needs its own explicit `:focus-visible`" gotcha noted on the `apps/field` entry applies
+here too — `AppShell.css`'s classes are shared across `apps/portal`'s layout.
+
 ## 2026-09-11 — Frontend: UI/UX pass on apps/field (agent mobile PWA) — missing keyboard focus states
 
 **Ask:** run the same `ui-ux-pro-max` audit just done on `apps/portal`/`apps/ratepayer`
