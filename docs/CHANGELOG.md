@@ -21,6 +21,107 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-11 — Frontend: consumed the full 10-PR batch (cash channel through summary reports)
+
+**Ask:** the 10-PR backend batch (cash channel, API key hardening, duplicate-bill guard,
+FIFO allocation + itemized arrears, always-on reconciliation, settlement drill-down,
+email login, payer name split, CSV report export) had all shipped on Scaper20's live
+deployment — build the frontend to actually use it.
+
+**Found first:** the local `ACRev360-backend-latest` checkout was 20 commits behind
+origin, including two real incidents — an RLS-scoped backfill migration that silently
+matched zero rows and destroyed real payer name data (root-caused, fixed with a new
+`apps.tenancy.migration_helpers.for_each_council` helper, both databases wiped/reseeded
+clean — see Scaper20's own commit `424ed17`), and a follow-up 8-angle audit that caught
+`reverse_payment()` never being updated for FIFO/overpayment credit (commit `d495718`).
+Merged `origin/master` into local `master` before starting (changelog conflict resolved
+by chronological order, no code conflicts) so local dev actually reflects live reality.
+
+**Built (all `ACRev360-frontend`):**
+- **Cash channel** — added everywhere a channel is selected or displayed: `PaymentsPage`,
+  `DashboardPage`'s chart colors (`--green-800`, previously unclaimed), `ReconciliationPage`,
+  `BillDetailModal`/`DebtPage`'s payment forms, `LoginPage`'s marketing pills, and the field
+  app's `CollectView` — which was previously mislabeling `OTC` as "Cash" as a workaround;
+  now uses the real channel, and the bank-ref-field visibility condition (`channel !== 'OTC'`)
+  that depended on that mislabeling was fixed to key off `CASH` instead.
+- **Bill/print rework** — `BillDetailModal`, `DemandBillPrint`, `DemandNoticePrint` all now
+  read `current_amount`/`arrears_amount`/`paid_amount` directly off each `BillLineDetail`
+  (populated by the new `PaymentAllocation` model) instead of a bill-level `arrears_amount`
+  lump sum and a hardcoded-zero Credit column. Dropped the synthetic per-line "Bill
+  Reference" column and its `lineRef()` generator from `DemandBillPrint` entirely — no
+  longer needed once `superseded_bills` stopped being the thing rendered.
+- **One bill per payer per year** — `NewBillModal` and `PayerDetailModal` both handle a
+  `409` with `duplicate_of` via warn -> "are you sure" -> `force: true` resubmit, mirroring
+  `PayerFormModal`'s existing duplicate-payer pattern exactly.
+- **API keys** (`ChannelsPage`) — `expires_at` (with a "never expires" checkbox),
+  `scopes` (single webhook-post toggle, matching the one real `ScopesEnum` value today),
+  `last_used_at` display, and a dedicated revoke action with a confirm modal.
+- **Reconciliation** — new "Live Position" section reading `GET /reconciliation/live-summary`
+  (two live totals + unmatched credits, `refetchInterval` + manual refresh button), replacing
+  the old "Unmatched Bank Credits" table that only ever showed data after a manual run. The
+  manual per-channel/per-date run section is untouched.
+- **Settlements** — the admin drill-down (list of consultants -> per-consultant settlements
+  -> per-settlement bills) now lives inside `ConsultantsPage`'s own detail modal, not a
+  separate flat list; `SettlementsPage`/`/settlements` redirects `COUNCIL_ADMIN` to
+  `/consultants` and shows a `CONSULTANT`'s own commission dashboard (`GET
+  /settlements/my-summary`) to everyone else.
+- **Summary Reports** — new third tab on `ReportsPage` driving the ad-hoc
+  `GET /api/v1/reports` endpoint directly (bypassed `openapi-fetch` for this one, since
+  `group_by` needs to be a repeated query param the generated client doesn't model — built
+  on raw `fetch()` + `authStore.getAccessToken()` instead), with entity/dimension pickers
+  that mirror `apps/common/api/reports.py`'s `_ENTITY_DIMENSIONS` exactly, and a working
+  `export=csv` download.
+- Login (`portal` + `field`) switched to email; field's `RegisterView` switched to
+  first/last name — both matching the portal's own already-shipped migration.
+
+**Files:** `apps/portal/src/routes/{DashboardPage,LoginPage}.tsx`,
+`apps/portal/src/routes/bills/{BillDetailModal,NewBillModal}.tsx`,
+`apps/portal/src/routes/channels/ChannelsPage.tsx`,
+`apps/portal/src/routes/consultants/ConsultantsPage.tsx`,
+`apps/portal/src/routes/debt/DebtPage.tsx`,
+`apps/portal/src/routes/payers/{PayerDetailModal,PayerFormModal}.tsx`,
+`apps/portal/src/routes/payments/PaymentsPage.tsx`,
+`apps/portal/src/routes/print/{DemandBillPrint,DemandNoticePrint}.tsx`,
+`apps/portal/src/routes/reconciliation/ReconciliationPage.tsx`,
+`apps/portal/src/routes/reports/ReportsPage.tsx`,
+`apps/portal/src/routes/settlements/SettlementsPage.tsx`,
+`apps/portal/src/auth/AuthContext.tsx`, `apps/field/src/auth/AuthContext.tsx`,
+`apps/field/src/views/{CollectView,LoginScreen,RegisterView}.tsx`,
+`packages/api/src/auth.ts`, `packages/api/src/generated/schema.ts` (regenerated).
+
+**Verified:** `tsc -b --force` clean on both `apps/portal` and `apps/field`. Live-tested
+against a local Docker Postgres seeded with a real two-line bill, two FIFO payments
+(confirmed correct allocation including an overpayment case), and a computed settlement —
+not just schema-shape review. Caught one real bug this way that static review missed:
+`GET /settlements/{id}/bills` returns a bare array, not the paginated envelope
+`PaginatedSettlementBillList` documents — same class of bug as `GET
+/reconciliation/exceptions` (see Gotchas below), fixed with the same defensive
+`Array.isArray(data) ? data : (data.results ?? [])` pattern already used for
+`revenueOfficersQuery`.
+
+**Gotchas:**
+- **Add `GET /settlements/{id}/bills` to the schema-vs-runtime mismatch list** — bare array,
+  not paginated, despite what's documented. `PaymentAllocation`'s nesting off
+  `Payment.allocations` does NOT have this problem (confirmed the array there really is a
+  plain array by design, not a mismatch).
+- **`NumCell`'s `className` prop overwrites its own base `"num"` class**, it doesn't merge
+  with it (`<td className="num" {...rest}>` — a passed `className` in `rest` wins entirely).
+  `<NumCell className="r">` loses tabular-nums monospacing to gain right-alignment — this
+  already existed in `BillsReport`/`PayersReport` before this batch touched the file, and
+  the new `SummaryReports` component uses the same call shape for consistency. Right-align
+  still works (`.r` does that job), monospacing doesn't — cosmetic only, not fixed here
+  since it's pre-existing, but a real target if `NumCell` itself ever gets touched.
+- **`GET /api/v1/reports`'s `group_by` is a repeated query param** (`?group_by=ward&group_by=date`),
+  not an array-typed field in the generated schema — `openapi-fetch`'s typed query builder
+  can't express that. `SummaryReports` builds the URL with a raw `URLSearchParams` +
+  `fetch()` instead of `apiClient.GET`; don't "simplify" this back to the typed client
+  without re-solving that.
+- Local backend and origin had diverged by 20 commits before this session started — if a
+  future session's local checkout behaves differently from what's described in recent
+  changelog entries, `git fetch && git log origin/master..master` first, same as here.
+
+---
+
 **Recurring themes worth knowing before you read the entries below:**
 - **`common.scoping.portfolio_filter` only covers payer-shaped querysets** (bills,
   payments, payers, receipts, debt) via `enumerated_by__consultant_id`. Anything else
