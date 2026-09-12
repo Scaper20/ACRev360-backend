@@ -21,6 +21,73 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-12 — Restored departments + full revenue-item catalogue after the DB wipe; three real additions from a new source workbook
+
+**Ask:** "we must have wiped the revenue items when we cleared the DB" —
+correct: the 2026-09-10 full wipe (see that date's CHANGELOG entry) cleared
+`KAC`'s `Department`/`CouncilRevenueItem`/`RateBand` rows along with
+everything else, and nothing had re-run
+`seed_departments_and_revenue` since. A new source document,
+`docs/KUJE Department Revenue Mapping (1).xlsx` (a department-organised
+cross-reference of KUJE DEPARTMENT.docx against the gazette PDF and KAC
+Gazette.xlsx), was handed over to seed "all revenue items... organized and
+categorized... baked into the backend codebase rather than the database."
+
+**Found:** the codebase already had exactly that — `apps/tenancy/
+management/commands/seed_departments_and_revenue.py` (committed
+2026-09-0x, `33194b1`), a gazette-verified command seeding 8 real KAC
+departments and 42 revenue items with full bye-law citations and 460 rate
+bands/336 tiers, sourced from `KUJE DEPARTMENT.docx` and the actual gazette
+PDF (`apps/revenue/gazette_kac.py`) rather than just the secondary XLSX
+transcription. It simply hadn't been re-run since the wipe. Cross-checking
+the new workbook against it item-by-item (all ~70 of its other rows) found
+it was already fully superseded — every item either matched an existing
+code, was a department-context restatement of figures already seeded
+(e.g. Mobile Advertisement's per-component breakdown vs. the existing
+summed totals), a duplicate across two of the workbook's own sheets, a
+"See note"/no-fixed-figure row, or a penalty/offence schedule (this
+codebase's rate-band model has no way to represent those — see
+`seed_rate_bands.py`'s own established discipline). Three genuine
+additions survived that check.
+
+**Fix:**
+- Ran `seed_departments_and_revenue` against local dev (with its own
+  automatic backup step) — restored 8 departments, and revenue items now
+  carry department/bye-law/bands again.
+- `apps/revenue/management/commands/seed_rate_bands.py`: new
+  `CONSTRUCTION_SITE_PERMIT_FLAT` (a genuinely new item, Part VIII - Part
+  B — not in the 32-item catalog or any earlier pass over this bye-law);
+  `BUILDING_MATERIALS_BANDS` gained a 17th band (unlawful/unconfined
+  stacking minimum, Part VIII - Part A); `WRONG_PARKING_CORPORATE_BANDS`
+  gained a 4th (general per-vehicle/month car-park rate, Part XXIV S6(i)).
+- `apps/tenancy/management/commands/seed_departments_and_revenue.py`:
+  added `KJ30010073` Construction Site Permit under Works, Lands, Housing
+  and Engineering, wired into `build_band_specs()`.
+
+**Not run against production yet** — this clears and re-seeds a council's
+entire revenue-item catalogue, which is real, billable-against
+configuration; confirming with the council/product owner before running it
+there, even though `_guard_dependents()` means it's a safe no-op refusal
+rather than data loss if any bill/assessment already references an
+existing item (production KAC currently has none, since it was wiped and
+no consultant has been onboarded yet — but the guard exists for exactly
+the environment where that's no longer true).
+
+**Gotchas:** `seed_kuje.py`'s own 32-item `REVENUE_ITEMS`/`CATEGORIES` are
+NOT superseded for onboarding purposes — `seed_departments_and_revenue`
+requires the council and its base items to already exist (it looks the
+council up, it doesn't create one), so the onboarding order stays
+`seed_kuje` → `seed_departments_and_revenue` (optionally `seed_rate_bands`
+too, for the base 32-item catalog's own gazette bands, though
+`seed_departments_and_revenue` re-seeds those same bands itself via its
+own `build_band_specs()` and will clear/replace whatever `seed_rate_bands`
+already put there). Don't add a genuinely new item to `seed_rate_bands.py`
+without also wiring it into `seed_departments_and_revenue.py`'s
+`REVENUE_ITEMS`/`build_band_specs()` (or vice versa) — the two files own
+different halves of the same catalogue and silently drift apart otherwise.
+
+---
+
 ## 2026-09-11 — Backend: fixed two real RBAC gaps the frontend found live on production, added tests/test_rbac_matrix.py
 
 **Ask:** none directly — a response to the frontend team's council-tier RBAC

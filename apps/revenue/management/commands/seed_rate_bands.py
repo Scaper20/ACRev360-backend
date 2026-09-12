@@ -4,6 +4,28 @@ docs/reference/KAC Gazette.xlsx (via the cleaned-up per-bye-law split in
 docs/reference/KAC Gazette - Split by Bye-Law/). Only schedules whose
 structure and numbers are unambiguous are transcribed here:
 
+2026-09-12 addition, from `docs/KUJE Department Revenue Mapping (1).xlsx`
+(a department-organised cross-reference of KUJE DEPARTMENT.docx against
+KAC NEW GAzETTE test 2.pdf and KAC Gazette.xlsx, handed over specifically to
+fill in whatever this file's earlier passes hadn't yet covered): one
+genuinely new item and two enrichment bands on items already seeded above.
+Every other item in that workbook was checked against what's already here —
+see apps/tenancy/management/commands/seed_departments_and_revenue.py's own
+module docstring, which owns the full department-mapping reconciliation —
+and matched an existing code, so nothing else changed.
+- `CONSTRUCTION_SITE_PERMIT_FLAT` — new. Part VIII - Part B, a distinct
+  permit from the Stacking bands below under the same bye-law; not in this
+  file's earlier catalog or `seed_kuje.py`'s 32-item list at all. Seeded as
+  a new council-local item (KJ30010073) by seed_departments_and_revenue.py,
+  not by this file's own Command (which only ever activates the harmonised
+  32-item catalog — KJ-prefixed local items are that file's job).
+- `BUILDING_MATERIALS_BANDS` gained a 17th band (Part VIII - Part A, S1(e))
+  — a minimum for unlawful/unconfined stacking the earlier transcription
+  didn't carry.
+- `WRONG_PARKING_CORPORATE_BANDS` gained a 4th band (Part XXIV S6(i)) — a
+  general per-vehicle/month car-park rate alongside the three vehicle-class
+  annual permits already seeded.
+
 - Control of Advertisement (30010034): 24 RANGE bands, one per sign/advert
   type. Source: split doc 02.
 - Liquor Licensing (30010051): 9 TIERED bands (Large/Medium/Small), one per
@@ -174,6 +196,15 @@ COMMUNICATION_MAST_TIERS = [("Large", 2000000), ("Medium", 1500000), ("Small", 1
 
 # (label, min_amount, max_amount)
 BUILDING_MATERIALS_BANDS = [
+    # Minimum for unlawful/unconfined stacking (per sqm/day) — Part VIII -
+    # Part A, S1(e). Added from docs/KUJE Department Revenue Mapping (1).xlsx
+    # (2026-09-12 pass), which carried this figure where the earlier
+    # transcription (this file's other 16 bands, from KAC Gazette.xlsx) did
+    # not. The source gives only this one minimum figure, no separate
+    # maximum — seeded as min==max (same convention as Control of
+    # Advertisement's "Plastic Standing (Two Faces)" below, where the
+    # gazette itself gives one figure for both bounds), not a guessed range.
+    ("Unlawful/Unconfined Stacking (per sqm/day) — Minimum", 50000, 50000),
     ("Paint Depot", 50000, 100000),
     ("Cement", 10000, 20000),
     ("Cement (Warehouse)", 50000, 70000),
@@ -190,6 +221,16 @@ BUILDING_MATERIALS_BANDS = [
     ("Ceiling Material", 40000, 70000),
     ("Gravel Site", 150000, 250000),
     ("Sand Seller", 50000, 150000),
+]
+
+# (label, amount) — Part VIII - Part B (Construction Site Permit), a distinct
+# permit from the Stacking bands above under the same bye-law. New item —
+# see seed_departments_and_revenue.py's KJ30010073. Both figures are
+# minimums with no published maximum in the source, so FLAT at the minimum,
+# same reasoning as BUILDING_MATERIALS_BANDS' new first entry above.
+CONSTRUCTION_SITE_PERMIT_FLAT = [
+    ("Standard Stacking (Per Sqm/Month) — Minimum", 40000),
+    ("Confined Premises Stacking (Per Sqm/Day) — Minimum", 150000),
 ]
 
 # (label, min_amount, max_amount) — First Schedule (yearly shops/kiosks) +
@@ -306,6 +347,11 @@ WRONG_PARKING_CORPORATE_BANDS = [
     ("Lorries/Tippers", 250000, 500000),
     ("Car/Buses/Vans/Pick-up", 500000, 1000000),
     ("Dyna Delivery Van/J5", 150000, 250000),
+    # Added from docs/KUJE Department Revenue Mapping (1).xlsx (2026-09-12
+    # pass) — Part XXIV S6(i), a fourth band the earlier transcription
+    # didn't carry: any authorized car park generally, priced per vehicle
+    # per month rather than the three vehicle-class annual permits above.
+    ("General (Any Authorized Car Park, Per Vehicle/Month)", 10000, 1500000),
 ]
 
 # (label, [(tier_label, amount), ...]) for TIERED; a single-tier entry is

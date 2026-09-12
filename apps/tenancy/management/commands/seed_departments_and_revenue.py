@@ -90,6 +90,23 @@ Audit Department is seeded with no revenue items: §2.8 lists compliance audit,
 risk assessment and regulatory compliance as its functions and states it "does
 not directly collect revenue".
 
+2026-09-12 addition
+--------------------
+`docs/KUJE Department Revenue Mapping (1).xlsx` — a department-organised
+cross-reference of KUJE DEPARTMENT.docx against KAC NEW GAzETTE test 2.pdf
+and KAC Gazette.xlsx, handed over after a full database wipe to confirm
+nothing from the reconciliation above had been missed. It hadn't: every one
+of its ~70 other items matched a code already seeded here (several as a
+department-context restatement of the same figures, e.g. Mobile
+Advertisement's per-component breakdown vs. this file's already-summed
+totals) or was a "See note"/no-fixed-figure/penalty-schedule row this
+codebase's discipline (see seed_rate_bands.py) already excludes elsewhere.
+Three real additions came out of the check: KJ30010073 Construction Site
+Permit (genuinely new item, Part VIII - Part B) and two enrichment bands on
+items already seeded (`BUILDING_MATERIALS_BANDS`'s 17th band,
+`WRONG_PARKING_CORPORATE_BANDS`'s 4th) — see seed_rate_bands.py's own
+docstring for the per-band detail.
+
 Known-incomplete rows
 ---------------------
 Certificate of Fitness for Habitation now carries its full Schedule "C" (78
@@ -134,6 +151,7 @@ from apps.revenue.management.commands.seed_rate_bands import (
     COMMUNICATION_MAST_TIERS,
     COMMUNITY_LEVY_FLAT,
     COMMUNITY_LEVY_TIERED,
+    CONSTRUCTION_SITE_PERMIT_FLAT,
     CONTRACTORS_FLAT,
     CONTRACTORS_TIERED,
     CONTROL_OF_ADVERTISEMENT_BANDS,
@@ -203,6 +221,11 @@ REVENUE_ITEMS = [
     ("30010052", "Wrong Parking, Corporate Parking Permit/License", "Per Annum", "Fees and Charges", "WORKS", 10000, "Part XXIV",
      "Annual parking permits for corporate bodies and institutions, together with penalties and recovery fees for "
      "illegally parked or abandoned vehicles."),
+    ("KJ30010073", "Construction Site Permit", "Per Permit", "Licences and Permits", "WORKS", 40000, "Part VIII",
+     "Distinct from the Stacking of Building Material permit above under the same bye-law (Part VIII - Part B): a "
+     "permit for stacking within a confined construction site itself, priced per square metre per month (standard) "
+     "or per day (confined premises). Added 2026-09-12 from docs/KUJE Department Revenue Mapping (1).xlsx — "
+     "genuinely new, not in the harmonised 32-item catalog or any earlier pass over this bye-law."),
 
     # --- 2.2 Environmental ---------------------------------------------------
     ("30010033", "Environmental Sanitation and Premise Inspection", "Per Annum", "Fees and Charges", "ENV", 10000, "Part V",
@@ -321,6 +344,7 @@ def build_band_specs():
     return {
         "30010034": [_range(*b) for b in CONTROL_OF_ADVERTISEMENT_BANDS],
         "30010035": [_range(*b) for b in BUILDING_MATERIALS_BANDS],
+        "KJ30010073": [_flat(*b) for b in CONSTRUCTION_SITE_PERMIT_FLAT],
         "30010036": [_flat(*b) for b in MOBILE_ADVERT_FLAT],
         "30010037": [_flat(*b) for b in LOADING_OFFLOADING_FLAT],
         "30010043": [_range(*b) for b in TRADE_LICENSE_BANDS],
