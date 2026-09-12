@@ -21,6 +21,89 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-12 — Extensive re-audit of the revenue workbook: four more genuine gaps the first pass missed
+
+**Ask:** "i just crossed checked looks like our work is far from done, because
+you sort of missed a whole bunch of other revenues... do an extensive audit,
+check for the missing ones and add them, dont rush so you wont keep miss
+them" — correct: the same-day first pass (entry directly below) checked the
+workbook's item *names* against the existing 43-item catalog and concluded
+everything else matched, but never read the workbook's ~830 remaining
+band-level rows against the gazette itself. Several of those rows carry real
+gazette figures for concepts a level *below* an item name that, from its
+name alone, looked already covered.
+
+**Found:** parsed the full workbook this time — all 9 department sheets,
+every row, no sampling — grouped every row under its distinct item name (73
+across the workbook), and verified each candidate that didn't obviously
+match an existing item directly against `docs/KAC NEW GAzETTE (4).pdf`'s own
+page images (extracted as raw JPEGs via `pypdf`, read visually — not the
+workbook's transcription, not OCR). Four genuine gaps:
+- Gazette Schedule B (B218, Part V, titled "WASTE RATES") — a real fee
+  schedule (disposal rates, Blue/Black/Green Cart programmes) that no
+  earlier pass had transcribed at any code. It belongs on the *existing*
+  `30010033` (Environmental Sanitation and Premise Inspection), whose
+  description wrongly cited "Section 6.6" — that section (B211) prices
+  nothing; its only fixed figure is an unrelated ₦10,000 penalty.
+- `KJ30010063` (Private Dislodging Tank/Vehicle Registration) had only one
+  of the gazette's two conflicting fees for the same obligation (₦100,000
+  Part XVIII vs ₦50,000 Part V S6.5(2)) — added the second as a flagged
+  second band rather than picking one.
+- Two gazette figures with no code at all anywhere in the catalogue:
+  Waste Discharge Fee (₦2,000/trip, Part V S6.5(3)) and Vehicle
+  Immobilization/Clamping Release Charge (₦15,000 flat, Part IV — read off
+  the Council's own Defaulters Charge Notice form, B188).
+- General Car Park Fee (₦100-₦500/vehicle, Part IX S3(i), B241) — a
+  per-visit walk-up parking fee, confirmed genuinely distinct from
+  `30010052`'s own monthly per-vehicle band (different bye-law, two orders
+  of magnitude smaller).
+- `KJ30010067` (Cinema and Viewing Centre Licenses) had a base rate but no
+  bands; the two real figures already existed verbatim inside
+  `TRADE_LICENSE_BANDS` (Part XV's First Schedule prices every shop type,
+  including these two, once) — reused rather than re-transcribed.
+
+Everything else re-checked — the offence/penalty schedules (Environmental
+Sanitation Schedule A, Wrong Parking/Impoundment, Regulated Premises Third
+Schedule, Market/Dog/Dry-Cleaning contravention fines, Motor Park Entry
+Fees' percentage and ambiguous slash-separated rows), every "See note"/
+no-fixed-figure row, and every remaining band — matched a figure already
+seeded, several as the same schedule restated verbatim under a second
+department's sheet (e.g. the workbook's own "Loading and Off-Loading Fees"
+under its Unassigned sheet duplicates `LOADING_OFFLOADING_FLAT` band for
+band).
+
+**Fix:**
+- `apps/revenue/management/commands/seed_rate_bands.py`: new
+  `ENVIRONMENTAL_SANITATION_WASTE_RATES_FLAT`, `PRIVATE_DISLODGING_
+  REGISTRATION_FLAT`, `GENERAL_CAR_PARK_FEE_RANGE`.
+- `apps/tenancy/management/commands/seed_departments_and_revenue.py`:
+  corrected `30010033`'s description/bye-law citation/unit ("Per Annum" ->
+  "Per Month") and wired its new bands; added a second band to
+  `KJ30010063`; added `KJ30010074` (Waste Discharge Fee) and `KJ30010075`
+  (Vehicle Immobilization/Clamping Release Charge) under Environmental and
+  the unassigned bucket respectively; added `KJ30010076` (General Car Park
+  Fee); wired `KJ30010067`'s two bands by filtering `TRADE_LICENSE_BANDS`.
+- Ran dry-run then real against local dev: 43 -> 46 items, 464 -> 474
+  bands, 336 tiers unchanged (none of the additions are tiered) — exactly
+  the expected `+3` items / `+10` bands. Full test suite (352 tests) green.
+- Ran the same real seed against production immediately after, verified by
+  direct query: matches local exactly.
+
+**Gotchas:** the lesson this pass exists to record — checking a source
+document's *item names* against an existing catalogue is not the same as
+checking its *data*. A workbook row can carry a real, new gazette figure
+under an item name that already has a code, if that figure belongs to a
+schedule underneath the item the first pass never opened. When re-auditing
+a revenue source against this catalogue in future, read every band-level
+row, not just every item name — and re-verify anything that looks new
+directly against the gazette page image (`docs/KAC NEW GAzETTE (4).pdf`,
+via `pypdf`'s raw `/DCTDecode` stream extraction, not `page.images` which
+needs `pillow` and isn't installed) rather than trusting either the
+workbook's own transcription or `KAC Gazette.xlsx`'s — both have already
+been shown to disagree with the gazette itself at least once each.
+
+---
+
 ## 2026-09-12 — Restored departments + full revenue-item catalogue after the DB wipe; three real additions from a new source workbook
 
 **Ask:** "we must have wiped the revenue items when we cleared the DB" —
@@ -64,14 +147,15 @@ additions survived that check.
   added `KJ30010073` Construction Site Permit under Works, Lands, Housing
   and Engineering, wired into `build_band_specs()`.
 
-**Not run against production yet** — this clears and re-seeds a council's
-entire revenue-item catalogue, which is real, billable-against
-configuration; confirming with the council/product owner before running it
-there, even though `_guard_dependents()` means it's a safe no-op refusal
-rather than data loss if any bill/assessment already references an
-existing item (production KAC currently has none, since it was wiped and
-no consultant has been onboarded yet — but the guard exists for exactly
-the environment where that's no longer true).
+**Run against production the same day**, after this entry was first written
+— confirmed via direct query against the prod DB: 8 departments, 43 revenue
+items (including `KJ30010073`), 464 bands, 336 tiers, matching the local
+dry-run exactly. `_guard_dependents()` would have refused rather than
+deleted data if any bill/assessment already existed against the old items;
+production KAC had none, so the clear-and-reseed was a safe, full
+replacement. See the entry immediately below for the second pass this same
+data got hours later, which found four more real additions this first pass
+missed.
 
 **Gotchas:** `seed_kuje.py`'s own 32-item `REVENUE_ITEMS`/`CATEGORIES` are
 NOT superseded for onboarding purposes — `seed_departments_and_revenue`

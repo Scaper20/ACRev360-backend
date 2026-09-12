@@ -107,6 +107,60 @@ items already seeded (`BUILDING_MATERIALS_BANDS`'s 17th band,
 `WRONG_PARKING_CORPORATE_BANDS`'s 4th) — see seed_rate_bands.py's own
 docstring for the per-band detail.
 
+Second 2026-09-12 pass — an extensive, deliberately unhurried re-audit after
+it turned out the first pass above had checked the workbook's item *names*
+against the 32-item catalog but not read every one of its 878 band-level
+rows against the gazette directly. This pass parsed the entire workbook
+(all 9 department sheets, every row) and re-verified every candidate
+directly against `docs/KAC NEW GAzETTE (4).pdf`'s own page images — not the
+workbook's transcription and not the earlier `KAC Gazette.xlsx` split —
+before adding anything. Four genuine gaps came out of it, all cross-checked
+against the gazette page images themselves:
+
+- 30010033 (Environmental Sanitation and Premise Inspection)'s description
+  and bye-law citation were wrong, not just incomplete: it cited "Part V
+  (Section 6.6)" for "monthly waste management charges", but S6.6 (B211)
+  only describes the Health Officer's inspection *powers* and prices
+  nothing — its one fixed figure is a ₦10,000 penalty for refusing to give
+  one's name, not a chargeable fee. The real waste-rates schedule is
+  Gazette Schedule B (B218, Part V) — a genuine fee table (disposal rates,
+  Blue/Black/Green Cart programmes) that no earlier pass had transcribed at
+  any code, sitting between Schedule A (offence fines, already correctly
+  excluded) and Schedule C (Certificate of Fitness for Habitation,
+  KJ30010065). Both the description and `unit_of_charge` ("Per Annum" ->
+  "Per Month", matching the schedule's own 30-day billing cycle) are
+  corrected below; bands come from `ENVIRONMENTAL_SANITATION_WASTE_RATES_FLAT`.
+- KJ30010063 (Private Dislodging Tank/Vehicle Registration) gained a second
+  band: the gazette gives two different fees for what reads as the same
+  obligation (₦100,000 under Part XVIII, ₦50,000 under Part V S6.5(2)) —
+  both kept, flagged rather than picked.
+- Two genuinely new standalone items, verified directly against the
+  gazette's own page images: KJ30010074 Waste Discharge Fee (₦2,000/trip,
+  Part V S6.5(3), a different chargeable event from KJ30010063's annual
+  registration) and KJ30010075 Vehicle Immobilization/Clamping Release
+  Charge (₦15,000 flat, Part IV — the Council's own Defaulters Charge
+  Notice form, B188).
+- KJ30010076 General Car Park Fee (new item, RANGE ₦100-₦500/vehicle,
+  Part IX S3(i), B241) — a per-visit walk-up parking fee, not a duplicate
+  of 30010052's own general per-vehicle/month band (Part XXIV S6(i)): a
+  different bye-law, a different billing frequency, two orders of
+  magnitude smaller.
+- KJ30010067 (Cinema and Viewing Centre Licenses) gained two RANGE bands by
+  reusing `TRADE_LICENSE_BANDS`' own Cinema Houses/Viewing Centres entries
+  rather than re-transcribing — same Part XV First Schedule, restated as
+  its own EDU-department item.
+
+Everything else in the workbook's 878 rows — the offence/penalty schedules
+(Environmental Sanitation Schedule A, Wrong Parking/Impoundment, Regulated
+Premises Third Schedule, Market Offences, Dog and Dry-Cleaning contravention
+fines, the Motor Park Entry Fees percentage/ambiguous rows), every "See
+note"/no-fixed-figure row, and every other band — matched a figure already
+seeded here or in seed_rate_bands.py, several as the same schedule restated
+under a second department's sheet (e.g. this workbook's own "Loading and
+Off-Loading Fees" under Unassigned duplicates `LOADING_OFFLOADING_FLAT`
+exactly, band for band). See seed_rate_bands.py's own docstring for the
+per-band detail on this pass's four additions.
+
 Known-incomplete rows
 ---------------------
 Certificate of Fitness for Habitation now carries its full Schedule "C" (78
@@ -155,10 +209,13 @@ from apps.revenue.management.commands.seed_rate_bands import (
     CONTRACTORS_FLAT,
     CONTRACTORS_TIERED,
     CONTROL_OF_ADVERTISEMENT_BANDS,
+    ENVIRONMENTAL_SANITATION_WASTE_RATES_FLAT,
     FOODSTUFF_REGULATION_FLAT,
+    GENERAL_CAR_PARK_FEE_RANGE,
     LIQUOR_LICENSING_BANDS,
     LOADING_OFFLOADING_FLAT,
     MOBILE_ADVERT_FLAT,
+    PRIVATE_DISLODGING_REGISTRATION_FLAT,
     REGULATED_PREMISES_RANGES,
     TRADE_LICENSE_BANDS,
     WRONG_PARKING_CORPORATE_BANDS,
@@ -228,14 +285,28 @@ REVENUE_ITEMS = [
      "genuinely new, not in the harmonised 32-item catalog or any earlier pass over this bye-law."),
 
     # --- 2.2 Environmental ---------------------------------------------------
-    ("30010033", "Environmental Sanitation and Premise Inspection", "Per Annum", "Fees and Charges", "ENV", 10000, "Part V",
-     "Monthly waste management charges for residential, commercial, industrial, and institutional premises. Part V "
-     "(Section 6.6) covers fees collected during inspection of premises for sanitary compliance. Administered with the "
-     "Environmental Sanitation and Waste Management Authority."),
+    ("30010033", "Environmental Sanitation and Premise Inspection", "Per Month", "Fees and Charges", "ENV", 5000, "Part V - Schedule B",
+     "Waste Rates (gazette Schedule B, B218): disposal rates (per tonne / per load under 250kg) plus the Blue Cart "
+     "(recycling), Black Cart (waste management) and Green Cart programmes, each billed per 30 days. Corrects an "
+     "earlier citation of Section 6.6, which only describes the Health Officer's inspection POWERS and prices "
+     "nothing — its one fixed figure is a ₦10,000 penalty for refusing to give one's name/address, not a "
+     "chargeable inspection fee. Schedule A (waste-related contravention fines) and Schedule C (Certificate of "
+     "Fitness for Habitation, KJ30010065) sit under this same Part but are separate schedules, not this item. "
+     "Administered with the Environmental Sanitation and Waste Management Authority. Corrected 2026-09-12 from "
+     "docs/KUJE Department Revenue Mapping (1).xlsx, verified directly against the gazette page image; its own "
+     "6th, unlabeled figure for this item (₦2,000) does not appear on B218 and is excluded as unconfirmed."),
     ("30010046", "Public Toilet", "Per Annum", "Fees and Charges", "ENV", 10000, "Part XVIII",
      "Fees for establishing/operating public toilets; annual renewal fees."),
     ("KJ30010063", "Private Dislodging Tank/Vehicle Registration", "Per Annum", "Registration and Professional Fees", "ENV", 100000, "Part XVIII",
-     "₦100,000 annual registration for private dislodging vehicles."),
+     "Annual registration for private dislodging tank/vehicle operators. The gazette gives two different fees for "
+     "what reads as the same obligation: ₦100,000 registering with the Environmental Health Department under Part "
+     "XVIII S6(i) (B272), and ₦50,000 registering with 'the Authority' under Part V S6.5(2) (B209-B210). Both are "
+     "kept as separate bands below — flagged, not picked."),
+    ("KJ30010074", "Waste Discharge Fee (Authority-Provided Discharge Point)", "Per Trip", "Fees and Charges", "ENV", 2000, "Part V - S6.5(3)",
+     "Where the Authority provides a place for discharging dislodged waste, a fee of ₦2,000 is charged per trip "
+     "(gazette B210) — a different chargeable event from the Private Dislodging Tank/Vehicle Registration annual "
+     "fee above (KJ30010063), not a band on it. Added 2026-09-12 from docs/KUJE Department Revenue Mapping (1).xlsx, "
+     "verified directly against the gazette page image."),
     ("30010047", "Pest Control", "Per Annum", "Registration and Professional Fees", "ENV", 100000, "Part XIX",
      "₦100,000 annual registration for private pest control firms operating in Kuje."),
     ("30010050", "Private Sector Participation Refuse Operation (PSPRO)", "Per Annum", "Fees and Charges", "ENV", 15000, "Part XXII",
@@ -322,6 +393,26 @@ REVENUE_ITEMS = [
     ("30010041", "Registration of Dry Cleaning and Laundry Houses", "Per Annum", "Registration and Professional Fees", None, 10000, "Part XIII", _UNASSIGNED_NOTE),
     ("30010042", "Market Regulation", "Per Annum", "Fees and Charges", None, 10000, "Part XIV", _UNASSIGNED_NOTE),
     ("30010045", "Tricycle (Keke) Commercial Motor Cycle Regulation", "Per Annum", "Licences and Permits", None, 10000, "Part XVII", _UNASSIGNED_NOTE),
+
+    # --- Council-local items with no department in the source document -------
+    # Unlike the six harmonised codes just above, these are new KJ-prefixed
+    # items the source document never named at all — _UNASSIGNED_NOTE's own
+    # wording ("in the Kuje harmonised revenue code list") doesn't apply to
+    # them, so each gets its own description instead. Both share a bye-law
+    # (Part IV Motor Parks, Part IX Loading/Off-Loading Parking) with an
+    # already-unassigned harmonised item above, so `department=None` matches
+    # rather than inventing a departmental home the source doesn't support.
+    ("KJ30010075", "Vehicle Immobilization/Clamping Release Charge", "Per Vehicle", "Fees and Charges", None, 15000, "Part IV - Schedule",
+     "Prescribed charge to release a vehicle fitted with an immobilization/clamping device for a parking or "
+     "obstruction contravention under the Motor Parks Bye-Law — read directly off the Council's own Defaulters "
+     "Charge Notice form (gazette B188). Added 2026-09-12 from docs/KUJE Department Revenue Mapping (1).xlsx, "
+     "verified directly against the gazette page image."),
+    ("KJ30010076", "General Car Park Fee (Authorized Car Parks, 6am-6pm)", "Per Visit", "Fees and Charges", None, 100, "Part IX - S3(i)",
+     "Minimum ₦100, maximum ₦500 per vehicle depending on vehicle type/tariff, for any authorized car park between "
+     "6:00am and 6:00pm (gazette B241). Distinct from Wrong Parking, Corporate Parking Permit/License's (30010052) "
+     "own general per-vehicle band (Part XXIV S6(i)): a different bye-law, a monthly rate two orders of magnitude "
+     "larger, not this per-visit walk-up fee. Added 2026-09-12 from docs/KUJE Department Revenue Mapping (1).xlsx, "
+     "verified directly against the gazette page image."),
 ]
 
 
@@ -345,6 +436,14 @@ def build_band_specs():
         "30010034": [_range(*b) for b in CONTROL_OF_ADVERTISEMENT_BANDS],
         "30010035": [_range(*b) for b in BUILDING_MATERIALS_BANDS],
         "KJ30010073": [_flat(*b) for b in CONSTRUCTION_SITE_PERMIT_FLAT],
+        "30010033": [_flat(*b) for b in ENVIRONMENTAL_SANITATION_WASTE_RATES_FLAT],
+        "KJ30010063": [_flat(*b) for b in PRIVATE_DISLODGING_REGISTRATION_FLAT],
+        "KJ30010076": [_range(*b) for b in GENERAL_CAR_PARK_FEE_RANGE],
+        # Reuses TRADE_LICENSE_BANDS' own Cinema Houses/Viewing Centres
+        # entries rather than re-transcribing — same Part XV First Schedule,
+        # restated as its own EDU-department item.
+        "KJ30010067": [_range(label, mn, mx) for label, mn, mx in TRADE_LICENSE_BANDS
+                       if label in ("Cinema Houses", "Viewing Centres")],
         "30010036": [_flat(*b) for b in MOBILE_ADVERT_FLAT],
         "30010037": [_flat(*b) for b in LOADING_OFFLOADING_FLAT],
         "30010043": [_range(*b) for b in TRADE_LICENSE_BANDS],

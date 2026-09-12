@@ -26,6 +26,54 @@ and matched an existing code, so nothing else changed.
   general per-vehicle/month car-park rate alongside the three vehicle-class
   annual permits already seeded.
 
+Second 2026-09-12 pass — the first pass above cross-checked the workbook's
+own item *names* against the 32-item catalog and concluded everything else
+matched. That was wrong: several of the workbook's "Band/Sub-Category" rows
+carry gazette figures for concepts the catalog's item *names* don't mention
+at all, because they sit a level below the item (a schedule the workbook
+attaches to an item that, from its name alone, looked already covered). A
+closer read of the workbook's own band-level detail, each one re-verified
+directly against the gazette page image (not the workbook's transcription),
+found four more:
+- `ENVIRONMENTAL_SANITATION_WASTE_RATES_FLAT` — new. Gazette Schedule B
+  (B218, Part V), titled "WASTE RATES" — a genuine recurring fee schedule
+  (disposal rates, Blue/Black/Green Cart programmes) sitting right between
+  Schedule A (offence fines, correctly excluded above) and Schedule C
+  (Certificate of Fitness for Habitation, KJ30010065) — neither of which is
+  this. No earlier pass transcribed it at all, at any code. Seeded onto
+  30010033 (Environmental Sanitation and Premise Inspection), which is the
+  item this schedule actually belongs under — see that item's own
+  corrected description in seed_departments_and_revenue.py for why its
+  previous "Section 6.6" citation was wrong. The workbook itself lists a
+  6th, unlabeled figure for this item (₦2,000) that does not appear
+  anywhere on gazette page B218 — read directly as an image, not OCR'd —
+  so it is excluded as unconfirmed rather than guessed into a 6th band.
+- `PRIVATE_DISLODGING_REGISTRATION_FLAT` — new second band for KJ30010063.
+  The gazette gives two different fees for what reads as the same
+  obligation (registering a private waste-dislodging tank/vehicle): ₦100,000
+  under Part XVIII S6(i) (B272, Environmental Health Department) and
+  ₦50,000 under Part V S6.5(2) (B209-B210, "the Authority"). Both kept as
+  separate bands, flagged rather than picked — the same discipline as
+  every other unresolved gazette inconsistency in this file.
+- `GENERAL_CAR_PARK_FEE_RANGE` — new item KJ30010076. Part IX S3(i) (B241):
+  a minimum ₦100, maximum ₦500 per vehicle for any authorized car park,
+  6am-6pm. Not a duplicate of `WRONG_PARKING_CORPORATE_BANDS`' own general
+  per-vehicle band (Part XXIV S6(i)) — that one is a *monthly* rate
+  (₦10,000-₦1,500,000) under a different bye-law entirely; this one is a
+  per-visit walk-up fee two orders of magnitude smaller.
+- A new standalone item, KJ30010074 (Waste Discharge Fee, ₦2,000/trip,
+  Part V S6.5(3), B210) and KJ30010075 (Vehicle Immobilization/Clamping
+  Release Charge, ₦15,000 flat, Part IV Schedule, B188 — the Council's own
+  Defaulters Charge Notice form) are single flat figures, seeded via
+  `RateSchedule.rate_amount` in seed_departments_and_revenue.py with no
+  band constant needed here, the same way Cutting of Road Tar (30010038)
+  has no band of its own.
+- KJ30010067 (Cinema and Viewing Centre Licenses) gained two RANGE bands —
+  Cinema Houses and Viewing Centres — by reusing `TRADE_LICENSE_BANDS`'
+  own entries of the same name rather than re-transcribing: Part XV's First
+  Schedule prices every shop type once, and Cinema/Viewing are separately
+  called out as their own EDU-department item, not a second schedule.
+
 - Control of Advertisement (30010034): 24 RANGE bands, one per sign/advert
   type. Source: split doc 02.
 - Liquor Licensing (30010051): 9 TIERED bands (Large/Medium/Small), one per
@@ -231,6 +279,33 @@ BUILDING_MATERIALS_BANDS = [
 CONSTRUCTION_SITE_PERMIT_FLAT = [
     ("Standard Stacking (Per Sqm/Month) — Minimum", 40000),
     ("Confined Premises Stacking (Per Sqm/Day) — Minimum", 150000),
+]
+
+# (label, amount) — Gazette Schedule B (B218, Part V), "WASTE RATES". Seeded
+# onto 30010033 (Environmental Sanitation and Premise Inspection). See this
+# file's own docstring for why the workbook's 6th, unlabeled figure for this
+# item (₦2,000) is excluded.
+ENVIRONMENTAL_SANITATION_WASTE_RATES_FLAT = [
+    ("Basic Sanitary Waste (Per Tonne)", 5000),
+    ("Minimum Charge — Loads Under 250kg", 500),
+    ("Residential Curbside Recycling — Blue Cart (Per 30 Days)", 800),
+    ("Waste Management — Black Cart (Per 30 Days)", 400),
+    ("Residential Green Cart Programme (Per 30 Days)", 600),
+]
+
+# (label, amount) — second band for KJ30010063 (Private Dislodging
+# Tank/Vehicle Registration). Two different fees for what reads as the same
+# obligation; both kept, flagged rather than picked — see docstring.
+PRIVATE_DISLODGING_REGISTRATION_FLAT = [
+    ("Environmental Health Department Registration (Part XVIII S6(i))", 100000),
+    ("Authority Registration — Alternate Figure (Part V S6.5(2))", 50000),
+]
+
+# (label, min_amount, max_amount) — Part IX S3(i) (B241): general public
+# car-park usage, 6am-6pm. New item KJ30010076 — see docstring for why this
+# is not a duplicate of WRONG_PARKING_CORPORATE_BANDS' own general band.
+GENERAL_CAR_PARK_FEE_RANGE = [
+    ("Per Vehicle (6am-6pm)", 100, 500),
 ]
 
 # (label, min_amount, max_amount) — First Schedule (yearly shops/kiosks) +
