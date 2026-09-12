@@ -1,0 +1,630 @@
+{
+  "backed_up_at": "2026-09-12T22:19:53",
+  "council": {
+    "id": 1,
+    "council_code": "KAC",
+    "council_name": "Kuje Area Council"
+  },
+  "counts": {
+    "departments": 0,
+    "revenue_items": 32,
+    "rate_schedules": 32,
+    "rate_bands": 0,
+    "rate_tiers": 0
+  },
+  "departments": [],
+  "revenue_items": [
+    {
+      "id": 1,
+      "template_code": "30010031",
+      "harmonised_code": "30010031",
+      "item_name": "Registration of Marriages, Births and Death",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Registration",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 2,
+      "template_code": "30010032",
+      "harmonised_code": "30010032",
+      "item_name": "Motor Parks (Commercial Vehicles picking up passengers)",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 3,
+      "template_code": "30010033",
+      "harmonised_code": "30010033",
+      "item_name": "Environmental Sanitation and Premise Inspection",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 4,
+      "template_code": "30010034",
+      "harmonised_code": "30010034",
+      "item_name": "Control of Advertisement",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 5,
+      "template_code": "30010036",
+      "harmonised_code": "30010036",
+      "item_name": "Mobile Advert",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 6,
+      "template_code": "30010035",
+      "harmonised_code": "30010035",
+      "item_name": "Stacking of Building Material / Construction Permit",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Permit",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 7,
+      "template_code": "30010037",
+      "harmonised_code": "30010037",
+      "item_name": "Loading/Off Loading Control of Traffic",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 8,
+      "template_code": "30010038",
+      "harmonised_code": "30010038",
+      "item_name": "Cutting Of Road Tar",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Permit",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 9,
+      "template_code": "30010039",
+      "harmonised_code": "30010039",
+      "item_name": "Movement and Keeping of Dogs",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 10,
+      "template_code": "30010040",
+      "harmonised_code": "30010040",
+      "item_name": "Numbering / Street Naming",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 11,
+      "template_code": "30010041",
+      "harmonised_code": "30010041",
+      "item_name": "Registration of Dry Cleaning and Laundry Houses",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 12,
+      "template_code": "30010042",
+      "harmonised_code": "30010042",
+      "item_name": "Market Regulation",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 13,
+      "template_code": "30010043",
+      "harmonised_code": "30010043",
+      "item_name": "Trade License, Private Lockup Shops and Allied Matters",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 14,
+      "template_code": "30010044",
+      "harmonised_code": "30010044",
+      "item_name": "Radio and Television License",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 15,
+      "template_code": "30010045",
+      "harmonised_code": "30010045",
+      "item_name": "Tricycle (Keke) Commercial Motor Cycle Regulation",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 16,
+      "template_code": "30010046",
+      "harmonised_code": "30010046",
+      "item_name": "Public Toilet",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 17,
+      "template_code": "30010047",
+      "harmonised_code": "30010047",
+      "item_name": "Pest Control",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 18,
+      "template_code": "30010048",
+      "harmonised_code": "30010048",
+      "item_name": "Contractors",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Registration",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 19,
+      "template_code": "30010049",
+      "harmonised_code": "30010049",
+      "item_name": "Tenement Rate Collection",
+      "category": "Rates",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 20,
+      "template_code": "30010050",
+      "harmonised_code": "30010050",
+      "item_name": "Private Sector Participation Refuse Operation (PSPRO)",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 21,
+      "template_code": "30010051",
+      "harmonised_code": "30010051",
+      "item_name": "Liquor Licensing",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 22,
+      "template_code": "30010052",
+      "harmonised_code": "30010052",
+      "item_name": "Wrong Parking, Corporate Parking Permit/License",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 23,
+      "template_code": "30010053",
+      "harmonised_code": "30010053",
+      "item_name": "Foodstuff Regulation",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Month",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 24,
+      "template_code": "30010054",
+      "harmonised_code": "30010054",
+      "item_name": "Regulated Premises",
+      "category": "Fees and Charges",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 25,
+      "template_code": "30010055",
+      "harmonised_code": "30010055",
+      "item_name": "Registration Fee",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Registration",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 26,
+      "template_code": "30010056",
+      "harmonised_code": "30010056",
+      "item_name": "Communication Mast License",
+      "category": "Licences and Permits",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 27,
+      "template_code": "30010057",
+      "harmonised_code": "30010057",
+      "item_name": "Agreement Fees on Sale of Land and Other Disposition",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Transaction",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 28,
+      "template_code": "30010058",
+      "harmonised_code": "30010058",
+      "item_name": "Fees for Certificate of Occupancy",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Certificate",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 29,
+      "template_code": "30010059",
+      "harmonised_code": "30010059",
+      "item_name": "Fees for Change of Ownership",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Transaction",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 30,
+      "template_code": "30010060",
+      "harmonised_code": "30010060",
+      "item_name": "Searches",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Search",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 31,
+      "template_code": "30010061",
+      "harmonised_code": "30010061",
+      "item_name": "Tender Fees",
+      "category": "Registration and Professional Fees",
+      "unit_of_charge": "Per Tender",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    },
+    {
+      "id": 32,
+      "template_code": "30010062",
+      "harmonised_code": "30010062",
+      "item_name": "Community and Development Levy",
+      "category": "Levies",
+      "unit_of_charge": "Per Annum",
+      "is_active": true,
+      "department_id": null,
+      "bye_law_reference": "",
+      "bye_law_description": ""
+    }
+  ],
+  "rate_schedules": [
+    {
+      "id": 1,
+      "council_revenue_item_id": 1,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 2,
+      "council_revenue_item_id": 2,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 3,
+      "council_revenue_item_id": 3,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 4,
+      "council_revenue_item_id": 4,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 5,
+      "council_revenue_item_id": 5,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 6,
+      "council_revenue_item_id": 6,
+      "rate_amount": "25000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 7,
+      "council_revenue_item_id": 7,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 8,
+      "council_revenue_item_id": 8,
+      "rate_amount": "30000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 9,
+      "council_revenue_item_id": 9,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 10,
+      "council_revenue_item_id": 10,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 11,
+      "council_revenue_item_id": 11,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 12,
+      "council_revenue_item_id": 12,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 13,
+      "council_revenue_item_id": 13,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 14,
+      "council_revenue_item_id": 14,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 15,
+      "council_revenue_item_id": 15,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 16,
+      "council_revenue_item_id": 16,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 17,
+      "council_revenue_item_id": 17,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 18,
+      "council_revenue_item_id": 18,
+      "rate_amount": "50000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 19,
+      "council_revenue_item_id": 19,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 20,
+      "council_revenue_item_id": 20,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 21,
+      "council_revenue_item_id": 21,
+      "rate_amount": "50000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 22,
+      "council_revenue_item_id": 22,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 23,
+      "council_revenue_item_id": 23,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 24,
+      "council_revenue_item_id": 24,
+      "rate_amount": "30000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 25,
+      "council_revenue_item_id": 25,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 26,
+      "council_revenue_item_id": 26,
+      "rate_amount": "1000000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 27,
+      "council_revenue_item_id": 27,
+      "rate_amount": "20000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 28,
+      "council_revenue_item_id": 28,
+      "rate_amount": "25000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 29,
+      "council_revenue_item_id": 29,
+      "rate_amount": "15000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 30,
+      "council_revenue_item_id": 30,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 31,
+      "council_revenue_item_id": 31,
+      "rate_amount": "10000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    },
+    {
+      "id": 32,
+      "council_revenue_item_id": 32,
+      "rate_amount": "5000.00",
+      "effective_from": "2026-09-10",
+      "effective_to": null
+    }
+  ],
+  "rate_bands": [],
+  "rate_tiers": []
+}
