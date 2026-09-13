@@ -94,6 +94,76 @@ def test_create_revenue_item_duplicate_code_rejected(setup_data, authed_api_clie
 
 
 @pytest.mark.django_db(transaction=True)
+def test_harmonised_code_reusable_after_retiring_via_api(setup_data, authed_api_client):
+    """uniq_item_code_per_council is a partial constraint (is_active=True
+    only) specifically so retiring isn't a one-way lock on the code — see
+    apps/revenue/models.py's own comment on the constraint."""
+    admin = setup_data["admin"]
+    category = setup_data["category"]
+
+    payload = {
+        "harmonised_code": "LOCAL-REUSE",
+        "item_name": "Original Item",
+        "category_id": category.id,
+        "unit_of_charge": "annual",
+        "rate_amount": "5000.00",
+    }
+    first_id = authed_api_client(admin).post("/api/v1/revenue-items", data=payload, format="json").json()["id"]
+
+    retire_res = authed_api_client(admin).delete(f"/api/v1/revenue-items/{first_id}")
+    assert retire_res.status_code == 204
+
+    payload["item_name"] = "Reissued Item"
+    r2 = authed_api_client(admin).post("/api/v1/revenue-items", data=payload, format="json")
+    assert r2.status_code == 201, r2.content
+    second_id = r2.json()["id"]
+    assert second_id != first_id
+
+    # Both rows survive — the retired one keeps its history, the new one is
+    # a separate row sharing only the code string, not the id.
+    first = CouncilRevenueItem.objects.get(id=first_id)
+    second = CouncilRevenueItem.objects.get(id=second_id)
+    assert first.is_active is False
+    assert first.item_name == "Original Item"
+    assert second.is_active is True
+    assert second.item_name == "Reissued Item"
+    assert first.harmonised_code == second.harmonised_code == "LOCAL-REUSE"
+
+    # And the newly-active one is what a third create attempt now collides with.
+    r3 = authed_api_client(admin).post("/api/v1/revenue-items", data=payload, format="json")
+    assert r3.status_code == 400
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_retired_items_can_share_a_harmonised_code(setup_data):
+    """The partial index only constrains is_active=True rows — retiring,
+    reissuing, and retiring again must not hit uniq_item_code_per_council on
+    the second retirement, since both retired rows are simultaneously
+    is_active=False at that point."""
+    from apps.revenue.services import create_revenue_item, retire_revenue_item
+
+    council = setup_data["council"]
+    admin = setup_data["admin"]
+    category = setup_data["category"]
+
+    first = create_revenue_item(
+        council=council, harmonised_code="LOCAL-TWICE", item_name="First", category=category,
+        unit_of_charge="annual", rate_amount=decimal.Decimal("1000.00"), actor=admin,
+    )
+    retire_revenue_item(council_revenue_item=first, actor=admin)
+
+    second = create_revenue_item(
+        council=council, harmonised_code="LOCAL-TWICE", item_name="Second", category=category,
+        unit_of_charge="annual", rate_amount=decimal.Decimal("2000.00"), actor=admin,
+    )
+    retire_revenue_item(council_revenue_item=second, actor=admin)
+
+    assert CouncilRevenueItem.objects.filter(
+        council=council, harmonised_code="LOCAL-TWICE", is_active=False
+    ).count() == 2
+
+
+@pytest.mark.django_db(transaction=True)
 def test_create_revenue_item_non_admin_forbidden(setup_data, authed_api_client):
     consultant_user = setup_data["consultant_user"]
     category = setup_data["category"]

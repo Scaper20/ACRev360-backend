@@ -21,6 +21,50 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-13 — Let a retired harmonised_code be reused, following up on the same-day PR
+
+**Ask:** direct follow-up to "what of the permanent harmonised_code lock-out
+after retirement" — the one gap the prior entry deliberately left flagged
+rather than fixed, since it's a product decision (a schema change), not a
+bug in the agent's original PR.
+
+**Found/decided:** confirmed reuse is safe to allow. Historical
+`Assessment`/`BillLine` rows reference the retired `CouncilRevenueItem` row
+by its numeric id, never by `harmonised_code`, so a new row later reusing the
+same code string is a completely separate row with its own id — nothing that
+already billed against the old one is affected. A council-local item's code
+is arbitrary text the admin typed in (unlike `RevenueItemTemplate.
+harmonised_code`, which stays genuinely global-unique and untouched here),
+so there's no real namespace-protection reason to keep it locked forever
+once its item is gone for good.
+
+**Fix:**
+- `apps/revenue/models.py`: `uniq_item_code_per_council` is now a partial
+  `UniqueConstraint` (`condition=models.Q(is_active=True)`) — unique only
+  among active rows; any number of retired rows may now share a code.
+  `apps/revenue/migrations/0007_partial_unique_item_code_active_only.py`.
+- `apps/revenue/api/serializers.py`: `CreateCouncilRevenueItemSerializer.
+  validate_harmonised_code` now checks `is_active=True` too, matching the DB
+  constraint — otherwise the serializer would still 400 a reuse the database
+  itself would happily allow.
+- `apps/revenue/management/commands/seed_rate_bands.py`: `_get_item()`'s
+  lookup gained the same `is_active=True` filter — with the constraint no
+  longer guaranteeing at most one row per code overall, a bare `.get()`
+  would risk `MultipleObjectsReturned` the first time a production council
+  ever retires-and-reissues a code this command also seeds bands for.
+- `tests/test_revenue_items_create_retire.py`: added coverage for reusing a
+  code after retiring (API level) and for two *retired* rows legitimately
+  sharing a code (service level, via `create_revenue_item`/
+  `retire_revenue_item` directly) — 14/14 pass; full suite green.
+
+**Gotchas:** any other future lookup keyed on `(council, harmonised_code)`
+alone — not just the two fixed here — needs its own `is_active=True` filter
+now that the DB no longer enforces global uniqueness for that pair; grep for
+`harmonised_code=` before trusting a new `.get()`/`.filter().exists()` on
+`CouncilRevenueItem` to mean "the" row rather than "the active one."
+
+---
+
 ## 2026-09-13 — Create/retire revenue items: cross-checked an external agent's implementation, fixed a real billing-bypass gap
 
 **Ask:** PR ticket "create and retire revenue items" — `POST /api/v1/revenue-items`
@@ -79,7 +123,8 @@ missed against its own spec:
   *existing* bill via `POST /bills/{id}/lines` (404) — all three were
   previously unguarded and untested. 12/12 pass; full suite 364/364.
 
-**Not fixed, flagged instead:** `uniq_item_code_per_council`
+**Flagged, not fixed in this pass** (resolved same day — see the entry
+directly above this one): `uniq_item_code_per_council`
 (`apps/revenue/models.py`) is an unconditional `UniqueConstraint`, not scoped
 to `is_active=True` — once retired, a `harmonised_code` can never be reused
 by a future item at that council (there's no un-retire, deliberately out of

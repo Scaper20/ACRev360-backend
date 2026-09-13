@@ -75,7 +75,18 @@ class CouncilRevenueItem(CouncilScopedModel):
     class Meta:
         db_table = "council_revenue_item"
         constraints = [
-            models.UniqueConstraint(fields=["council", "harmonised_code"], name="uniq_item_code_per_council"),
+            # Scoped to is_active=True (a partial index), not every row ever
+            # created: retiring is meant to be permanent (no un-retire), so an
+            # unconditional constraint would permanently burn a code the
+            # moment its item is retired, with no way back short of a manual
+            # DB edit. A retired row keeps its code for history; a new item
+            # can freely reuse it — old Assessments/BillLines still point at
+            # the old row by id, not by this string, so nothing that already
+            # billed against it is affected either way.
+            models.UniqueConstraint(
+                fields=["council", "harmonised_code"], condition=models.Q(is_active=True),
+                name="uniq_item_code_per_council",
+            ),
         ]
         ordering = ["harmonised_code"]
 

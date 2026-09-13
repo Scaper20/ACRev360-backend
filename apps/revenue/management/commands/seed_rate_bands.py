@@ -713,7 +713,11 @@ class Command(BaseCommand):
 
     def _get_item(self, council, code, name):
         try:
-            return CouncilRevenueItem.objects.get(council=council, harmonised_code=code)
+            # is_active=True: uniq_item_code_per_council is now a partial
+            # constraint (unique only among active rows) so a retired item
+            # can share a code with a later, active one — this must filter
+            # the same way or risk MultipleObjectsReturned.
+            return CouncilRevenueItem.objects.get(council=council, harmonised_code=code, is_active=True)
         except CouncilRevenueItem.DoesNotExist:
             self.stdout.write(self.style.WARNING(f"{code} {name} not activated for {council.council_code} — skipping"))
             return None

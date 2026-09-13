@@ -101,7 +101,11 @@ class CreateCouncilRevenueItemSerializer(serializers.Serializer):
         code = value.strip()
         request = self.context.get("request")
         if request and hasattr(request, "user") and request.user and getattr(request.user, "council_id", None):
-            if CouncilRevenueItem.objects.filter(council_id=request.user.council_id, harmonised_code=code).exists():
+            # Scoped to is_active=True, matching uniq_item_code_per_council's own
+            # partial index — a retired item's code is free to reuse.
+            if CouncilRevenueItem.objects.filter(
+                council_id=request.user.council_id, harmonised_code=code, is_active=True
+            ).exists():
                 raise serializers.ValidationError(f"Revenue item with code '{code}' already exists for this council.")
         return code
 
