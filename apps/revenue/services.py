@@ -3,11 +3,116 @@ import datetime
 from django.db import transaction
 
 from apps.audit.services import audit
-from apps.revenue.models import RateBand, RateSchedule, RateTier
+from apps.revenue.models import CouncilRevenueItem, RateBand, RateSchedule, RateTier
 
 
 class BandingError(Exception):
     """Raised for an invalid band/tier specification — callers map this to a 400."""
+
+
+class RevenueItemError(Exception):
+    """Base exception for revenue item service operations."""
+
+
+class RetireError(RevenueItemError):
+    """Raised when a revenue item cannot be retired — callers map this to 400/409."""
+
+
+@transaction.atomic
+def create_revenue_item(
+    *,
+    council,
+    harmonised_code,
+    item_name,
+    category,
+    unit_of_charge,
+    rate_amount,
+    actor,
+    department=None,
+    bye_law_reference="",
+    bye_law_description="",
+    template=None,
+) -> CouncilRevenueItem:
+    """Create a CouncilRevenueItem + its initial RateSchedule row + write audit entry.
+    Used for both template activation and council-local item creation."""
+    item = CouncilRevenueItem.objects.create(
+        council=council,
+        template=template,
+        harmonised_code=harmonised_code,
+        item_name=item_name,
+        category=category,
+        unit_of_charge=unit_of_charge,
+        department=department,
+        bye_law_reference=bye_law_reference or "",
+        bye_law_description=bye_law_description or "",
+    )
+    RateSchedule.objects.create(
+        council_revenue_item=item,
+        rate_amount=rate_amount,
+        effective_from=datetime.date.today(),
+    )
+    audit(
+        council_id=council.id,
+        actor=actor,
+        action="REVENUE_ITEM_ACTIVATED",
+        entity_type="COUNCIL_REVENUE_ITEM",
+        entity_id=item.id,
+        detail={"code": item.harmonised_code, "rate": str(rate_amount)},
+    )
+    return item
+
+
+@transaction.atomic
+def retire_revenue_item(*, council_revenue_item, actor) -> CouncilRevenueItem:
+    """Soft-delete a CouncilRevenueItem by setting is_active=False. Refuses if
+    there's a live reference: a DRAFT assessment not yet billed, or a BillLine
+    already citing this item on a bill that still has money outstanding
+    (ISSUED/PART_PAID/OVERDUE). A PAID, CANCELLED or SUPERSEDED bill's line is
+    pure history at that point — its amount was fixed when it was billed, so
+    it stays intact and doesn't block retirement, same as a closed RateSchedule
+    row. Retiring only stops NEW billing against this item (the views that
+    resolve a CouncilRevenueItem by id for a new bill/line filter is_active=True
+    too — see apps/billing/api/views.py) — it never touches existing bills or
+    assessments."""
+    from apps.billing.models import Assessment, Bill
+
+    if not council_revenue_item.is_active:
+        return council_revenue_item
+
+    has_draft_assessments = Assessment.objects.filter(
+        council_revenue_item=council_revenue_item,
+        status=Assessment.DRAFT,
+    ).exists()
+    if has_draft_assessments:
+        raise RetireError(
+            f"Cannot retire '{council_revenue_item.harmonised_code}' because it has active draft assessments. "
+            "Please clear or process draft assessments before retiring this item."
+        )
+
+    has_outstanding_bill = Assessment.objects.filter(
+        council_revenue_item=council_revenue_item,
+        bill_lines__bill__status__in=(Bill.ISSUED, Bill.PART_PAID, Bill.OVERDUE),
+    ).exists()
+    if has_outstanding_bill:
+        raise RetireError(
+            f"Cannot retire '{council_revenue_item.harmonised_code}' because it has a line item on a bill that "
+            "is still outstanding (issued, part-paid, or overdue). Settle, cancel, or write off that bill first — "
+            "a fully paid, cancelled, or superseded bill's line is history and doesn't block retirement."
+        )
+
+    council_revenue_item.is_active = False
+    council_revenue_item.save(update_fields=["is_active"])
+
+    audit(
+        council_id=council_revenue_item.council_id,
+        actor=actor,
+        action="REVENUE_ITEM_RETIRED",
+        entity_type="COUNCIL_REVENUE_ITEM",
+        entity_id=council_revenue_item.id,
+        detail={"code": council_revenue_item.harmonised_code, "item_name": council_revenue_item.item_name},
+    )
+    return council_revenue_item
+
 
 
 @transaction.atomic

@@ -10,13 +10,14 @@ from apps.common.permissions import access_level_permission
 from apps.revenue.api.serializers import (
     ChangeRateSerializer,
     CouncilRevenueItemSerializer,
+    CreateCouncilRevenueItemSerializer,
     ReplaceRateBandsSerializer,
     RevenueCategorySerializer,
     RevenueItemTemplateSerializer,
     SetDepartmentSerializer,
 )
 from apps.revenue.models import AgentPortfolio, CouncilRevenueItem, RevenueCategory, RevenueItemTemplate
-from apps.revenue.services import BandingError, change_rate, replace_rate_bands
+from apps.revenue.services import BandingError, RetireError, change_rate, create_revenue_item, replace_rate_bands, retire_revenue_item
 from apps.tenancy.models import Department
 
 READ_ONLY_LEVELS = [
@@ -44,10 +45,17 @@ class RevenueItemTemplateViewSet(mixins.ListModelMixin, viewsets.GenericViewSet)
     permission_classes = [access_level_permission(*READ_ONLY_LEVELS)]
 
 
-class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class CouncilRevenueItemViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+):
     serializer_class = CouncilRevenueItemSerializer
     permission_classes = [access_level_permission(*READ_ONLY_LEVELS)]
     lookup_value_regex = r"[0-9]+"
+
+    def get_permissions(self):
+        if self.action in ("create", "destroy", "retire"):
+            return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True).order_by("harmonised_code")
@@ -85,6 +93,64 @@ class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin
                     portfolio_entries__effective_to__isnull=True,
                 ).distinct()
         return qs
+
+    @extend_schema(request=CreateCouncilRevenueItemSerializer, responses=CouncilRevenueItemSerializer)
+    def create(self, request, *args, **kwargs):
+        """Only COUNCIL_ADMIN may manually create a council-local revenue item."""
+        serializer = CreateCouncilRevenueItemSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        category = get_object_or_404(RevenueCategory, pk=data["category_id"])
+        department = None
+        if data.get("department_id") is not None:
+            department = get_object_or_404(Department, pk=data["department_id"], council_id=request.user.council_id)
+
+        item = create_revenue_item(
+            council=request.user.council,
+            harmonised_code=data["harmonised_code"],
+            item_name=data["item_name"],
+            category=category,
+            unit_of_charge=data["unit_of_charge"],
+            rate_amount=data["rate_amount"],
+            actor=request.user,
+            department=department,
+            bye_law_reference=data.get("bye_law_reference", ""),
+            bye_law_description=data.get("bye_law_description", ""),
+        )
+        return Response(CouncilRevenueItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    def _retire(self, request):
+        """Shared by destroy() and retire() — same operation, two entry points
+        (REST DELETE and an explicit action), so the error handling and
+        response shape stay in one place rather than drifting apart."""
+        item = self.get_object()
+        try:
+            retire_revenue_item(council_revenue_item=item, actor=request.user)
+        except RetireError as exc:
+            return None, Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return item, None
+
+    def destroy(self, request, *args, **kwargs):
+        """Only COUNCIL_ADMIN may retire a revenue item (DELETE /api/v1/revenue-items/{id})."""
+        item, error_response = self._retire(request)
+        if error_response is not None:
+            return error_response
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # get_permissions() above already forces COUNCIL_ADMIN for this action
+    # unconditionally — no permission_classes kwarg here, since one would
+    # never actually be consulted and could silently drift from it.
+    @extend_schema(request=None, responses=CouncilRevenueItemSerializer)
+    @action(detail=True, methods=["post"], url_path="retire")
+    def retire(self, request, pk=None):
+        """Only COUNCIL_ADMIN may retire a revenue item (POST /api/v1/revenue-items/{id}/retire)."""
+        item, error_response = self._retire(request)
+        if error_response is not None:
+            return error_response
+        # retire_revenue_item() mutates and saves this exact instance already
+        # (same object reference get_object() returned) — no need to re-fetch.
+        return Response(CouncilRevenueItemSerializer(item).data)
 
     @extend_schema(request=ChangeRateSerializer, responses=CouncilRevenueItemSerializer)
     @action(detail=True, methods=["post"], url_path="rate", permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN)])
@@ -131,3 +197,4 @@ class CouncilRevenueItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin
             entity_type="COUNCIL_REVENUE_ITEM", entity_id=item.id, detail={"department_id": department_id},
         )
         return Response(CouncilRevenueItemSerializer(item).data)
+

@@ -85,3 +85,23 @@ class RateBandEntrySerializer(serializers.Serializer):
 
 class ReplaceRateBandsSerializer(serializers.Serializer):
     bands = RateBandEntrySerializer(many=True, default=list)
+
+
+class CreateCouncilRevenueItemSerializer(serializers.Serializer):
+    harmonised_code = serializers.CharField(max_length=32)
+    item_name = serializers.CharField(max_length=160)
+    category_id = serializers.IntegerField()
+    unit_of_charge = serializers.CharField(max_length=64)
+    department_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    rate_amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0)
+    bye_law_reference = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+    bye_law_description = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_harmonised_code(self, value):
+        code = value.strip()
+        request = self.context.get("request")
+        if request and hasattr(request, "user") and request.user and getattr(request.user, "council_id", None):
+            if CouncilRevenueItem.objects.filter(council_id=request.user.council_id, harmonised_code=code).exists():
+                raise serializers.ValidationError(f"Revenue item with code '{code}' already exists for this council.")
+        return code
+

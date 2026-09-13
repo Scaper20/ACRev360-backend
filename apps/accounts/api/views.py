@@ -222,7 +222,7 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         # registration bill to show for it.
         try:
             registration_item = CouncilRevenueItem.objects.get(
-                council_id=self.request.user.council_id, harmonised_code=CONSULTANT_REGISTRATION_ITEM_CODE,
+                council_id=self.request.user.council_id, harmonised_code=CONSULTANT_REGISTRATION_ITEM_CODE, is_active=True,
             )
             registration_band = registration_item.active_bands.get(label=CONSULTANT_REGISTRATION_BAND_LABEL)
         except (CouncilRevenueItem.DoesNotExist, RateBand.DoesNotExist):

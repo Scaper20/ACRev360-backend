@@ -169,7 +169,9 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
         payer = get_object_or_404(Payer, pk=data["payer_id"], council_id=request.user.council_id)
         lines = []
         for entry in data.get("lines", []):
-            item = get_object_or_404(CouncilRevenueItem, pk=entry["revenue_item_id"], council_id=request.user.council_id)
+            item = get_object_or_404(
+                CouncilRevenueItem, pk=entry["revenue_item_id"], council_id=request.user.council_id, is_active=True
+            )
             rate_band, rate_tier = _resolve_band_and_tier(entry, item)
             lines.append({
                 "council_revenue_item": item,
@@ -243,7 +245,9 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
         bill = self.get_object()
         serializer = AddLineSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        item = get_object_or_404(CouncilRevenueItem, pk=serializer.validated_data["revenue_item_id"], council_id=request.user.council_id)
+        item = get_object_or_404(
+            CouncilRevenueItem, pk=serializer.validated_data["revenue_item_id"], council_id=request.user.council_id, is_active=True
+        )
         rate_band, rate_tier = _resolve_band_and_tier(serializer.validated_data, item)
         try:
             line = add_bill_line(

@@ -21,6 +21,83 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-13 — Create/retire revenue items: cross-checked an external agent's implementation, fixed a real billing-bypass gap
+
+**Ask:** PR ticket "create and retire revenue items" — `POST /api/v1/revenue-items`
+(COUNCIL_ADMIN-only manual creation of a council-local item) and a soft-delete
+retire path (`DELETE .../{id}` or `POST .../{id}/retire`), reusing
+`activate_template_item`'s "item + RateSchedule + audit" shape rather than
+duplicating it, with a real guard against retiring an item still referenced
+by a live bill/draft assessment. Implemented by an external agent; the user
+asked for a cross-check before trusting it.
+
+**Found:** a `/code-review high` pass plus manual tracing of the actual model
+relationships and status-transition code turned up two gaps the implementation
+missed against its own spec:
+- **Retiring didn't stop new billing at all.** `apps/billing/api/views.py`'s
+  bill-creation and `add_line` actions resolved `CouncilRevenueItem` via
+  `get_object_or_404(..., council_id=...)` with no `is_active` filter, and
+  neither `issue_bill()` nor `add_bill_line()` in `apps/billing/services.py`
+  ever checked it either. A retired item could still be billed against by ID
+  — `is_active=False` only hid it from the Revenue Items list/detail screens,
+  it never enforced "not billable" anywhere billing actually happens.
+- **The retire guard checked the wrong assessment status.** It only refused
+  on `Assessment.status == "DRAFT"`. Once a bill is issued, `issue_bill()`
+  flips the assessment to `BILLED` (apps/billing/services.py — both call
+  sites), so a currently outstanding (ISSUED/PART_PAID/OVERDUE) bill's line
+  item sailed straight past the guard — the exact scenario the ticket named
+  ("a bill that already has a line item citing this revenue item"), untested
+  by the agent's own test file.
+- Also: `retire`'s permission declared twice (a dead `@action`
+  `permission_classes` kwarg the overridden `get_permissions()` never
+  actually consults for that action), `destroy()`/`retire()` duplicating
+  identical logic, two dead imports left in `apps/tenancy/services.py` after
+  `activate_template_item` was correctly refactored to delegate to a new
+  shared `create_revenue_item()`, a wasted `refresh_from_db()` on an instance
+  the service already mutated in place, and a hardcoded `"DRAFT"` string
+  instead of `Assessment.DRAFT`.
+
+**Fix:**
+- `apps/billing/api/views.py`: both revenue-item lookups (`create()`'s line
+  loop, `add_line()`) now filter `is_active=True`; a retired item 404s
+  instead of silently billing.
+- `apps/accounts/api/views.py`: the consultant-registration item lookup
+  (`CONSULTANT_REGISTRATION_ITEM_CODE`) gets the same `is_active=True` filter
+  for consistency — the same bug class, same fix.
+- `apps/revenue/services.py`: `retire_revenue_item()` now also refuses when
+  `Assessment.objects.filter(council_revenue_item=..., bill_lines__bill__status__in=
+  (ISSUED, PART_PAID, OVERDUE)).exists()` — a PAID/CANCELLED/SUPERSEDED bill's
+  line is history and correctly does NOT block retirement, only a bill still
+  owed against does. Uses `Assessment.DRAFT` instead of a raw string.
+- `apps/revenue/api/views.py`: `destroy()`/`retire()` now share one `_retire()`
+  helper; dropped the dead `permission_classes` kwarg on the `retire` action
+  and the redundant `refresh_from_db()`.
+- `apps/tenancy/services.py`: removed the two dead imports.
+- `tests/test_revenue_items_create_retire.py` (agent's file, extended): added
+  coverage for retiring with an outstanding bill (409), billing a retired
+  item via `POST /bills` (404), and adding a retired item as a line to an
+  *existing* bill via `POST /bills/{id}/lines` (404) — all three were
+  previously unguarded and untested. 12/12 pass; full suite 364/364.
+
+**Not fixed, flagged instead:** `uniq_item_code_per_council`
+(`apps/revenue/models.py`) is an unconditional `UniqueConstraint`, not scoped
+to `is_active=True` — once retired, a `harmonised_code` can never be reused
+by a future item at that council (there's no un-retire, deliberately out of
+this ticket's scope). Whether a retired code should ever become reusable is a
+product decision needing a migration (a partial unique index), not a
+drive-by fix alongside a bug pass.
+
+**Gotchas:** any future write path that resolves a `CouncilRevenueItem` by id
+from user input (a new billing/enumeration/portfolio-assignment endpoint) has
+to filter `is_active=True` itself — there is no model-level or queryset-level
+default that does this centrally; `CouncilRevenueItemViewSet.get_queryset()`'s
+own `is_active=True` filter only protects that one viewset, not any other
+app's lookups. This is the second time this exact class of gap has needed a
+manual fix in two different apps (billing, accounts) for the same field —
+worth a `CouncilRevenueItem.active` manager if a third call site turns up.
+
+---
+
 ## 2026-09-12 — Extensive re-audit of the revenue workbook: four more genuine gaps the first pass missed
 
 **Ask:** "i just crossed checked looks like our work is far from done, because
