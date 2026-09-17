@@ -1,11 +1,19 @@
 name: Daily debt ageing refresh
 
 # Free stand-in for Render Cron Jobs (which have a $1/mo minimum charge per
-# job — no free instance type exists for them). Calls the same
-# POST /api/v1/debt/refresh endpoint the "Refresh Ageing" button in the
-# frontend uses (apps/enforcement/api/views.py::DebtCaseViewSet.refresh),
-# logging in fresh each run since access tokens are short-lived (30 min).
-# See docs/DEPLOYMENT.md.
+# job — no free instance type exists for them). Runs
+# apps/enforcement/management/commands/refresh_debt_ageing.py directly
+# against the database on a daily GitHub Actions schedule — genuinely free,
+# no extra Render service.
+#
+# This calls the management command directly (checkout + pip install +
+# manage.py) rather than hitting the deployed API over HTTP, on purpose: an
+# HTTP call depends on the Render web service being awake/not suspended,
+# which has repeatedly not held true (30-day free Postgres expiry, free-tier
+# idle spin-down, an unexplained manual suspension — see docs/CHANGELOG.md).
+# Running the command directly against the database sidesteps all of that,
+# and as a bonus refreshes every active council in one pass instead of just
+# the single council the old HTTP call was scoped to. See docs/DEPLOYMENT.md.
 
 on:
   schedule:
@@ -16,24 +24,23 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      # Note: this hits the single-council refresh endpoint, scoped to
-      # ACREV_ADMIN_USERNAME's own council — not the multi-council sweep
-      # apps/enforcement/tasks.py::refresh_all_councils_debt() does. Fine
-      # while only one council is seeded; once a second council is onboarded,
-      # add a second login+refresh step per council (or move to Celery beat).
-      - name: Log in and refresh debt ageing
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # matches the Dockerfile's base image
+
+      - name: Install dependencies
+        run: pip install -r requirements/prod.txt
+
+      - name: Refresh debt ageing for every active council
         env:
-          API_BASE_URL: ${{ secrets.ACREV_API_BASE_URL }}
-          ADMIN_USERNAME: ${{ secrets.ACREV_ADMIN_USERNAME }}
-          ADMIN_PASSWORD: ${{ secrets.ACREV_ADMIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          access_token=$(curl -sf -X POST "$API_BASE_URL/api/v1/auth/login" \
-            -H "Content-Type: application/json" \
-            -d "$(python3 -c 'import json,os; print(json.dumps({"username": os.environ["ADMIN_USERNAME"], "password": os.environ["ADMIN_PASSWORD"]}))')" \
-            | python3 -c "import sys, json; print(json.load(sys.stdin)['access'])")
-
-          curl -sf -X POST "$API_BASE_URL/api/v1/debt/refresh" \
-            -H "Authorization: Bearer $access_token" \
-            -H "Content-Type: application/json"
+          DATABASE_URL: ${{ secrets.ACREV_DATABASE_URL }}
+          DJANGO_SETTINGS_MODULE: config.settings.prod
+          # config.settings.prod requires these with no default, but this
+          # job never serves a request — any non-empty value satisfies the
+          # settings check without meaning anything.
+          DJANGO_SECRET_KEY: unused-by-this-command-any-value-works
+          DJANGO_ALLOWED_HOSTS: localhost
+          CORS_ALLOWED_ORIGINS: http://localhost
+        run: python manage.py refresh_debt_ageing

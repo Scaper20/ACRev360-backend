@@ -102,23 +102,31 @@ Both are easy to upgrade later without re-architecting anything below.
      exits harmlessly if so, so re-running this by accident is safe.)
    - Close that shell/unset those vars afterward so you don't accidentally run
      something else against the production database.
-6. Confirm it's actually up:
-   - `https://acrev360-backend.onrender.com/api/v1/health` → `{"status": "ok"}`
-   - `https://acrev360-backend.onrender.com/api/docs/` loads Swagger UI
+6. Confirm it's actually up (the deployed hostname may not be the plain
+   `acrev360-backend.onrender.com` — the plain subdomain can already be
+   claimed by an older service in your Render workspace, in which case
+   Render assigns a random suffix instead, e.g. `acrev360-backend-wxu8.onrender.com`;
+   check the service's page in the Render dashboard for its actual URL):
+   - `<your-service-url>/api/v1/health` → `{"status": "ok"}`
+   - `<your-service-url>/api/docs/` loads Swagger UI
    - **Free-tier note:** the web service spins down after 15 minutes idle: the
      first request after a quiet spell takes ~30–60s while it wakes up.
 7. **Wire up the daily debt-ageing refresh** (GitHub Actions, since Render
-   Cron Jobs cost $1/mo minimum even on the "free" plan — see §0): in the
-   backend repo's GitHub settings → **Settings → Secrets and variables →
-   Actions**, add three repository secrets:
+   Cron Jobs cost $1/mo minimum even on the "free" plan — see §0): the
+   workflow (`.github/workflows/debt-ageing-refresh.yml`) runs
+   `manage.py refresh_debt_ageing` directly against the database — not
+   through the deployed API — specifically so this job doesn't depend on the
+   Render web service being awake or even up at all (that dependency chain
+   broke more than once: free Postgres expiry, idle spin-down, an
+   unexplained manual suspension — see `docs/CHANGELOG.md`). In the backend
+   repo's GitHub settings → **Settings → Secrets and variables → Actions**,
+   add one repository secret:
    ```
-   ACREV_API_BASE_URL   = https://acrev360-backend.onrender.com
-   ACREV_ADMIN_USERNAME = <the --admin-username you seeded with, default "admin">
-   ACREV_ADMIN_PASSWORD = <the password you just set in step 5>
+   ACREV_DATABASE_URL = <the same Neon pooled connection string used for DATABASE_URL>
    ```
-   The workflow (`.github/workflows/debt-ageing-refresh.yml`) then runs daily
-   automatically; you can also trigger it manually from the repo's **Actions**
-   tab (**Run workflow**) to confirm it works right away instead of waiting a day.
+   It then runs daily automatically; you can also trigger it manually from
+   the repo's **Actions** tab (**Run workflow**) to confirm it works right
+   away instead of waiting a day.
 
 ## 3. Frontend → Vercel
 
