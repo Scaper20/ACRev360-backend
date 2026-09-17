@@ -1,3 +1,4 @@
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
@@ -16,7 +17,14 @@ from apps.revenue.api.serializers import (
     RevenueItemTemplateSerializer,
     SetDepartmentSerializer,
 )
-from apps.revenue.models import AgentPortfolio, CouncilRevenueItem, RevenueCategory, RevenueItemTemplate
+from apps.revenue.models import (
+    AgentPortfolio,
+    CouncilRevenueItem,
+    RateBand,
+    RateSchedule,
+    RevenueCategory,
+    RevenueItemTemplate,
+)
 from apps.revenue.services import BandingError, RetireError, change_rate, create_revenue_item, replace_rate_bands, retire_revenue_item
 from apps.tenancy.models import Department
 
@@ -58,7 +66,33 @@ class CouncilRevenueItemViewSet(
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True).order_by("harmonised_code")
+        # select_related + prefetch_related (with to_attr, which the model's
+        # current_rate/active_bands properties check for — see their
+        # docstrings) avoid the N+1 storm this list serializes into
+        # otherwise: category/department were one query per item, and
+        # current_rate/active_bands were two more per item plus one per band
+        # for its tiers — 650+ queries and a 32s gunicorn-timeout 500 once
+        # the full gazette catalogue (46 items, 474 bands, 336 tiers) was
+        # seeded, versus a handful of flat illustrative items before that.
+        qs = (
+            CouncilRevenueItem.objects.filter(council_id=self.request.user.council_id, is_active=True)
+            .select_related("category", "department")
+            .prefetch_related(
+                Prefetch(
+                    "rate_schedules",
+                    queryset=RateSchedule.objects.filter(effective_to__isnull=True).order_by("-effective_from"),
+                    to_attr="_prefetched_current_rate",
+                ),
+                Prefetch(
+                    "rate_bands",
+                    queryset=RateBand.objects.filter(effective_to__isnull=True)
+                    .order_by("sort_order", "label")
+                    .prefetch_related("tiers"),
+                    to_attr="_prefetched_active_bands",
+                ),
+            )
+            .order_by("harmonised_code")
+        )
         department_param = self.request.query_params.get("department")
         if department_param:
             qs = qs.filter(department_id=department_param)

@@ -95,10 +95,22 @@ class CouncilRevenueItem(CouncilScopedModel):
 
     @property
     def current_rate(self):
+        # `Prefetch(..., to_attr="_prefetched_current_rate")` (see
+        # CouncilRevenueItemViewSet.get_queryset) populates this to avoid one
+        # query per item on the list endpoint — 46 items x ~4 queries each
+        # plus one per band's tiers measured at 650+ queries / 32s and a
+        # gunicorn worker-timeout 500 once the catalogue grew past a handful
+        # of items. Falls back to a fresh query for any caller that didn't
+        # prefetch (get_object(), shell/service code, etc).
+        if hasattr(self, "_prefetched_current_rate"):
+            cached = self._prefetched_current_rate
+            return cached[0] if cached else None
         return self.rate_schedules.filter(effective_to__isnull=True).order_by("-effective_from").first()
 
     @property
     def active_bands(self):
+        if hasattr(self, "_prefetched_active_bands"):
+            return self._prefetched_active_bands
         return self.rate_bands.filter(effective_to__isnull=True).order_by("sort_order", "label")
 
 
