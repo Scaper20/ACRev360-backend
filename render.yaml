@@ -1,10 +1,3 @@
-databases:
-  - name: acrev360-db
-    plan: free
-    databaseName: acrev360
-    user: acrev360
-    postgresMajorVersion: "17"
-
 services:
   - type: web
     name: acrev360-backend
@@ -30,10 +23,14 @@ services:
         value: acrev360-backend.onrender.com,acrev360-backend-wxu8.onrender.com
       - key: DJANGO_SECURE_SSL_REDIRECT
         value: "True"
+      # Postgres is hosted on Neon (neon.tech), not Render — Render's own free
+      # Postgres plan expires after 30 days (this bit us once already, see
+      # docs/CHANGELOG.md). Paste Neon's pooled connection string
+      # (postgres://...?sslmode=require) into the Render dashboard after the
+      # first deploy; there's no `fromDatabase` binding to do it automatically
+      # since the database isn't a Render resource.
       - key: DATABASE_URL
-        fromDatabase:
-          name: acrev360-db
-          property: connectionString
+        sync: false
       # CORS_ALLOWED_ORIGINS and WEBHOOK_ENCRYPTION_KEY have no safe default —
       # fill these in from the Render dashboard after the frontend's Vercel URL
       # is known and a Fernet key is generated (see docs/DEPLOYMENT.md).

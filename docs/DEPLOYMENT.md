@@ -13,8 +13,14 @@ Both are easy to upgrade later without re-architecting anything below.
 
 ## 0. What's already in the repo for this
 
-- **`render.yaml`** — a Render "Blueprint": one command deploys a Docker web
-  service and a free Postgres database, fully wired together.
+- **`render.yaml`** — a Render "Blueprint": one command deploys the Docker web
+  service. Postgres itself is **not** a Render resource — it's hosted on
+  [Neon](https://neon.tech) (free tier) instead, because Render's own free
+  Postgres plan auto-expires after 30 days (this bit us once already — see
+  `docs/CHANGELOG.md`). Neon's free tier doesn't expire; it just suspends
+  compute after ~5 minutes idle and wakes on the next query (a second or two
+  of extra latency on the first request after a quiet spell, same idea as
+  Render's own free-tier spin-down below).
 - **`Dockerfile`** — already the one verified working locally (§ GETTING_STARTED.md);
   now also binds to Render's `$PORT` instead of a hardcoded 8000.
 - **No Redis / Celery worker / Render Cron Job in the free deploy.** The only
@@ -36,15 +42,35 @@ Both are easy to upgrade later without re-architecting anything below.
 
 ---
 
-## 1. Backend → Render
+## 1. Database → Neon
+
+1. Sign up / log in at [neon.tech](https://neon.tech) (GitHub login is
+   fastest). Free tier: 0.5GB storage, autosuspends after idle — no 30-day
+   expiry like Render's free Postgres.
+2. **New Project** → name it (e.g. `acrev360`), pick a region close to your
+   Render web service's region (US or EU — match whatever you pick for the
+   web service below), Postgres version 17 to match what `render.yaml`
+   previously pinned. Neon creates a default database and role for you.
+3. Project dashboard → **Connection Details** → copy the **pooled**
+   connection string (the one with `-pooler` in the hostname — use this one,
+   not the direct/unpooled string, since Render's web service holds
+   persistent connections across requests). It looks like:
+   ```
+   postgres://<user>:<password>@ep-xxxx-pooler.<region>.aws.neon.tech/<dbname>?sslmode=require
+   ```
+   Keep this tab open — you'll paste it into Render in step 2 below and use
+   it directly from your own machine in step 4.
+
+## 2. Backend → Render
 
 1. Push this repo to GitHub/GitLab if it isn't already remote (it's currently
    only a local git repo — `git remote add origin <url>` then `git push -u origin master`).
 2. In the Render dashboard: **New → Blueprint**, pick this repo. Render reads
-   `render.yaml` and shows you the `acrev360-backend` web service and the
-   `acrev360-db` Postgres database it's about to create.
+   `render.yaml` and shows you the `acrev360-backend` web service it's about
+   to create (no database — that's Neon now).
 3. Render will prompt for the env vars marked `sync: false` before the first
-   deploy — you need two values ready:
+   deploy — you need three values ready:
+   - **`DATABASE_URL`** — the Neon pooled connection string from step 1.3.
    - **`WEBHOOK_ENCRYPTION_KEY`** — generate one:
      ```bash
      python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -56,20 +82,16 @@ Both are easy to upgrade later without re-architecting anything below.
      placeholder for now (e.g. `https://placeholder.vercel.app`); you'll fix
      this in step 3 below once the frontend is deployed.
 4. Click **Apply**. First deploy takes a few minutes (Docker build + `migrate`
-   + `collectstatic` run automatically via `docker-entrypoint.sh`).
+   + `collectstatic` run automatically via `docker-entrypoint.sh`) and runs
+   migrations directly against the Neon database you just wired up.
 5. **Seed the database.** Free web services don't get Shell/SSH access on
    Render, so run the seed command from your own machine instead, pointed at
-   the database directly:
-   - Render dashboard → the `acrev360-db` database → **Connect** → copy the
-     **External Database URL** (something like
-     `postgres://acrev360:...@dpg-xxxx.oregon-postgres.render.com/acrev360`).
-     Free Postgres instances still allow external connections — this isn't a
-     paid-only feature, only Shell/SSH access is.
+   Neon directly — no need to go through Render for this at all:
    - From `E:\ACRev360-backend`, with your local venv active, run `seed_kuje`
-     against that URL without touching your local `.env` (PowerShell shown;
+     against the Neon URL without touching your local `.env` (PowerShell shown;
      bash is the same with `export` instead of `$env:`):
      ```powershell
-     $env:DATABASE_URL   = "<the External Database URL you copied>"
+     $env:DATABASE_URL   = "<the Neon pooled connection string from step 1>"
      $env:DJANGO_SETTINGS_MODULE = "config.settings.prod"
      $env:DJANGO_ALLOWED_HOSTS   = "acrev360-backend.onrender.com"
      $env:CORS_ALLOWED_ORIGINS   = "https://placeholder.vercel.app"
@@ -98,7 +120,7 @@ Both are easy to upgrade later without re-architecting anything below.
    automatically; you can also trigger it manually from the repo's **Actions**
    tab (**Run workflow**) to confirm it works right away instead of waiting a day.
 
-## 2. Frontend → Vercel
+## 3. Frontend → Vercel
 
 1. Push `E:\ACRev360-frontend` to its own GitHub/GitLab repo, separate from the
    backend's (already separate directories/git histories — keep that).
@@ -115,7 +137,7 @@ Both are easy to upgrade later without re-architecting anything below.
    later you must trigger a new deploy, not just restart something.)
 4. Deploy. Vercel gives you a URL like `https://acrev360-frontend.vercel.app`.
 
-## 3. Close the loop: point the backend's CORS at the real frontend URL
+## 4. Close the loop: point the backend's CORS at the real frontend URL
 
 Now that you have the real Vercel URL, go back to Render → `acrev360-backend` →
 **Environment**, and set:
@@ -134,10 +156,10 @@ with a pattern matching `https://acrev360-frontend-.*\.vercel\.app` — not done
 by default here since it widens the allowed origin set beyond what's explicitly
 approved.
 
-## 4. Verify the live, end-to-end deploy
+## 5. Verify the live, end-to-end deploy
 
 Same checklist as `GETTING_STARTED.md`, against the real URLs:
-- Open the Vercel URL, log in with the admin credentials seeded in step 1.5.
+- Open the Vercel URL, log in with the admin credentials seeded in step 2.5.
 - Confirm the dashboard shows live data (proves the frontend → Render round trip
   and CORS are both correct).
 - Walk one real flow: enumerate a payer → issue a bill → collect a payment →
@@ -149,11 +171,13 @@ Same checklist as `GETTING_STARTED.md`, against the real URLs:
 
 - **Web service**: change `plan: free` to `starter` (or another paid plan) in
   `render.yaml`, or just change it in the dashboard — no code changes. This
-  also gets you Shell/SSH access, so step 1.5's local-`DATABASE_URL` workaround
+  also gets you Shell/SSH access, so step 2.5's local-`DATABASE_URL` workaround
   stops being necessary (though it still works fine either way).
-- **Database**: Render's free Postgres is time-limited and has no backups;
-  upgrading a plan in the dashboard keeps the same database, no migration
-  needed.
+- **Database**: Neon's free tier has no hard expiry, but it does autosuspend
+  idle compute and cap storage at 0.5GB — upgrade to a paid Neon plan in
+  their dashboard when either becomes a problem; the connection string stays
+  the same (or update `DATABASE_URL` in Render if you rotate credentials),
+  no migration needed either way.
 - **Celery/Redis**: see the note in §0 — add a `keyvalue` service and a
   `worker` service to `render.yaml` running
   `celery -A config worker --beat --loglevel=info`, set `CELERY_BROKER_URL`/
