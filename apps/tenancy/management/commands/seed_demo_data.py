@@ -67,14 +67,20 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--council-code", default="KAC")
         parser.add_argument("--payers", type=int, default=100)
+        parser.add_argument(
+            "--extend", action="store_true",
+            help="Add this batch alongside whatever payers/consultants/agents already exist "
+                 "instead of skipping — for supplementing real seed data with a demo batch "
+                 "without deleting it (see reset_council_data to remove it again later).",
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
         council = Council.objects.get(council_code=options["council_code"])
         set_council_context(council.id)
 
-        if Payer.objects.filter(council=council).exists():
-            self.stdout.write(self.style.WARNING(f"{council.council_code} already has payers — skipping (clear the DB first to reseed)"))
+        if Payer.objects.filter(council=council).exists() and not options["extend"]:
+            self.stdout.write(self.style.WARNING(f"{council.council_code} already has payers — skipping (clear the DB first to reseed, or pass --extend)"))
             return
 
         admin = AppUser.objects.filter(council=council, role__access_level=AppRole.COUNCIL_ADMIN).first()
@@ -120,14 +126,21 @@ class Command(BaseCommand):
     # ---------------------------------------------------------------- consultants
 
     def _seed_consultants(self, council, items):
+        # contract_ref is unique per council (uniq_contract_ref_per_council) —
+        # "KAC/RC/2026/001" collides with seed_starter_data's own Heritage
+        # Fiscal Partners under --extend, so existing refs are skipped rather
+        # than fought, same reasoning as _seed_agents' username/code guard.
         specs = [
             ("Zenith Revenue Partners", "KAC/RC/2026/001", Decimal("30.00")),
             ("Bridgeway Consultants", "KAC/RC/2026/002", Decimal("25.00")),
             ("Highgate Fiscal Services", "KAC/RC/2026/003", Decimal("35.00")),
             ("Northstar Municipal Advisors", "KAC/RC/2026/004", Decimal("28.00")),
         ]
-        consultants = []
+        existing_refs = set(SubConsultant.objects.filter(council=council).values_list("contract_ref", flat=True))
+        consultants = list(SubConsultant.objects.filter(council=council))
         for name, ref, rate in specs:
+            if ref in existing_refs:
+                continue
             consultant = SubConsultant.objects.create(
                 council=council, consultant_name=name, contract_ref=ref,
                 commission_rate=rate, status=SubConsultant.ACTIVE,
@@ -138,7 +151,7 @@ class Command(BaseCommand):
 
         # One demo login for the first firm — "own portfolio only" access,
         # matching the old prototype's consultant1 demo account.
-        if not AppUser.objects.filter(username="consultant1").exists():
+        if not AppUser.objects.filter(username="consultant1").exists() and consultants:
             consultant_role, _ = AppRole.objects.get_or_create(name="CONSULTANT_MANAGER", defaults={"access_level": AppRole.CONSULTANT})
             AppUser.objects.create_user(
                 username="consultant1", password="acrev360-2026", full_name=f"Manager, {consultants[0].consultant_name}",
@@ -160,18 +173,28 @@ class Command(BaseCommand):
     # --------------------------------------------------------------------- agents
 
     def _seed_agents(self, council, consultants, wards):
+        # Existing usernames/agent_codes are skipped rather than collided
+        # with (unique constraints on both) — matters once --extend is used
+        # against a council that already has its own agent01/AGT-00001 from
+        # e.g. seed_starter_data; a plain unconditional create() here would
+        # otherwise IntegrityError the whole transaction.
         agent_role, _ = AppRole.objects.get_or_create(name="FIELD_AGENT", defaults={"access_level": AppRole.AGENT})
-        agents = []
+        existing_codes = set(FieldAgent.objects.filter(council=council).values_list("agent_code", flat=True))
+        agents = list(FieldAgent.objects.filter(council=council))
         for i in range(1, 9):
+            username = f"agent{i:02d}"
+            agent_code = f"AGT-{i:05d}"
+            if AppUser.objects.filter(username=username).exists() or agent_code in existing_codes:
+                continue
             consultant = None if i <= 3 else consultants[(i - 4) % len(consultants)]
             first, last = random.choice(FIRST_NAMES), random.choice(LAST_NAMES)
             app_user = AppUser.objects.create_user(
-                username=f"agent{i:02d}", password="acrev360-2026", full_name=f"{first} {last}",
+                username=username, password="acrev360-2026", full_name=f"{first} {last}",
                 phone=_phone(set()), council_id=council.id, role=agent_role,
                 consultant_id=consultant.id if consultant else None,
             )
             agent = FieldAgent.objects.create(
-                council=council, user=app_user, agent_code=f"AGT-{i:05d}",
+                council=council, user=app_user, agent_code=agent_code,
                 assigned_ward=random.choice(wards), status=FieldAgent.ACTIVE,
             )
             agents.append(agent)
