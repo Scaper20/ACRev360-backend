@@ -18,6 +18,7 @@ from apps.accounts.api.serializers import (
     ChangePasswordSerializer,
     ConsultantPortfolioSerializer,
     FieldAgentSerializer,
+    FieldAgentStatusSerializer,
     LogoutRequestSerializer,
     MeSerializer,
     RevenueOfficerSerializer,
@@ -368,6 +369,32 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         )
         return Response(RevenueOfficerSerializer(instance).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("officer_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        request=None, responses=RevenueOfficerSerializer,
+    )
+    @action(
+        detail=True, methods=["post"], url_path=r"revenue-officers/(?P<officer_id>[0-9]+)/deactivate",
+        # Same set as revenue_officers itself (onboarding and deactivating a
+        # login are the same grant, per COUNCIL_IT's whole purpose).
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IT)],
+    )
+    def deactivate_revenue_officer(self, request, pk=None, officer_id=None):
+        """AppUser.is_active is already the login's active flag — a
+        deactivated user's Django auth backend already refuses login by
+        default, no new auth-layer code needed. Idempotent, same shape as
+        APIClientViewSet.revoke."""
+        consultant = self.get_object()
+        officer = get_object_or_404(AppUser, pk=officer_id, consultant=consultant, role__access_level=AppRole.REVENUE_OFFICER)
+        if officer.is_active:
+            officer.is_active = False
+            officer.save(update_fields=["is_active"])
+            audit(
+                council_id=consultant.council_id, actor=request.user, action="REVENUE_OFFICER_DEACTIVATED",
+                entity_type="APP_USER", entity_id=officer.id, detail={"username": officer.username},
+            )
+        return Response(RevenueOfficerSerializer(officer).data)
+
     @extend_schema(methods=["GET"], responses=ConsultantPortfolioSerializer(many=True))
     @extend_schema(methods=["POST"], request=ConsultantPortfolioSerializer, responses=ConsultantPortfolioSerializer)
     @action(
@@ -527,6 +554,28 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             council_id=user.council_id, actor=user, action="AGENT_ONBOARDED", entity_type="FIELD_AGENT",
             entity_id=agent.id, detail={"agent_code": agent.agent_code},
         )
+
+    @extend_schema(request=FieldAgentStatusSerializer, responses=FieldAgentSerializer)
+    @action(
+        detail=True, methods=["post"],
+        # Same set as create's own permissions — a CONSULTANT can only reach
+        # their own agent anyway, via get_queryset()'s scoping above.
+        permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IT)],
+    )
+    def status_change(self, request, pk=None):
+        """Mirrors SubConsultantViewSet.status_change's exact shape — same
+        3-state field, same audit detail keys, for consistency."""
+        agent = self.get_object()
+        serializer = FieldAgentStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        old_status = agent.status
+        agent.status = serializer.validated_data["status"]
+        agent.save(update_fields=["status", "updated_at"])
+        audit(
+            council_id=agent.council_id, actor=request.user, action="AGENT_STATUS_CHANGED",
+            entity_type="FIELD_AGENT", entity_id=agent.id, detail={"old_status": old_status, "new_status": agent.status},
+        )
+        return Response(FieldAgentSerializer(agent).data)
 
     @extend_schema(methods=["GET"], responses=AgentPortfolioSerializer(many=True))
     @extend_schema(methods=["POST"], request=AgentPortfolioSerializer, responses=AgentPortfolioSerializer)
@@ -706,3 +755,18 @@ class StakeholderViewSet(viewsets.ModelViewSet):
             council_id=user.council_id, actor=user, action="STAKEHOLDER_ONBOARDED",
             entity_type="APP_USER", entity_id=instance.id, detail={"username": instance.username},
         )
+
+    @extend_schema(request=None, responses=StakeholderSerializer)
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """Same dormant-is_active/idempotent shape as SubConsultantViewSet.
+        deactivate_revenue_officer — see that action's own docstring."""
+        stakeholder = self.get_object()
+        if stakeholder.is_active:
+            stakeholder.is_active = False
+            stakeholder.save(update_fields=["is_active"])
+            audit(
+                council_id=stakeholder.council_id, actor=request.user, action="STAKEHOLDER_DEACTIVATED",
+                entity_type="APP_USER", entity_id=stakeholder.id, detail={"username": stakeholder.username},
+            )
+        return Response(StakeholderSerializer(stakeholder).data)

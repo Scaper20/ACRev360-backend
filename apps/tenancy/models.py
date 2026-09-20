@@ -41,6 +41,10 @@ class WardZone(CouncilScopedModel):
     ward_code = models.CharField(max_length=32)
     ward_name = models.CharField(max_length=120)
     zone_type = models.CharField(max_length=16, choices=ZONE_TYPE_CHOICES, default="WARD")
+    # Deactivating never touches payers/bills already assigned here — they
+    # keep their historical FK. It just stops WardZoneViewSet.deactivate's
+    # target from being offered in "choose an area" pickers going forward.
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = "ward_zone"
@@ -68,6 +72,9 @@ class Department(CouncilScopedModel):
         help_text="The bye-law provision constituting this department, e.g. "
         "'Part II, Section 6' — from the council's departmental schedule.",
     )
+    # Deactivating a department doesn't touch its revenue items' FK — see
+    # WardZone.is_active's identical reasoning above.
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = "department"

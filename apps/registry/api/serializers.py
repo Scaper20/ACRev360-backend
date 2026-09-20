@@ -4,17 +4,25 @@ from apps.registry.models import EnumeratedAsset, Payer, PayerDelegation
 
 
 class PayerSerializer(serializers.ModelSerializer):
+    # Same pattern as BillSerializer.consultant_name (apps/billing/api/
+    # serializers.py) — walks the same enumerated_by -> consultant path.
+    consultant_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Payer
         fields = [
             "id", "payer_ref", "payer_type", "first_name", "middle_name", "last_name", "full_name",
             "phone", "email", "address", "ward", "nin_bvn_hash", "tin", "business_size", "line_of_business",
-            "kyc_status", "created_at",
+            "kyc_status", "created_at", "consultant_name",
         ]
         # full_name isn't a model field (it's a read-only display property —
         # see Payer.full_name) so DRF already treats it as read-only
         # automatically; listed here for clarity all the same.
-        read_only_fields = ["id", "payer_ref", "kyc_status", "created_at", "full_name"]
+        read_only_fields = ["id", "payer_ref", "kyc_status", "created_at", "full_name", "consultant_name"]
+
+    def get_consultant_name(self, obj):
+        consultant = getattr(obj.enumerated_by, "consultant", None)
+        return consultant.consultant_name if consultant else None
 
 
 class CreatePayerSerializer(serializers.ModelSerializer):

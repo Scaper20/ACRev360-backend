@@ -1,10 +1,12 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
+from apps.audit.services import audit
 from apps.common.permissions import access_level_permission
 from apps.tenancy.api.serializers import CouncilSerializer, DepartmentSerializer, OnboardCouncilSerializer, WardZoneSerializer
 from apps.tenancy.models import Department, WardZone
@@ -17,6 +19,8 @@ class WardZoneViewSet(viewsets.ModelViewSet):
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
+        # Covers `deactivate` too — it's also a POST, so this branch already
+        # gates it to COUNCIL_ADMIN without needing its own override.
         if self.request.method == "POST":
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
         return [access_level_permission(
@@ -31,6 +35,23 @@ class WardZoneViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(council_id=self.request.user.council_id)
 
+    @extend_schema(request=None, responses=WardZoneSerializer)
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """Doesn't touch payers/bills already assigned here — they keep
+        their historical FK. Idempotent, same shape as
+        APIClientViewSet.revoke: a repeat call is a silent no-op, still 200."""
+        ward = self.get_object()
+        if ward.is_active:
+            ward.is_active = False
+            ward.save(update_fields=["is_active"])
+            audit(
+                council_id=ward.council_id, actor=request.user, action="WARD_DEACTIVATED",
+                entity_type="WARD_ZONE", entity_id=ward.id,
+                detail={"ward_code": ward.ward_code, "ward_name": ward.ward_name},
+            )
+        return Response(WardZoneSerializer(ward).data)
+
 
 class DepartmentViewSet(viewsets.ModelViewSet):
     """List/create/edit council departments for grouping revenue items under —
@@ -41,6 +62,8 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     lookup_value_regex = r"[0-9]+"
 
     def get_permissions(self):
+        # Covers `deactivate` too — it's also a POST, so this branch already
+        # gates it to COUNCIL_ADMIN without needing its own override.
         if self.request.method in ("POST", "PATCH"):
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
         return [access_level_permission(
@@ -54,6 +77,22 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(council_id=self.request.user.council_id)
+
+    @extend_schema(request=None, responses=DepartmentSerializer)
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """Doesn't touch its revenue items' FK — see WardZoneViewSet.deactivate's
+        identical reasoning. Idempotent, same shape as APIClientViewSet.revoke."""
+        department = self.get_object()
+        if department.is_active:
+            department.is_active = False
+            department.save(update_fields=["is_active"])
+            audit(
+                council_id=department.council_id, actor=request.user, action="DEPARTMENT_DEACTIVATED",
+                entity_type="DEPARTMENT", entity_id=department.id,
+                detail={"department_name": department.department_name},
+            )
+        return Response(DepartmentSerializer(department).data)
 
 
 class OnboardCouncilView(APIView):

@@ -123,6 +123,10 @@ class SubConsultantStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=SubConsultant.STATUS_CHOICES)
 
 
+class FieldAgentStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=FieldAgent.STATUS_CHOICES)
+
+
 class SubConsultantContractDatesSerializer(serializers.Serializer):
     contract_start_date = serializers.DateField(required=False, allow_null=True)
     contract_end_date = serializers.DateField(required=False, allow_null=True)

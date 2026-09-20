@@ -6,15 +6,22 @@ from apps.tenancy.models import Council, CouncilConfig, Department, WardZone
 class WardZoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = WardZone
-        fields = ["id", "ward_code", "ward_name", "zone_type"]
-        read_only_fields = ["id"]
+        fields = ["id", "ward_code", "ward_name", "zone_type", "is_active"]
+        # Read-only here so it only ever flips through the audited
+        # WardZoneViewSet.deactivate action, not a generic write.
+        read_only_fields = ["id", "is_active"]
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
-        fields = ["id", "department_name", "department_code", "head_name", "head_phone"]
-        read_only_fields = ["id"]
+        fields = ["id", "department_name", "department_code", "head_name", "head_phone", "is_active"]
+        # Read-only here so it only ever flips through the audited
+        # DepartmentViewSet.deactivate action — DepartmentViewSet (unlike
+        # WardZoneViewSet) already allows PATCH for the other fields, so
+        # this matters: without it, a generic PATCH could flip is_active
+        # with no audit trail.
+        read_only_fields = ["id", "is_active"]
 
 
 class CouncilConfigSerializer(serializers.ModelSerializer):
