@@ -21,6 +21,51 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-20 — Fix print preview rendering behind the bill detail window; give print docs a real title
+
+**Ask:** "when i hit print bill, it comes up behind the bill window, also could
+you remove the metadata from the printing? when i hit print it adds a header
+of the website name and the time printed."
+
+**Found/decided:** two separate issues. (1) `DocViewer` (the print-preview
+overlay) mounts as a DOM sibling of the bill detail modal/panel in both
+`BillDetailModal.tsx` (v1) and `BillContextPanel.tsx` (v2), so both stay
+mounted at once — stacking order is purely a z-index race. v1's `Modal` and
+`DocViewer`'s `.doc-bg` were tied at z-index 100 (only "worked" by DOM paint
+order); v2's `V2DetailModal`/`.v2-dm-bg` is 200, so Print Bill from a v2 bill
+detail rendered the preview *behind* the still-open detail window. Surveyed
+every z-index in `packages/ui/src/*.css` (max was 200) and bumped `.doc-bg` to
+210 so it clears every modal/panel in the app. (2) The browser's own print
+header/footer (page title + timestamp) is drawn by the print dialog itself
+(Chrome/Edge "Headers and footers" under More settings) — no page-level CSS
+or JS can suppress it in any current browser. Told the user this plainly
+rather than pretending it's fixable from the app. Did fix what's actually
+controllable: `DemandBillPrint.tsx`/`DemandNoticePrint.tsx` render inside
+`DocViewer`'s iframe, and Print calls `.contentWindow.print()` on that iframe
+specifically — so the iframe's own `document.title` (not the parent app's
+static "ACRev360") is what the browser's header would show if the user has it
+enabled. Added a `useEffect` in both print routes setting
+`document.title` to `"Demand Bill — {bill_ref}"` / `"Demand Notice —
+{bill_ref}"` while mounted, restored on unmount. Also found and fixed a gap
+noticed along the way: `DemandNoticePrint.css` had no `@page` rule at all
+(unlike `DemandBillPrint.css`), so added the matching `@page { size: A4
+portrait; margin: 12mm; }` for parity.
+
+**Repo(s)/files:** `ACRev360-frontend` only —
+`packages/ui/src/components/DocViewer.css` (z-index 100 → 210),
+`apps/portal/src/routes/print/DemandBillPrint.tsx` (title effect),
+`apps/portal/src/routes/print/DemandNoticePrint.tsx` (title effect),
+`apps/portal/src/routes/print/DemandNoticePrint.css` (`@page` rule added).
+
+**Gotchas:** `.doc-bg` at 210 is now the highest z-index in the app, above
+Toast's 200 — accepted since Toast is a small fixed corner stack, not
+full-screen, so it can't meaningfully hide behind the print overlay in
+practice. If a future modal/overlay needs to sit above 210, re-survey
+`packages/ui/src/*.css`'s z-index scale rather than picking an arbitrary
+higher number — don't let it silently regress to a tie. The header/footer
+chrome itself is NOT fixed and can't be from the page; that's a real,
+permanent constraint of the browser print dialog, not a TODO.
+
 ## 2026-09-13 — Let a retired harmonised_code be reused, following up on the same-day PR
 
 **Ask:** direct follow-up to "what of the permanent harmonised_code lock-out
