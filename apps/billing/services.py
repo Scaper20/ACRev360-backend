@@ -43,6 +43,10 @@ def create_draft_assessment(
     An item with no open bands prices from its plain `RateSchedule`, unchanged
     from before banding existed.
     """
+    if quantity <= 0:
+        # U8: a zero/negative quantity is never a legitimate assessment — it
+        # would flow into BillLine.line_amount and skew bill totals.
+        raise BillingError("quantity must be greater than zero")
     active_bands = list(council_revenue_item.active_bands)
 
     if active_bands:
@@ -365,6 +369,11 @@ def update_bill_line(*, line: BillLine, line_amount, actor):
     """line_amount replaces the line's total; the arrears portion carried on
     it (if any, from roll_arrears) is preserved and current_amount absorbs
     the rest, matching how the split is created in the first place."""
+    if line_amount <= 0:
+        # U8: mirror the create-time quantity guard — negative line amounts
+        # would let edit quietly walk a bill's total below what FIFO already
+        # allocated against the old amount.
+        raise BillingError("line_amount must be greater than zero")
     if line_amount < line.arrears_amount:
         raise BillingError(
             f"line_amount ({line_amount}) can't be less than this line's own arrears_amount "
@@ -387,6 +396,12 @@ def update_bill_line(*, line: BillLine, line_amount, actor):
 @transaction.atomic
 def delete_bill_line(*, line: BillLine, actor):
     bill = line.bill
+    if line.allocations.exists():
+        # Same guard the API layer returns as 409 (U6) — reachable directly
+        # through other callers, so enforce here too rather than trusting the
+        # view to pre-check: deleting a line with FIFO allocations would
+        # orphan which payment landed on which line.
+        raise BillingError("This line has payments recorded against it and can't be deleted")
     if bill.lines.count() <= 1:
         raise BillingError("Cannot delete a bill's last remaining line — cancel the bill instead")
     line_id = line.id

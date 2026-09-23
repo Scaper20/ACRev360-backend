@@ -1,4 +1,4 @@
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -7,6 +7,7 @@ from rest_framework import generics, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -29,10 +30,12 @@ from apps.accounts.api.serializers import (
     UpdateProfileSerializer,
 )
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
+from apps.accounts.security import provision_password
 from apps.accounts.tokens import AppTokenObtainPairSerializer
 from apps.audit.services import audit
 from apps.billing.models import Bill
 from apps.billing.services import BillingError, issue_bill
+from apps.common.api.views import GeneratedPasswordCreateMixin, PlatformWideListMixin
 from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
 from apps.registry.api.serializers import PayerSerializer
@@ -70,6 +73,11 @@ class TokenPairResponseSerializer(serializers.Serializer):
 class LoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = AppTokenObtainPairSerializer
+    # Public credential-checking endpoint — brute-force throttled ("login"
+    # scope, see DEFAULT_THROTTLE_RATES in config/settings). The rest of the
+    # API needs a valid JWT, so this is the only thing that needs a budget.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
 
 
 class LogoutView(APIView):
@@ -135,7 +143,14 @@ class ChangePasswordView(APIView):
         if not user.check_password(serializer.validated_data["current_password"]):
             return Response({"error": "Current password is incorrect"}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(serializer.validated_data["new_password"])
-        user.save(update_fields=["password"])
+        update_fields = ["password"]
+        if user.must_change_password:
+            # The forced-change contract: this is the moment the system-
+            # generated password becomes the person's own, so lift the
+            # must_change flag (and the 428 gate it drives) right here.
+            user.must_change_password = False
+            update_fields.append("must_change_password")
+        user.save(update_fields=update_fields)
         audit(council_id=user.council_id, actor=user, action="PASSWORD_CHANGED", entity_type="APP_USER", entity_id=user.id, detail={})
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -143,7 +158,7 @@ class ChangePasswordView(APIView):
 @extend_schema_view(
     list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by consultant name or contract reference")])
 )
-class SubConsultantViewSet(viewsets.ModelViewSet):
+class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     serializer_class = SubConsultantSerializer
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
@@ -176,20 +191,21 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
             )()]
         return super().get_permissions()
 
+    def get_platform_queryset_fn(self, council_id):
+        qs = SubConsultant.objects.filter(council_id=council_id).order_by("consultant_name")
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
+        return qs
+
     def get_queryset(self):
         user = self.request.user
         if user.council_id is None:
-            from apps.common.platform_scope import platform_wide_queryset
-
-            ids = [
-                obj.id
-                for obj in platform_wide_queryset(
-                    lambda council_id: SubConsultant.objects.filter(council_id=council_id), user
-                )
-            ]
-            qs = SubConsultant.objects.filter(id__in=ids).order_by("consultant_name")
-        else:
-            qs = SubConsultant.objects.filter(council_id=user.council_id).order_by("consultant_name")
+            # Platform tier: never let a lazy queryset evaluate outside a
+            # council RLS context — PlatformWideListMixin.list/get_object
+            # materialize via get_platform_queryset_fn per council instead.
+            return SubConsultant.objects.none()
+        qs = SubConsultant.objects.filter(council_id=user.council_id).order_by("consultant_name")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
@@ -243,10 +259,15 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
 
         if manager_username:
             consultant_role, _ = AppRole.objects.get_or_create(name="CONSULTANT_MANAGER", defaults={"access_level": AppRole.CONSULTANT})
+            manager_password, must_change = provision_password(manager_password)
             AppUser.objects.create_user(
-                username=manager_username, password=manager_password or "acrev360-2026", full_name=manager_full_name,
+                username=manager_username, password=manager_password, full_name=manager_full_name,
                 council_id=instance.council_id, role=consultant_role, consultant=instance,
+                must_change_password=must_change,
             )
+            if must_change:
+                self.generated_password_key = "generated_manager_password"
+                self._last_generated_password = manager_password
             audit(
                 council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_MANAGER_ONBOARDED",
                 entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"username": manager_username},
@@ -356,18 +377,24 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         officer_role, _ = AppRole.objects.get_or_create(name="REVENUE_OFFICER", defaults={"access_level": AppRole.REVENUE_OFFICER})
+        password, must_change = provision_password(data.pop("password", None))
         instance = AppUser.objects.create_user(
             username=data.pop("username"),
-            password=data.pop("password", "acrev360-2026"),
+            password=password,
             full_name=data.pop("full_name"),
             phone=data.pop("phone", ""),
             council_id=consultant.council_id, role=officer_role, consultant=consultant,
+            must_change_password=must_change,
         )
         audit(
             council_id=consultant.council_id, actor=request.user, action="REVENUE_OFFICER_ONBOARDED",
             entity_type="SUB_CONSULTANT", entity_id=consultant.id, detail={"username": instance.username},
         )
-        return Response(RevenueOfficerSerializer(instance).data, status=status.HTTP_201_CREATED)
+        response = RevenueOfficerSerializer(instance).data
+        if must_change:
+            response["generated_password"] = password
+            response["_password_warning"] = "Shown once — share it with the account holder now, it cannot be retrieved again."
+        return Response(response, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         parameters=[OpenApiParameter("officer_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
@@ -440,7 +467,7 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path=r"portfolio/(?P<portfolio_id>[0-9]+)/end")
     def end_portfolio(self, request, pk=None, portfolio_id=None):
         consultant = self.get_object()
-        entry = ConsultantPortfolio.objects.get(pk=portfolio_id, consultant=consultant)
+        entry = get_object_or_404(ConsultantPortfolio, pk=portfolio_id, consultant=consultant)
         entry.effective_to = timezone.localdate()
         entry.save(update_fields=["effective_to"])
         audit(
@@ -453,7 +480,7 @@ class SubConsultantViewSet(viewsets.ModelViewSet):
 @extend_schema_view(
     list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by agent code or agent name")])
 )
-class FieldAgentViewSet(viewsets.ModelViewSet):
+class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     """create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
     matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
     list/retrieve widen further to COUNCIL_IT/CONSULTANT_STAFF/
@@ -484,7 +511,10 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = FieldAgent.objects.filter(council_id=user.council_id)
+        # FieldAgentSerializer walks user.full_name/phone/consultant_id and
+        # assigned_ward on every row — select_related kills the per-row user
+        # query (PERF-3).
+        qs = FieldAgent.objects.filter(council_id=user.council_id).select_related("user", "assigned_ward")
         if user.access_level in (AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF):
             qs = qs.filter(user__consultant_id=user.consultant_id)
         elif user.access_level == AppRole.AGENT:
@@ -535,21 +565,42 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
             if not SubConsultant.objects.filter(id=consultant_id, council_id=user.council_id, status=SubConsultant.ACTIVE).exists():
                 raise serializers.ValidationError({"consultant_id": "Not a valid active consultant for this council."})
 
-        app_user = AppUser.objects.create_user(
-            username=data.pop("username"),
-            password=data.pop("password", "acrev360-2026"),
-            full_name=data.pop("full_name"),
-            phone=data.pop("phone", ""),
-            council_id=user.council_id,
-            role=agent_role,
-            consultant_id=consultant_id,
-        )
+        password, must_change = provision_password(data.pop("password", None))
+        username = data.pop("username")
+        full_name = data.pop("full_name")
+        phone = data.pop("phone", "")
+        if AppUser.objects.filter(username=username).exists():
+            raise serializers.ValidationError({"username": "That username is already in use."})
+        # AGT-#### is derived from a count that can collide (a previously
+        # deleted/retired agent's code leaves a gap) — retry on a unique-code
+        # collision (each attempt in its own transaction, so a failed
+        # AppUser+FieldAgent pair rolls back whole) before surfacing an error.
         next_seq = FieldAgent.objects.filter(council_id=user.council_id).count() + 1
-        agent = serializer.save(
-            council_id=user.council_id,
-            user=app_user,
-            agent_code=f"AGT-{next_seq:05d}",
-        )
+        for _ in range(20):
+            try:
+                with transaction.atomic():
+                    app_user = AppUser.objects.create_user(
+                        username=username,
+                        password=password,
+                        full_name=full_name,
+                        phone=phone,
+                        council_id=user.council_id,
+                        role=agent_role,
+                        consultant_id=consultant_id,
+                        must_change_password=must_change,
+                    )
+                    agent = serializer.save(
+                        council_id=user.council_id,
+                        user=app_user,
+                        agent_code=f"AGT-{next_seq:05d}",
+                    )
+                break
+            except IntegrityError:
+                next_seq += 1
+        else:
+            raise serializers.ValidationError({"agent_code": "Could not allocate a unique agent code — contact support."})
+        if must_change:
+            self._last_generated_password = password
         audit(
             council_id=user.council_id, actor=user, action="AGENT_ONBOARDED", entity_type="FIELD_AGENT",
             entity_id=agent.id, detail={"agent_code": agent.agent_code},
@@ -633,7 +684,7 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path=r"portfolio/(?P<portfolio_id>[0-9]+)/end")
     def end_portfolio(self, request, pk=None, portfolio_id=None):
         agent = self.get_object()
-        entry = AgentPortfolio.objects.get(pk=portfolio_id, agent=agent)
+        entry = get_object_or_404(AgentPortfolio, pk=portfolio_id, agent=agent)
         entry.effective_to = timezone.localdate()
         entry.save(update_fields=["effective_to"])
         audit(
@@ -715,7 +766,7 @@ class FieldAgentViewSet(viewsets.ModelViewSet):
         })
 
 
-class StakeholderViewSet(viewsets.ModelViewSet):
+class StakeholderViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     """Read-only oversight accounts (GLOBAL_VIEW access level) — council/FCT
     stakeholders who need a performance pulse but must never see individual
     payer or sub-consultant identities. That boundary is enforced elsewhere
@@ -742,14 +793,18 @@ class StakeholderViewSet(viewsets.ModelViewSet):
         user = self.request.user
         data = serializer.validated_data
         stakeholder_role, _ = AppRole.objects.get_or_create(name="STAKEHOLDER", defaults={"access_level": AppRole.GLOBAL_VIEW})
+        password, must_change = provision_password(data.pop("password", None))
         instance = AppUser.objects.create_user(
             username=data.pop("username"),
-            password=data.pop("password", "acrev360-2026"),
+            password=password,
             full_name=data.pop("full_name"),
             phone=data.pop("phone", ""),
             council_id=user.council_id,
             role=stakeholder_role,
+            must_change_password=must_change,
         )
+        if must_change:
+            self._last_generated_password = password
         serializer.instance = instance
         audit(
             council_id=user.council_id, actor=user, action="STAKEHOLDER_ONBOARDED",

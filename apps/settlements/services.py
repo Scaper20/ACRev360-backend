@@ -5,6 +5,7 @@ from django.db.models import Sum
 
 from apps.accounts.models import SubConsultant
 from apps.audit.services import audit
+from apps.common.filtering import date_span_bounds
 from apps.payments.models import Payment
 from apps.settlements.models import CommissionSettlement
 
@@ -18,13 +19,15 @@ def compute_settlements(*, council_id, period_start, period_end, actor) -> list[
     consultants = SubConsultant.objects.filter(council_id=council_id, status=SubConsultant.ACTIVE)
 
     for consultant in consultants:
+        window_start, _ = date_span_bounds(period_start)
+        _, window_end = date_span_bounds(period_end)
         gross = (
             Payment.objects.filter(
                 council_id=council_id,
                 bill__payer__enumerated_by__consultant_id=consultant.id,
                 txn_status=Payment.CONFIRMED,
-                created_at__date__gte=period_start,
-                created_at__date__lte=period_end,
+                created_at__gte=window_start,
+                created_at__lt=window_end,
             ).aggregate(total=Sum("amount"))["total"]
             or Decimal("0")
         )

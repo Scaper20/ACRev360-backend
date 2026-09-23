@@ -113,6 +113,22 @@ class CouncilRevenueItem(CouncilScopedModel):
             return self._prefetched_active_bands
         return self.rate_bands.filter(effective_to__isnull=True).order_by("sort_order", "label")
 
+    def invalidate_prefetch_caches(self):
+        """Drop any `Prefetch(..., to_attr=...)` results this instance is
+        carrying. CouncilRevenueItemViewSet prefetches
+        `_prefetched_active_bands`/`_prefetched_current_rate` to dodge the list
+        endpoint's N+1 storm, but those caches go stale the moment a writer
+        runs — and rates/bands are *versioned* (an old row is closed and new
+        rows created, never mutated), so the cached object genuinely differs
+        from a fresh query. `refresh_from_db()` does not clear these attrs,
+        which left the rate-bands endpoint answering with the pre-write band
+        set (the pre-existing suite failure this invalidates). Call this after
+        any write; the properties then fall back to querying fresh.
+        """
+        for attr in ("_prefetched_current_rate", "_prefetched_active_bands"):
+            if hasattr(self, attr):
+                delattr(self, attr)
+
 
 class RateSchedule(TimeStampedModel):
     """

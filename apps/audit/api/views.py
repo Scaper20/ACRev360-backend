@@ -34,7 +34,9 @@ class AuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             from apps.common.platform_scope import platform_wide_queryset
 
             def per_council(council_id):
-                inner = AuditLog.objects.filter(council_id=council_id).order_by("-created_at")
+                # AuditLogSerializer walks actor.username — select_related
+                # keeps the last-300 log at one query per council (PERF-3).
+                inner = AuditLog.objects.filter(council_id=council_id).select_related("actor").order_by("-created_at")
                 if q:
                     inner = inner.filter(Q(actor__username__icontains=q) | Q(action__icontains=q) | Q(entity_type__icontains=q))
                 return inner[:300]
@@ -45,7 +47,7 @@ class AuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
         # `q` must filter before the [:300] slice — a sliced queryset can't
         # be filtered further (Django raises on it).
-        qs = AuditLog.objects.filter(council_id=user.council_id).order_by("-created_at")
+        qs = AuditLog.objects.filter(council_id=user.council_id).select_related("actor").order_by("-created_at")
         if q:
             qs = qs.filter(Q(actor__username__icontains=q) | Q(action__icontains=q) | Q(entity_type__icontains=q))
         return qs[:300]

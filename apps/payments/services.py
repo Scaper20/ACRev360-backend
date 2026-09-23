@@ -73,6 +73,16 @@ def post_payment(
     if bill.status == Bill.CANCELLED:
         raise PaymentRejected(f"{bill.bill_ref} is cancelled and cannot take a payment")
 
+    # Lock the bill row for the whole money-in path. Every channel funnels
+    # through this one function, and the read-modify-write on
+    # bill.amount_paid below (plus recompute_bill's status roll-up) is the
+    # only non-atomic mutation on it — without the lock two concurrent
+    # payments against the same bill both read the same amount_paid and the
+    # second silently overwrites the first (lost update / double-spend).
+    # _allocate_fifo already locks the lines; this serializes everything
+    # above it on the single row that matters.
+    bill = Bill.objects.select_for_update().get(pk=bill.pk)
+
     geo = geo or {}
     payment = Payment.objects.create(
         council_id=council_id,
@@ -145,7 +155,12 @@ def reverse_payment(*, payment: Payment, actor, reason="") -> Payment:
     if payment.txn_status != Payment.CONFIRMED:
         raise PaymentRejected(f"{payment.payment_ref} is {payment.txn_status.lower()}, not confirmed — nothing to reverse")
 
-    bill = payment.bill
+    # Lock payment + bill so a reversal can't race a concurrent post_payment
+    # against the same bill (both mutate amount_paid read-modify-write). Lock
+    # order payment-then-bill mirrors the write order in post_payment, keeping
+    # deadlock-free regardless of interleaving.
+    payment = Payment.objects.select_for_update().get(pk=payment.pk)
+    bill = Bill.objects.select_for_update().get(pk=payment.bill_id)
     applied = payment.allocations.aggregate(total=Sum("amount"))["total"] or Decimal("0")
     leftover = payment.amount - applied
 

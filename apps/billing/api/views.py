@@ -83,7 +83,7 @@ class IssueBillResponseSerializer(BillSerializer):
     ),
     create=extend_schema(request=IssueBillSerializer, responses=IssueBillResponseSerializer),
 )
-class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
+class BillViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     # GLOBAL_VIEW deliberately excluded — bills carry payer full_name/payer_ref,
     # exactly what a stakeholder account must not see (aggregate totals only,
     # via DashboardSummaryView/DashboardGlobalView). REVENUE_OFFICER is
@@ -166,7 +166,14 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        payer = get_object_or_404(Payer, pk=data["payer_id"], council_id=request.user.council_id)
+        # Same portfolio scoping as every other payer-resolving path: RLS only
+        # stops cross-council leaks, but create's permissions
+        # (COUNCIL_ADMIN/CONSULTANT/AGENT) mean an AGENT/CONSULTANT must not
+        # be able to bill a payer outside their own portfolio.
+        payer_qs = portfolio_filter(
+            Payer.objects.filter(council_id=request.user.council_id), request, payer_path=None
+        )
+        payer = get_object_or_404(payer_qs, pk=data["payer_id"])
         lines = []
         for entry in data.get("lines", []):
             item = get_object_or_404(
@@ -280,6 +287,14 @@ class BillViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Destroy
         line = get_object_or_404(BillLine, pk=line_id, bill=bill)
 
         if request.method == "DELETE":
+            if line.allocations.exists():
+                # Deleting a line that payments have been FIFO-allocated to
+                # would orphan the allocation history (which amount landed
+                # where) — refuse loudly rather than corrupt it (U6).
+                return Response(
+                    {"error": "This line has payments recorded against it and can't be deleted — that preserves the payment allocation history."},
+                    status=status.HTTP_409_CONFLICT,
+                )
             try:
                 delete_bill_line(line=line, actor=request.user)
             except BillingError as exc:

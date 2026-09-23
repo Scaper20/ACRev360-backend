@@ -23,6 +23,8 @@ class AuditLog(CouncilScopedModel):
         db_table = "audit_log"
         indexes = [
             models.Index(fields=["council", "entity_type", "entity_id"]),
+            # The last-300 list orders -created_at within a council (PERF-2).
+            models.Index(fields=["council", "created_at"]),
         ]
         ordering = ["-created_at"]
 

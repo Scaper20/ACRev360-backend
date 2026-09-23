@@ -35,7 +35,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
 from apps.billing.models import Bill, BillLine
-from apps.common.filtering import parse_date, parse_int
+from apps.common.filtering import date_span_bounds, parse_date, parse_int
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.models import Payment
@@ -128,10 +128,14 @@ def _apply_common_filters(qs, f, *, ward_field, consultant_field, date_field):
         qs = qs.filter(**{ward_field: f["ward_id"]})
     if consultant_field and f.get("consultant_id"):
         qs = qs.filter(**{consultant_field: f["consultant_id"]})
+    # Sargable date bounds (date_span_bounds) instead of __date__ casts —
+    # PERF-1, same change as common.filtering.apply_date_range.
     if f.get("date_from"):
-        qs = qs.filter(**{f"{date_field}__date__gte": f["date_from"]})
+        start, _ = date_span_bounds(f["date_from"])
+        qs = qs.filter(**{f"{date_field}__gte": start})
     if f.get("date_to"):
-        qs = qs.filter(**{f"{date_field}__date__lte": f["date_to"]})
+        _, end = date_span_bounds(f["date_to"])
+        qs = qs.filter(**{f"{date_field}__lt": end})
     return qs
 
 

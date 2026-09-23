@@ -1,8 +1,5 @@
-from decimal import Decimal, InvalidOperation
-
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
@@ -93,10 +90,16 @@ class WebhookView(APIView):
             if existing:
                 return Response({"status": "duplicate", "bank_txn_ref": normalised["bank_txn_ref"]}, status=status.HTTP_200_OK)
 
-            feed_row = ChannelTransactionFeed.objects.create(
+            # get_or_create keeps replay idempotency race-free: two nearly-
+            # simultaneous replays of the same ref both pass the check above,
+            # but UNIQUE(channel, bank_txn_ref) lets only one create — the
+            # loser gets the existing row back (no IntegrityError → no 500).
+            feed_row, created = ChannelTransactionFeed.objects.get_or_create(
                 council_id=council.id, channel=channel, bank_txn_ref=normalised["bank_txn_ref"],
-                amount=normalised["amount"], raw_payload=payload,
+                defaults={"amount": normalised["amount"], "raw_payload": payload},
             )
+            if not created:
+                return Response({"status": "duplicate", "bank_txn_ref": normalised["bank_txn_ref"]}, status=status.HTTP_200_OK)
 
             bill = Bill.objects.filter(bill_ref=normalised["bill_ref"]).first()
             if bill is None:
@@ -134,7 +137,11 @@ class OTCSettlementView(APIView):
 
     @extend_schema(request=OTCSettlementRowSerializer(many=True), responses=OTCSettlementResponseSerializer, tags=["channels"])
     def post(self, request):
-        rows = request.data if isinstance(request.data, list) else []
+        if not isinstance(request.data, list):
+            return Response(
+                {"error": "Expected a JSON array of settlement rows."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        rows = request.data
         channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.OTC)
         posted, duplicates_skipped, exceptions = 0, 0, []
 
@@ -146,14 +153,14 @@ class OTCSettlementView(APIView):
                 continue
             normalised = adapters.normalise(PaymentChannel.OTC, row)
 
-            if ChannelTransactionFeed.objects.filter(channel=channel, bank_txn_ref=normalised["bank_txn_ref"]).exists():
+            feed_row, created = ChannelTransactionFeed.objects.get_or_create(
+                council_id=request.user.council_id, channel=channel, bank_txn_ref=normalised["bank_txn_ref"],
+                defaults={"amount": normalised["amount"], "raw_payload": row},
+            )
+            if not created:
+                # Safe to re-send: same-ref rows are skipped, never re-posted.
                 duplicates_skipped += 1
                 continue
-
-            feed_row = ChannelTransactionFeed.objects.create(
-                council_id=request.user.council_id, channel=channel, bank_txn_ref=normalised["bank_txn_ref"],
-                amount=normalised["amount"], raw_payload=row,
-            )
             bill = Bill.objects.filter(bill_ref=normalised["bill_ref"], council_id=request.user.council_id).first()
             if bill is None:
                 feed_row.match_status = ChannelTransactionFeed.EXCEPTION
@@ -181,7 +188,9 @@ class OTCSettlementView(APIView):
 
 class USSDSessionView(APIView):
     """Stateless menu driven entirely by the accumulated input string a telco
-    gateway sends per keypress. 1 pay a bill, 2 check balance, 3 verify a receipt."""
+    gateway sends per keypress. 1 check balance, 2 verify a receipt. Bill payment
+    via USSD is disabled until a payment gateway integration (HMAC client +
+    feed rows) is in place."""
 
     permission_classes = [AllowAny]
 
@@ -192,42 +201,16 @@ class USSDSessionView(APIView):
     )
     def post(self, request):
         text = request.data.get("text", "")
-        msisdn = request.data.get("msisdn", "")
         parts = text.split("*") if text else []
 
         if not parts or parts[0] == "":
-            return self._plain("CON Welcome to ACRev360\n1. Pay a bill\n2. Check balance\n3. Verify a receipt")
+            return self._plain("CON Welcome to ACRev360\n1. Check balance\n2. Verify a receipt")
 
         option = parts[0]
 
         if option == "1":
-            if len(parts) < 3:
-                return self._plain("CON Enter bill reference then amount, separated by *\ne.g. 1*KAC/2026/000001*5000")
-            bill_ref, amount_str = parts[1], parts[2]
-            council = resolve_council_from_bill_ref(bill_ref)
-            if council is None:
-                return self._plain("END Bill reference not found.")
-            with council_context(council.id):
-                bill = Bill.objects.filter(bill_ref=bill_ref).first()
-                if bill is None:
-                    return self._plain("END Bill reference not found.")
-                try:
-                    amount = Decimal(amount_str)
-                except InvalidOperation:
-                    return self._plain("END Invalid amount.")
-                channel, _ = PaymentChannel.objects.get_or_create(code=PaymentChannel.USSD)
-                try:
-                    payment = post_payment(
-                        council_id=council.id, bill=bill, channel=channel, amount=amount,
-                        bank_txn_ref=f"USSD-{msisdn}-{int(timezone.now().timestamp())}",
-                    )
-                except PaymentRejected as exc:
-                    return self._plain(f"END Payment failed: {exc}")
-                return self._plain(f"END Payment received. Receipt: {payment.receipt.receipt_ref}")
-
-        if option == "2":
             if len(parts) < 2:
-                return self._plain("CON Enter bill reference\ne.g. 2*KAC/2026/000001")
+                return self._plain("CON Enter bill reference\ne.g. 1*KAC/2026/000001")
             bill_ref = parts[1]
             council = resolve_council_from_bill_ref(bill_ref)
             if council is None:
@@ -238,7 +221,7 @@ class USSDSessionView(APIView):
                     return self._plain("END Bill reference not found.")
                 return self._plain(f"END Balance for {bill.bill_ref}: NGN {bill.balance}")
 
-        if option == "3":
+        if option == "2":
             if len(parts) < 2:
                 return self._plain("CON Enter receipt verification code")
             token = parts[1]

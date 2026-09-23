@@ -21,10 +21,19 @@ real surface. `/admin/` stays usable for council-agnostic bootstrapping (e.g.
 Council, RevenueItemTemplate) where no tenant context is needed.
 """
 from django.db import transaction
+from django.http import JsonResponse
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.tenancy.context import set_council_context
+
+#: Endpoints a must-change-password user is allowed to reach before satisfying
+#: the forced change. Everything else returns 428 until they do.
+_PASSWORD_CHANGE_ALLOWED_PATHS = (
+    "/api/v1/auth/change-password",
+    "/api/v1/auth/logout",
+    "/api/v1/auth/me",
+)
 
 
 class CouncilContextMiddleware:
@@ -32,20 +41,27 @@ class CouncilContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        council_id = self._resolve_council_id(request)
+        token = self._decode_token(request)
+
+        if token is not None and token.get("must_change_password") and request.path not in _PASSWORD_CHANGE_ALLOWED_PATHS:
+            return JsonResponse(
+                {"error": "A password change is required before this action.", "code": "password_change_required"},
+                status=428,
+            )
+
+        council_id = token.get("council_id") if token is not None else None
         with transaction.atomic():
             set_council_context(council_id)
             response = self.get_response(request)
         return response
 
     @staticmethod
-    def _resolve_council_id(request):
+    def _decode_token(request):
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return None
         raw_token = auth_header[len("Bearer ") :].strip()
         try:
-            token = AccessToken(raw_token)
+            return AccessToken(raw_token)
         except TokenError:
             return None
-        return token.get("council_id")

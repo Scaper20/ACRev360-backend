@@ -1,3 +1,5 @@
+from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -33,7 +35,21 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     )]
 
     def get_queryset(self):
-        return ReconciliationRun.objects.filter(council_id=self.request.user.council_id).order_by("-run_date")
+        # ReconciliationRunSerializer walks channel.code plus a nested
+        # exceptions list that each read feed_row.bank_txn_ref/amount — the
+        # select_related + Prefetch keep the run list at 3 queries total
+        # instead of 1 per run + 2 per exception (PERF-3).
+        return (
+            ReconciliationRun.objects.filter(council_id=self.request.user.council_id)
+            .select_related("channel")
+            .prefetch_related(
+                Prefetch(
+                    "exceptions",
+                    queryset=ReconciliationException.objects.select_related("feed_row"),
+                )
+            )
+            .order_by("-run_date")
+        )
 
     @extend_schema(request=RunReconciliationSerializer, responses=ReconciliationRunSerializer)
     @action(
@@ -62,7 +78,7 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         permission_classes=[access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY)],
     )
     def resolve_exception(self, request, exception_id=None):
-        exception = ReconciliationException.objects.get(pk=exception_id, council_id=request.user.council_id)
+        exception = get_object_or_404(ReconciliationException, pk=exception_id, council_id=request.user.council_id)
         serializer = ResolveExceptionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         exception.note = serializer.validated_data["note"]

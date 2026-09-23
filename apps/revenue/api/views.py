@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
+from apps.common.filtering import parse_int as parse_int_params
 from apps.common.permissions import access_level_permission
 from apps.revenue.api.serializers import (
     ChangeRateSerializer,
@@ -93,8 +94,8 @@ class CouncilRevenueItemViewSet(
             )
             .order_by("harmonised_code")
         )
-        department_param = self.request.query_params.get("department")
-        if department_param:
+        department_param = parse_int_params(self.request.query_params, "department")
+        if department_param is not None:
             qs = qs.filter(department_id=department_param)
         # Unlike payers/bills/payments (scoped via common.scoping.portfolio_filter,
         # which walks a payer's enumerated_by__consultant_id), a revenue item has

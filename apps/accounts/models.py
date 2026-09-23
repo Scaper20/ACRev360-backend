@@ -112,6 +112,11 @@ class AppUser(AbstractBaseUser, PermissionsMixin):
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    #: Set when the account was provisioned with a system-generated password
+    #: that must be replaced before normal use (ENFORCE_ACCOUNT_PASSWORD_POLICY).
+    #: Cleared by POST /api/v1/auth/change-password; a JWT carrying the flag is
+    #: 428-gated by apps.tenancy.middleware to force the change on first login.
+    must_change_password = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)
 
     objects = AppUserManager()

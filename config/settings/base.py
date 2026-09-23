@@ -20,6 +20,12 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-dev-only-change-m
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 
+# Account provisioning policy: when on, onboarding without an explicit password
+# generates a strong one and forces a change at first login (apps/accounts/
+# security.py + apps/tenancy/middleware.py). Off in dev/test, which share the
+# "acrev360-2026" fallback password by design; prod.py turns it on.
+ENFORCE_ACCOUNT_PASSWORD_POLICY = env.bool("ENFORCE_ACCOUNT_PASSWORD_POLICY", default=False)
+
 # Application definition
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -139,6 +145,13 @@ REST_FRAMEWORK = {
     ),
     "EXCEPTION_HANDLER": "apps.common.exceptions.acrev360_exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    # Login throttling (S5): brute-force guard on the one public credential-
+    # checking endpoint, scoped to LoginView ("login" scope) so it never
+    # touches the rest of the API. dev.py raises this to a never-trips level
+    # for the test suite; prod.py makes it env-required with a strict default.
+    "DEFAULT_THROTTLE_RATES": {
+        "login": env("LOGIN_THROTTLE_RATE", default="30/min"),
+    },
 }
 
 # Auth mechanism: short-lived JWT (access + refresh), decided in V2_ARCHITECTURE.md

@@ -1,3 +1,4 @@
+from django.db import IntegrityError
 from django.db.models import DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -12,7 +13,8 @@ from rest_framework.views import APIView
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
 from apps.billing.models import Bill
-from apps.common.filtering import name_search_q
+from apps.common.api.views import PlatformWideListMixin
+from apps.common.filtering import date_span_bounds, name_search_q, parse_date, parse_int
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.api.serializers import (
@@ -75,20 +77,27 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         channel_param = params.get("channel")
         if channel_param:
             qs = qs.filter(channel__code=channel_param)
-        payer_param = params.get("payer")
-        if payer_param:
+        payer_param = parse_int(params, "payer")
+        if payer_param is not None:
             qs = qs.filter(bill__payer_id=payer_param)
         q = params.get("q")
         if q:
             qs = qs.filter(
                 Q(payment_ref__icontains=q) | Q(bill__bill_ref__icontains=q) | name_search_q(q, prefix="bill__payer")
             )
-        date_from = params.get("date_from")
-        if date_from:
-            qs = qs.filter(created_at__date__gte=date_from)
-        date_to = params.get("date_to")
-        if date_to:
-            qs = qs.filter(created_at__date__lte=date_to)
+        # parse_date/parse_int so a malformed value 400s instead of 500ing —
+        # raw strings reached .filter() directly before, and Django's ValueError
+        # isn't a DRF APIException (same class of bug as the payer param above).
+        # date_span_bounds keeps the window on the raw timestamp (sargable)
+        # rather than the old `created_at__date__gte/lte` casts.
+        date_from = parse_date(params, "date_from")
+        if date_from is not None:
+            start, _ = date_span_bounds(date_from)
+            qs = qs.filter(created_at__gte=start)
+        date_to = parse_date(params, "date_to")
+        if date_to is not None:
+            _, end = date_span_bounds(date_to)
+            qs = qs.filter(created_at__lt=end)
         return qs
 
     def get_serializer_class(self):
@@ -99,7 +108,14 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        bill = get_object_or_404(Bill, pk=data["bill_id"], council_id=request.user.council_id)
+        # The bill must sit inside the caller's own portfolio — RLS only
+        # stops cross-council leaks, it doesn't stop an AGENT/CONSULTANT
+        # posting a payment onto a bill outside their portfolio, which
+        # create's permissions (COUNCIL_ADMIN/CONSULTANT/AGENT) make reachable.
+        bill_qs = portfolio_filter(
+            Bill.objects.filter(council_id=request.user.council_id), request, payer_path="payer"
+        )
+        bill = get_object_or_404(bill_qs, pk=data["bill_id"])
         channel, _ = PaymentChannel.objects.get_or_create(code=data["channel_code"])
         terminal = None
         if data.get("terminal_id") is not None:
@@ -118,6 +134,16 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
             )
         except PaymentRejected as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            # The partial UNIQUE(channel, bank_txn_ref) on Payment — a bank
+            # reference was already recorded for this channel, so nothing was
+            # posted this time. post_payment's @transaction.atomic has already
+            # rolled back its payment/allocations/receipt, so the bill state is
+            # untouched.
+            return Response(
+                {"error": "This bank transaction reference was already recorded for this channel — nothing was posted again."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
@@ -287,7 +313,7 @@ class POSTerminalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
 
 
-class APIClientViewSet(viewsets.ModelViewSet):
+class APIClientViewSet(PlatformWideListMixin, viewsets.ModelViewSet):
     """DEVOPS_ADMIN (platform tier, council=null — docs/RBAC_EXPANSION_DESIGN.md)
     reads/manages integration keys across every active council, matching the
     matrix's "API keys, integration configs... no direct business-data edit
@@ -309,18 +335,15 @@ class APIClientViewSet(viewsets.ModelViewSet):
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
         return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.DEVOPS_ADMIN)()]
 
+    def get_platform_queryset_fn(self, council_id):
+        return APIClient.objects.filter(council_id=council_id)
+
     def get_queryset(self):
         user = self.request.user
         if user.council_id is None:
-            from apps.common.platform_scope import platform_wide_queryset
-
-            ids = [
-                obj.id
-                for obj in platform_wide_queryset(
-                    lambda council_id: APIClient.objects.filter(council_id=council_id), user
-                )
-            ]
-            return APIClient.objects.filter(id__in=ids)
+            # Platform tier: materialize per council via PlatformWideListMixin,
+            # never a lazy queryset evaluated outside a council RLS context.
+            return APIClient.objects.none()
         return APIClient.objects.filter(council_id=user.council_id)
 
     def perform_create(self, serializer):

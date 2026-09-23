@@ -27,6 +27,12 @@ class CommissionSettlement(CouncilScopedModel):
 
     class Meta:
         db_table = "commission_settlement"
+        indexes = [
+            # my_summary/status sums scan council + status=APPROVED/SETTLED (PERF-2).
+            models.Index(fields=["council", "status"]),
+            # List orders -period_start within a council.
+            models.Index(fields=["council", "period_start"]),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["consultant", "period_start", "period_end"], name="uniq_settlement_per_period"

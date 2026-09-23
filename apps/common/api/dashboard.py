@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole, FieldAgent
 from apps.billing.models import Assessment, Bill
+from apps.common.filtering import date_span_bounds
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.models import Payment, PaymentChannel
@@ -147,10 +148,13 @@ class DashboardSummaryView(APIView):
 
         today = timezone.localdate()
         start = today - datetime.timedelta(days=_TREND_DAYS - 1)
+        # Sargable window (PERF-1): half-open the local-day start instead of the
+        # __date__ cast that disabled index use on created_at.
+        trend_start, _ = date_span_bounds(start)
         trend_raw = {
             row["d"]: row["amount"]
             for row in (
-                payments.filter(created_at__date__gte=start)
+                payments.filter(created_at__gte=trend_start)
                 .annotate(d=TruncDate("created_at"))
                 .values("d")
                 .annotate(amount=Sum("amount"))

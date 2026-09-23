@@ -140,6 +140,7 @@ def change_rate(*, council_revenue_item, new_amount, actor, effective_from=None)
         entity_id=council_revenue_item.id,
         detail={"old_rate": str(current.rate_amount) if current else None, "new_rate": str(new_amount)},
     )
+    council_revenue_item.invalidate_prefetch_caches()
     return new_row
 
 
@@ -228,4 +229,5 @@ def replace_rate_bands(*, council_revenue_item, bands, actor, effective_from=Non
             "new_bands": [{"label": b.label, "rate_mode": b.rate_mode} for b in created],
         },
     )
+    council_revenue_item.invalidate_prefetch_caches()
     return created

@@ -40,6 +40,8 @@ class AppTokenObtainPairSerializer(TokenObtainPairSerializer):
         refresh = self.get_token(self.user)
         data["refresh"] = str(refresh)
         data["access"] = str(refresh.access_token)
+        if getattr(self.user, "must_change_password", False):
+            data["must_change_password"] = True
         if api_settings.UPDATE_LAST_LOGIN:
             update_last_login(None, self.user)
         return data
@@ -50,6 +52,7 @@ class AppTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["council_id"] = user.council_id
         token["access_level"] = user.access_level
         token["consultant_id"] = user.consultant_id
+        token["must_change_password"] = user.must_change_password
         payer_profile = getattr(user, "payer_profile", None)
         token["payer_id"] = payer_profile.id if payer_profile else None
         return token

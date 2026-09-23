@@ -19,5 +19,11 @@ def acrev360_exception_handler(exc, context):
     # failed login. Normalise whenever `detail` is present, regardless of
     # whatever else rides along with it.
     if isinstance(response.data, dict) and "detail" in response.data:
-        response.data = {"error": str(response.data["detail"])}
+        normalised = {"error": str(response.data["detail"])}
+        # Keep a `code` sibling when present (SimpleJWT adds codes like
+        # "no_active_account"; login also surfaces must_change_password flows)
+        # so the frontend can branch on it without string-matching the error.
+        if response.data.get("code"):
+            normalised["code"] = response.data["code"]
+        response.data = normalised
     return response

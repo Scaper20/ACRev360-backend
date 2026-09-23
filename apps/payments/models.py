@@ -137,7 +137,31 @@ class Payment(CouncilScopedModel):
 
     class Meta:
         db_table = "payment"
-        indexes = [models.Index(fields=["council", "bill"])]
+        indexes = [
+            models.Index(fields=["council", "bill"]),
+            # List/dashboard/date-filter path orders and windows by -created_at
+            # after a council filter (PERF-2) — lands the common payment scan
+            # on one b-tree instead of a council join then a sort.
+            models.Index(fields=["council", "created_at"]),
+            # Money-path sums (settlements, reconciliation, dashboard) filter
+            # council + txn_status=CONFIRMED before aggregating.
+            models.Index(fields=["council", "txn_status"]),
+        ]
+        constraints = [
+            # One bank reference can fund one payment per channel. Blank refs
+            # (manual cash/teller entries with no bank-side number) are exempt
+            # — the feed's own UNIQUE(channel, bank_txn_ref) is unconditional,
+            # but a Payment that isn't backed by a feed row has nothing to be
+            # idempotent against. This is the backstop that stops a second
+            # manual confirmation of the same slip/till reference double-
+            # charging a payer (post_payment's bill lock serializes the race,
+            # this catches the honest duplicate).
+            models.UniqueConstraint(
+                fields=["channel", "bank_txn_ref"],
+                condition=~models.Q(bank_txn_ref=""),
+                name="uniq_channel_bank_txn_ref_nonblank",
+            ),
+        ]
 
     def __str__(self):
         return self.payment_ref or f"(unsaved payment #{self.pk})"
@@ -185,6 +209,12 @@ class ChannelTransactionFeed(CouncilScopedModel):
 
     class Meta:
         db_table = "channel_transaction_feed"
+        indexes = [
+            # Reconciliation's unmatched scan (council + UNMATCHED) and the
+            # per-council feed lists order/window by received_at (PERF-2).
+            models.Index(fields=["council", "received_at"]),
+            models.Index(fields=["council", "match_status"]),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["channel", "bank_txn_ref"], name="uniq_channel_bank_txn_ref"),
         ]

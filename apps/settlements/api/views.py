@@ -11,7 +11,8 @@ from rest_framework.response import Response
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
 from apps.billing.models import Bill
-from apps.common.filtering import parse_int
+from apps.common.api.views import PlatformWideListMixin
+from apps.common.filtering import date_span_bounds, parse_int
 from apps.common.permissions import access_level_permission
 from apps.payments.models import Payment
 from apps.settlements.api.serializers import (
@@ -24,6 +25,16 @@ from apps.settlements.api.serializers import (
 from apps.settlements.models import CommissionSettlement
 from apps.settlements.services import compute_settlements
 
+#: Status-change state machine (U3): a settlement can't jump arbitrarily.
+#: COMPUTED -> APPROVED/DISPUTED; APPROVED -> SETTLED/DISPUTED; DISPUTED ->
+#: APPROVED (after resolution); SETTLED is terminal.
+_ALLOWED_STATUS_TRANSITIONS = {
+    CommissionSettlement.COMPUTED: {CommissionSettlement.APPROVED, CommissionSettlement.DISPUTED},
+    CommissionSettlement.APPROVED: {CommissionSettlement.SETTLED, CommissionSettlement.DISPUTED},
+    CommissionSettlement.DISPUTED: {CommissionSettlement.APPROVED},
+    CommissionSettlement.SETTLED: set(),
+}
+
 
 def _settlement_bill_rows(settlement: CommissionSettlement) -> list[dict]:
     """Per-bill breakdown behind one settlement's gross_collections: every
@@ -35,18 +46,26 @@ def _settlement_bill_rows(settlement: CommissionSettlement) -> list[dict]:
     `collected` is annotated directly on the queryset (one query total)
     rather than re-aggregated per bill in the loop below — a settlement
     covering hundreds of bills previously cost one extra query per bill."""
+    period_start_bound, _ = date_span_bounds(settlement.period_start)
+    _, period_end_bound = date_span_bounds(settlement.period_end)
     period_filter = Q(
         payments__txn_status=Payment.CONFIRMED,
-        payments__created_at__date__gte=settlement.period_start,
-        payments__created_at__date__lte=settlement.period_end,
+        payments__created_at__gte=period_start_bound,
+        payments__created_at__lt=period_end_bound,
     )
-    bills = (
-        Bill.objects.filter(council_id=settlement.council_id, payer__enumerated_by__consultant_id=settlement.consultant_id)
-        .filter(period_filter)
-        .distinct()
-        .select_related("payer")
-        .annotate(collected=Sum("payments__amount", filter=period_filter))
-    )
+    # FINANCE_ADMIN is platform tier (council=null) — resolve the bill rows
+    # inside the settlement's own council RLS context, or FORCE RLS would zero
+    # every row. Re-entering the caller's existing council context is a no-op.
+    from apps.tenancy.context import council_context
+
+    with council_context(settlement.council_id):
+        bills = (
+            Bill.objects.filter(council_id=settlement.council_id, payer__enumerated_by__consultant_id=settlement.consultant_id)
+            .filter(period_filter)
+            .distinct()
+            .select_related("payer")
+            .annotate(collected=Sum("payments__amount", filter=period_filter))
+        )
     rows = []
     for bill in bills:
         collected = bill.collected or Decimal("0")
@@ -72,7 +91,7 @@ def _settlement_bill_rows(settlement: CommissionSettlement) -> list[dict]:
         ),
     ])
 )
-class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+class CommissionSettlementViewSet(PlatformWideListMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CommissionSettlementSerializer
     # REVENUE_OFFICER included here (list only — `compute`/`status_change`
     # below already declare their own narrower COUNCIL_ADMIN-only
@@ -90,19 +109,20 @@ class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
     )]
     lookup_value_regex = r"[0-9]+"
 
+    def get_platform_queryset_fn(self, council_id):
+        qs = CommissionSettlement.objects.filter(council_id=council_id).order_by("-period_start")
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(consultant__consultant_name__icontains=q)
+        return qs
+
     def get_queryset(self):
         user = self.request.user
         if user.council_id is None:
-            from apps.common.platform_scope import platform_wide_queryset
-
-            ids = [
-                obj.id
-                for obj in platform_wide_queryset(
-                    lambda council_id: CommissionSettlement.objects.filter(council_id=council_id), user
-                )
-            ]
-            return CommissionSettlement.objects.filter(id__in=ids).order_by("-period_start")
-        qs = CommissionSettlement.objects.filter(council_id=user.council_id).order_by("-period_start")
+            # Platform tier: materialize per council via PlatformWideListMixin,
+            # never a lazy queryset evaluated outside a council RLS context.
+            return CommissionSettlement.objects.none()
+        qs = CommissionSettlement.objects.filter(council_id=user.council_id).select_related("consultant").order_by("-period_start")
         if user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER, AppRole.CONSULTANT_STAFF):
             qs = qs.filter(consultant_id=user.consultant_id)
         else:
@@ -178,7 +198,13 @@ class CommissionSettlementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
         serializer = SettlementStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         old_status = settlement.status
-        settlement.status = serializer.validated_data["status"]
+        new_status = serializer.validated_data["status"]
+        if new_status not in _ALLOWED_STATUS_TRANSITIONS.get(old_status, set()):
+            return Response(
+                {"error": f"Cannot move a settlement from {old_status} to {new_status}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        settlement.status = new_status
         settlement.save(update_fields=["status", "updated_at"])
         audit(
             council_id=settlement.council_id, actor=request.user, action="SETTLEMENT_STATUS_CHANGED",

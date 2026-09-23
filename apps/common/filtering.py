@@ -16,6 +16,7 @@ import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.filters import OrderingFilter
 
@@ -99,14 +100,33 @@ def apply_payer_dimension_filters(qs, params, *, payer_path=""):
     return qs
 
 
+def date_span_bounds(day):
+    """Half-open ``[00:00:00, next-day 00:00:00)`` bounds for a filter on a
+    DateTimeField, made aware in the session timezone (TIME_ZONE=Africa/Lagos,
+    USE_TZ=True). This is the exact local-day window the old ``__date__``
+    lookup compared against, but expressed as a range the b-tree on the column
+    can seek directly instead of casting every row's timestamp to a date
+    (which is why `__date__` filters never used an index). Making the
+    datetimes aware here (rather than relying on Django's naive-datetime
+    fallback) keeps the semantics explicit and avoids its RuntimeWarning.
+    Callers apply ``field__gte=start`` / ``field__lt=end``."""
+    tz = timezone.get_current_timezone()
+    start = timezone.make_aware(datetime.datetime.combine(day, datetime.time.min), tz)
+    end = timezone.make_aware(datetime.datetime.combine(day + datetime.timedelta(days=1), datetime.time.min), tz)
+    return start, end
+
+
 def apply_date_range(qs, params, *, field):
-    """`date_from`/`date_to` against a DateTimeField, inclusive on both ends."""
+    """`date_from`/`date_to` against a DateTimeField, inclusive on both ends —
+    sargably, per `date_span_bounds`."""
     date_from = parse_date(params, "date_from")
     if date_from is not None:
-        qs = qs.filter(**{f"{field}__date__gte": date_from})
+        start, _ = date_span_bounds(date_from)
+        qs = qs.filter(**{f"{field}__gte": start})
     date_to = parse_date(params, "date_to")
     if date_to is not None:
-        qs = qs.filter(**{f"{field}__date__lte": date_to})
+        _, end = date_span_bounds(date_to)
+        qs = qs.filter(**{f"{field}__lt": end})
     return qs
 
 

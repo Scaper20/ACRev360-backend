@@ -86,6 +86,8 @@ class Bill(CouncilScopedModel):
         indexes = [
             models.Index(fields=["council", "status"]),
             models.Index(fields=["council", "payer"]),
+            # Bill list orders -created_at after a council filter (PERF-2).
+            models.Index(fields=["council", "created_at"]),
         ]
 
     def __str__(self):
