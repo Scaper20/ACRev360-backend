@@ -300,6 +300,8 @@ the new stack has run cleanly for a week.
    a login, a payer list, the dashboard, a revenue-items load. Compare speed:
    `curl -o /dev/null -s -w "connect %{time_connect}s  first-byte %{time_starttransfer}s\n" <url>/api/v1/health`
    against both services (run it 5 times; the first hit after idle includes a cold start).
+   Then re-derive `NUM_PROXIES` for the new path with `GET /api/v1/ops/client-ip` (§8) and set it on
+   the new service — the hop count belongs to the network path, not the code.
 
 ### Phase B — cutover (15–20 minutes; pick a quiet hour, not 01:00 UTC when the nightly job runs)
 
@@ -357,23 +359,42 @@ changes per request anyway, so the IP throttles never trip. The per-email login 
 and the per-user limit don't depend on this; the **anonymous** limits (public
 bill/receipt lookups, the anonymous ceiling, the `actor_ip` on audit rows) do.
 
-Set `NUM_PROXIES` on the Render service to the number of trusted proxies that append
-to the header. Verify rather than guess — from your own machine, against the live URL:
+**Read the real chain off a live request** with the signed-in diagnostic
+`GET /api/v1/ops/client-ip` (it echoes only the caller's own request headers):
 
 ```bash
-# 40 quick requests, each with a different spoofed first entry. If NUM_PROXIES is
-# right you should see 404s (or 200s) and then 429s: the spoof doesn't get a fresh budget.
+TOKEN=$(curl -s -X POST https://<service>/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"<you>","password":"<pw>"}' | python -c "import sys,json; print(json.load(sys.stdin)['access'])")
+curl -s https://<service>/api/v1/ops/client-ip -H "Authorization: Bearer $TOKEN" \
+  -H 'X-Forwarded-For: 198.51.100.77'      # a spoofed entry, to see where it lands
+```
+
+Verified 2026-09-24 against the Oregon service (Cloudflare in front of Render):
+
+```
+x_forwarded_for:  198.51.100.77,203.0.113.5, 172.71.0.10, 10.0.0.1
+                  ^ client-supplied  ^ real client   ^ Cloudflare edge  ^ Render internal
+cf_connecting_ip: 203.0.113.5
+```
+
+Counting from the right, the real client is the **3rd** entry, and everything left of it
+is attacker-controlled. So the value is **`NUM_PROXIES=3`** — set it in the Render
+dashboard (Environment → add `NUM_PROXIES` = `3`; the service redeploys). Then confirm
+`resolved_ip` in the same diagnostic equals your own address and that `num_proxies` is 3.
+A value too small picks a shared proxy address (everyone throttled together); too large
+picks a spoofable entry. **Re-run this after moving region or host** (§7) — the hop count
+belongs to the network path, not the code — and it changes if Cloudflare is ever removed
+from in front of the service.
+
+Confirm the throttle now holds against spoofing (40 requests, each with a different
+spoofed first entry — you should see 30 successes and then 429s, not 40 successes):
+
+```bash
 for i in $(seq 1 40); do
   curl -s -o /dev/null -w "%{http_code} " -H "X-Forwarded-For: 198.51.100.$i" \
     https://<service>/api/v1/bills/KAC/2026/000001
 done; echo
 ```
-
-- Never a 429 → the setting picks a spoofable or per-request-varying entry: try 1, 2 or 3
-  until spoofing stops helping.
-- 429s start after ~30 requests with *your* address counted once → correct. (If a
-  colleague on a different network gets 429s at the same moment, the value is too small
-  and is picking a shared proxy address — raise it.)
 
 Until it is set the anonymous limits are best-effort; nothing breaks.
 

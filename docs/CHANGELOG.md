@@ -88,7 +88,10 @@ change needs `current_password`; password change signs out everywhere; narrower 
   (`DATABASE_URL=postgresql://acrev360:acrev360@localhost:5432/acrev360`).
 - Caches and throttle counters are per-process (fine for 1 worker) — see DEPLOYMENT.md §9 before
   raising `WEB_CONCURRENCY`.
-- Anonymous throttles key on the client IP: set `NUM_PROXIES` (DEPLOYMENT.md §8) after verifying it.
+- Anonymous throttles key on the client IP, so `NUM_PROXIES` must be set on the Render service. Read off
+  production with `GET /api/v1/ops/client-ip` on 2026-09-24: the chain is client-supplied, real client,
+  Cloudflare edge, Render internal, so the value is **3** (Oregon; re-verify after any region/host move —
+  DEPLOYMENT.md §8). Until it is set the IP-keyed limits and the `actor_ip` on audit rows are best-effort.
 - Any code path that changes catalogue/dashboard data with `queryset.update()` or `bulk_*` skips the
   invalidation signals; the 2-minute token TTL is the backstop. Call `cachekeys.bump()` if it matters.
 
