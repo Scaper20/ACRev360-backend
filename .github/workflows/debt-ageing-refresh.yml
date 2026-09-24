@@ -37,10 +37,15 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.ACREV_DATABASE_URL }}
           DJANGO_SETTINGS_MODULE: config.settings.prod
-          # config.settings.prod requires these with no default, but this
-          # job never serves a request — any non-empty value satisfies the
-          # settings check without meaning anything.
-          DJANGO_SECRET_KEY: unused-by-this-command-any-value-works
+          # config.settings.prod requires these with no default and — since
+          # the 2026-09-23 hardening pass — refuses to boot on the dev
+          # fallback SECRET_KEY / WEBHOOK_ENCRYPTION_KEY. This job never
+          # serves a request or decrypts a webhook secret, so it gets
+          # throwaway values generated fresh each run (below) rather than
+          # anything hardcoded in this public repo or shared with production.
           DJANGO_ALLOWED_HOSTS: localhost
           CORS_ALLOWED_ORIGINS: http://localhost
-        run: python manage.py refresh_debt_ageing
+        run: |
+          export DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+          export WEBHOOK_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          python manage.py refresh_debt_ageing
