@@ -38,8 +38,10 @@ def scoped(make_council, make_ward, make_user, make_field_agent, make_revenue_it
 
 @pytest.mark.django_db(transaction=True)
 def test_worklist_scoped_to_agents_ward(scoped, authed_api_client, make_payer):
-    in_ward = make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="In Ward", phone="08030000001")
-    make_payer(scoped["council"], scoped["ward_b"], scoped["admin"], name="Other Ward", phone="08030000002")
+    # The agent's own payers only (see tests/test_security_round2.py for the
+    # other-agent / other-firm cases), and only those in the agent's ward.
+    in_ward = make_payer(scoped["council"], scoped["ward_a"], scoped["agent_user"], name="In Ward", phone="08030000001")
+    make_payer(scoped["council"], scoped["ward_b"], scoped["agent_user"], name="Other Ward", phone="08030000002")
 
     r = authed_api_client(scoped["agent_user"]).get("/api/v1/mobile/worklist")
     assert r.status_code == 200, r.content
@@ -61,8 +63,8 @@ def test_worklist_empty_when_agent_has_no_ward(scoped, authed_api_client, make_p
 
 @pytest.mark.django_db(transaction=True)
 def test_worklist_orders_by_outstanding_balance_desc(scoped, authed_api_client, make_payer):
-    small = make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Small Balance", phone="08030000004")
-    large = make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Large Balance", phone="08030000005")
+    small = make_payer(scoped["council"], scoped["ward_a"], scoped["agent_user"], name="Small Balance", phone="08030000004")
+    large = make_payer(scoped["council"], scoped["ward_a"], scoped["agent_user"], name="Large Balance", phone="08030000005")
     issue_bill(council_id=scoped["council"].id, payer=small, lines=[{"council_revenue_item": scoped["item"], "quantity": 1}], actor=scoped["admin"])
     issue_bill(council_id=scoped["council"].id, payer=large, lines=[{"council_revenue_item": scoped["item"], "quantity": 3}], actor=scoped["admin"])
 
@@ -73,8 +75,8 @@ def test_worklist_orders_by_outstanding_balance_desc(scoped, authed_api_client, 
 
 @pytest.mark.django_db(transaction=True)
 def test_worklist_search_matches_name_or_ref(scoped, authed_api_client, make_payer):
-    make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Findable Trader", phone="08030000006")
-    make_payer(scoped["council"], scoped["ward_a"], scoped["admin"], name="Other Trader", phone="08030000007")
+    make_payer(scoped["council"], scoped["ward_a"], scoped["agent_user"], name="Findable Trader", phone="08030000006")
+    make_payer(scoped["council"], scoped["ward_a"], scoped["agent_user"], name="Other Trader", phone="08030000007")
 
     r = authed_api_client(scoped["agent_user"]).get("/api/v1/mobile/worklist?q=Findable")
     assert {row["full_name"] for row in r.json()["results"]} == {"Findable Trader"}

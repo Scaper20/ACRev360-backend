@@ -21,6 +21,77 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-24 — Second security review: fixes, throttling, caching, region-move runbook
+
+**Ask:** run a deep security probe (two-council world, RLS off, 99 routes x 14 roles),
+then fix what it found, implement the free performance options, and document how to
+move Render + Neon to Frankfurt. Passwords are hardened for *new* accounts only —
+no existing password was changed (rotation waits for launch).
+
+**Fixed (backend; tests in `tests/test_security_round2.py`):**
+- **Public bill lookup leaked PII** (`GET /bills/<ref>`, sequential refs, no limit):
+  anonymous callers now get name/phone/payer-ref masked, address blank, `pii_masked: true`;
+  signed-in staff of the bill's council (portfolio-scoped for consultants/agents) get the
+  full record. Rate-limited (`public_lookup`, 30/min/IP). `apps/common/masking.py`.
+- **Onboarding bypassed password validators**: stakeholder / revenue officer / agent /
+  consultant manager / ratepayer invite now validate an explicit password
+  (`apps/accounts/validators.py`), including a new `NotPublishedPasswordValidator` that
+  refuses anything containing "acrev360" (the demo password is 13 chars and passed every
+  stock validator). Omitting the password still generates one.
+- **Duplicate-bill race**: `issue_bill` row-locks the payer first, so concurrent issues for
+  one payer serialise (6 concurrent requests used to make 4 open bills).
+- **Worklist showed every payer in the ward to every firm's agents**: now payers the agent
+  registered or was assigned (same rule as `portfolio_filter`). Offline sync replay
+  deliberately still checks ward only — an agent's queued payment must not be REJECTED
+  because a supervisor reassigned the payer while they were offline.
+- `?q=%00` (NUL) 500'd every search list: `RejectNulBytesMiddleware` -> 400.
+- `PATCH /auth/me` changed the login email with no proof of identity: needs
+  `current_password`; case-insensitive uniqueness; audited (`EMAIL_CHANGED`).
+- Logins were never audited: `LOGIN_SUCCEEDED` / `LOGIN_FAILED` (+ IP, reason) for
+  council-tier users. Found on the way: `PASSWORD_CHANGED` audit would have 500'd for any
+  platform-tier user (audit rows need a council) — `audit_user_event` skips them.
+- No throttling outside login: default `anon`/`user` ceilings, plus scoped limits for public
+  lookups, USSD, webhooks; Django admin login form throttled (`AdminLoginThrottleMiddleware`),
+  admin path configurable (`DJANGO_ADMIN_URL`). `/api/v1/health` exempt.
+- Unauthenticated 500s: USSD non-string/non-object input, webhook/OTC non-numeric,
+  NaN/Infinity/oversized amounts or non-string `billRef` (`adapters._parse_amount`) -> 4xx.
+  USSD replies are real `text/plain` now (were JSON-quoted).
+- Receipt verification: atomic `F()` increment, runs in the receipt's own council context
+  (it would have failed under enforced RLS), rate-limited.
+- Public lookups fanned out across all councils per request: bill_ref prefix -> council map
+  is cached (`tenancy.context._bill_ref_prefix_map`, dropped by signals on Council/Config).
+
+**Performance:** dashboard summary/global memoised per (council, visibility scope, day) and
+invalidated by writes (`apps/common/cachekeys.py`, `signals.py`); summary merges two scans;
+`GET /revenue-items` cached + `ETag` / `Cache-Control: private, no-cache` (304s).
+
+**Tried and rejected — trigram indexes for `?q=` search.** They cut a 60-180 ms scan to ~1 ms
+with RLS bypassed (today's Neon owner role), but `texticlike` is not LEAKPROOF, so Postgres
+will not use a trigram index once RLS is enforced with a NOBYPASSRLS role (verified on the
+local non-bypass role) — i.e. exactly when the second council goes live. Shipping them
+would add write cost and storage for an index that stops working then. Revisit only if
+search becomes a bottleneck (options: prefix-only search on a btree `text_pattern_ops`
+index, whose operators are leakproof; or a token table).
+
+**Ops:** `manage.py db_fingerprint` (row counts, content hashes, sequences, RLS, migrations)
+for proving a database copy is identical; `docs/DEPLOYMENT.md` §7 Frankfurt move, §8
+`NUM_PROXIES`, §9 scaling past one worker.
+
+**Frontend impact:** `FRONTEND_HANDOFF_RBAC.md` §8 (gitignored) — print pages must send the
+staff token or demand notices print masked; handle 429; onboarding password errors; email
+change needs `current_password`; password change signs out everywhere; narrower worklist.
+
+**Gotchas:**
+- The print pages (`/print/demand-notice`, `/print/demand-bill`) call the public lookup from an
+  iframe *without* a token, so until the frontend sends one they print masked names.
+- **Never run pytest with `.env`'s `DATABASE_URL`** — it points at production Neon. Override it
+  (`DATABASE_URL=postgresql://acrev360:acrev360@localhost:5432/acrev360`).
+- Caches and throttle counters are per-process (fine for 1 worker) — see DEPLOYMENT.md §9 before
+  raising `WEB_CONCURRENCY`.
+- Anonymous throttles key on the client IP: set `NUM_PROXIES` (DEPLOYMENT.md §8) after verifying it.
+- Any code path that changes catalogue/dashboard data with `queryset.update()` or `bulk_*` skips the
+  invalidation signals; the 2-minute token TTL is the backstop. Call `cachekeys.bump()` if it matters.
+
 ## 2026-09-20 — Fix print preview rendering behind the bill detail window; give print docs a real title
 
 **Ask:** "when i hit print bill, it comes up behind the bill window, also could

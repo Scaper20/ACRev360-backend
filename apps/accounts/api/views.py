@@ -33,10 +33,11 @@ from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
 from apps.accounts.security import provision_password, revoke_all_sessions
 from apps.accounts.throttles import LoginEmailBurstThrottle, LoginEmailSustainedThrottle
 from apps.accounts.tokens import AppTokenObtainPairSerializer
-from apps.audit.services import audit
+from apps.audit.services import audit, audit_user_event
 from apps.billing.models import Bill
 from apps.billing.services import BillingError, issue_bill
 from apps.common.api.views import GeneratedPasswordCreateMixin, PlatformWideListMixin
+from apps.common.net import client_ip
 from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
 from apps.registry.api.serializers import PayerSerializer
@@ -130,9 +131,15 @@ class MeView(generics.RetrieveUpdateAPIView):
         # frontend doesn't need a second round trip just to get
         # consultant_name/agent_code/etc. back into its own state.
         instance = self.get_object()
+        previous_email = instance.email
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if instance.email != previous_email:
+            audit_user_event(
+                user=instance, action="EMAIL_CHANGED", detail={"old_email": previous_email, "new_email": instance.email},
+                actor_ip=client_ip(request),
+            )
         return Response(MeSerializer(instance).data)
 
 
@@ -141,7 +148,7 @@ class ChangePasswordView(APIView):
 
     @extend_schema(request=ChangePasswordSerializer, responses={204: None}, tags=["auth"])
     def post(self, request):
-        serializer = ChangePasswordSerializer(data=request.data)
+        serializer = ChangePasswordSerializer(data=request.data, context={"user": request.user})
         serializer.is_valid(raise_exception=True)
         user = request.user
         if not user.check_password(serializer.validated_data["current_password"]):
@@ -159,9 +166,8 @@ class ChangePasswordView(APIView):
         # with the old password. This device signs back in on its next token
         # refresh (access tokens live 30 minutes).
         revoked = revoke_all_sessions(user)
-        audit(
-            council_id=user.council_id, actor=user, action="PASSWORD_CHANGED", entity_type="APP_USER", entity_id=user.id,
-            detail={"sessions_revoked": revoked},
+        audit_user_event(
+            user=user, action="PASSWORD_CHANGED", detail={"sessions_revoked": revoked}, actor_ip=client_ip(request),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

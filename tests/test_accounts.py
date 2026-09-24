@@ -439,7 +439,11 @@ def test_agent_can_view_own_activity_not_anothers(scoped, authed_api_client, mak
 @pytest.mark.django_db(transaction=True)
 def test_user_can_update_their_own_profile(scoped, authed_api_client):
     r = authed_api_client(scoped["admin"]).patch(
-        "/api/v1/auth/me", {"full_name": "Updated Name", "email": "updated@example.com", "phone": "08099998888"}, format="json",
+        "/api/v1/auth/me",
+        # The email doubles as the login identifier, so changing it must prove
+        # the current password (tests/test_security_round2.py covers the refusals).
+        {"full_name": "Updated Name", "email": "updated@example.com", "phone": "08099998888", "current_password": "testpass12345"},
+        format="json",
     )
     assert r.status_code == 200, r.content
     body = r.json()

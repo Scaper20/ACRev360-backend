@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.accounts.validators import validate_account_password
 from apps.registry.models import EnumeratedAsset, Payer, PayerDelegation
 
 
@@ -72,7 +73,7 @@ class InviteRatepayerSerializer(serializers.Serializer):
     FieldAgentViewSet's write-only username/password create fields."""
 
     username = serializers.CharField(max_length=64)
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, validators=[validate_account_password])
 
 
 class PayerDelegationSerializer(serializers.ModelSerializer):

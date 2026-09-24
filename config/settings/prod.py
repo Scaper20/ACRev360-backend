@@ -43,6 +43,7 @@ DATABASES["default"].setdefault("OPTIONS", {})["prepare_threshold"] = None  # no
 # Login brute-force budget — env-overridable, strict default. Falls back to
 # base's generous 30/min only if a deploy ops team explicitly relaxes it.
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {  # noqa: F405
+    **REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],  # noqa: F405 — anon/user/public_lookup/ussd/webhook from base.py
     "login": env("LOGIN_THROTTLE_RATE", default="10/min"),
     # See apps/accounts/throttles.py — the IP-keyed "login" scope above is
     # bypassable (X-Forwarded-For), these per-email ones are what hold.

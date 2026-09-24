@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import pytest
 from django.db import transaction
@@ -11,6 +12,39 @@ from apps.registry.services import split_full_name
 from apps.revenue.models import CouncilRevenueItem, RateBand, RateSchedule, RevenueCategory, RevenueItemTemplate
 from apps.tenancy.context import set_council_context
 from apps.tenancy.models import Council, CouncilConfig, WardZone
+
+
+_LOCAL_DB_HOSTS = {"", "localhost", "127.0.0.1", "::1", "db", "postgres"}
+
+
+def pytest_sessionstart(session):
+    """Refuse to run against a remote database. `.env` points DATABASE_URL at
+    production Neon, and Django's test runner will happily create, migrate and
+    fill a `test_<name>` database on whatever server that is (this happened on
+    2026-09-24: a full run started against production, and killing it left a
+    scratch database behind). Override DATABASE_URL to the local Postgres, or set
+    ALLOW_REMOTE_TEST_DB=1 if you truly mean it."""
+    from django.conf import settings
+
+    host = (settings.DATABASES["default"].get("HOST") or "").lower()
+    if host not in _LOCAL_DB_HOSTS and not os.environ.get("ALLOW_REMOTE_TEST_DB"):
+        pytest.exit(
+            f"Refusing to run tests against remote database host {host!r}. "
+            "Set DATABASE_URL=postgresql://acrev360:acrev360@localhost:5432/acrev360 (or ALLOW_REMOTE_TEST_DB=1).",
+            returncode=3,
+        )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_cache():
+    """The default cache is per-process and outlives a test's rolled-back
+    transaction: a cached bill_ref->council map, dashboard payload or throttle
+    counter from one test would otherwise leak into the next."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture

@@ -161,6 +161,16 @@ def issue_bill(
     which case the bill is issued anyway and the override is audited.
     """
     from apps.enforcement.services import close_debt_case_for_bill
+    from apps.registry.models import Payer
+
+    # Serialise issuance per payer. The duplicate check below is check-then-insert
+    # with nothing at the database level to stop two requests both passing it —
+    # a double-click, a client retry or two staff billing the same payer produced
+    # 4 open bills from 6 concurrent requests in testing. Row-locking the payer
+    # makes the second request wait for the first to commit, after which its own
+    # duplicate check (a fresh READ COMMITTED snapshot) sees the first bill.
+    # It also serialises roll_arrears consolidations for the same payer.
+    Payer.objects.select_for_update().only("id").get(pk=payer.pk)
 
     bypassed_duplicate = None
     if not roll_arrears:

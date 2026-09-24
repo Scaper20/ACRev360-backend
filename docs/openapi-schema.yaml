@@ -10,10 +10,16 @@ paths:
       description: |-
         create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
         matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
-        list/retrieve widen further to CONSULTANT_STAFF/COUNCIL_AUDITOR/
-        COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions, see
-        get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
+        list/retrieve widen further to COUNCIL_IT/CONSULTANT_STAFF/
+        COUNCIL_AUDITOR/COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions,
+        see get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
         ward/team only) happens in get_queryset() via common.scoping.
+
+        COUNCIL_IT was originally left off list/retrieve — could create an
+        agent but not see the list it just created it into, confirmed live
+        against production by the frontend team (2026-09-11 CHANGELOG entry).
+        A role that can create a resource always needs to be able to list it;
+        that's not a separate grant to weigh, it's the same grant.
       parameters:
       - name: page
         required: false
@@ -42,10 +48,16 @@ paths:
       description: |-
         create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
         matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
-        list/retrieve widen further to CONSULTANT_STAFF/COUNCIL_AUDITOR/
-        COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions, see
-        get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
+        list/retrieve widen further to COUNCIL_IT/CONSULTANT_STAFF/
+        COUNCIL_AUDITOR/COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions,
+        see get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
         ward/team only) happens in get_queryset() via common.scoping.
+
+        COUNCIL_IT was originally left off list/retrieve — could create an
+        agent but not see the list it just created it into, confirmed live
+        against production by the frontend team (2026-09-11 CHANGELOG entry).
+        A role that can create a resource always needs to be able to list it;
+        that's not a separate grant to weigh, it's the same grant.
       tags:
       - v1
       requestBody:
@@ -75,10 +87,16 @@ paths:
       description: |-
         create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
         matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
-        list/retrieve widen further to CONSULTANT_STAFF/COUNCIL_AUDITOR/
-        COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions, see
-        get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
+        list/retrieve widen further to COUNCIL_IT/CONSULTANT_STAFF/
+        COUNCIL_AUDITOR/COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions,
+        see get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
         ward/team only) happens in get_queryset() via common.scoping.
+
+        COUNCIL_IT was originally left off list/retrieve — could create an
+        agent but not see the list it just created it into, confirmed live
+        against production by the frontend team (2026-09-11 CHANGELOG entry).
+        A role that can create a resource always needs to be able to list it;
+        that's not a separate grant to weigh, it's the same grant.
       parameters:
       - in: path
         name: id
@@ -239,10 +257,16 @@ paths:
       description: |-
         create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
         matching COUNCIL_IT's whole purpose per docs/RBAC_EXPANSION_DESIGN.md);
-        list/retrieve widen further to CONSULTANT_STAFF/COUNCIL_AUDITOR/
-        COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions, see
-        get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
+        list/retrieve widen further to COUNCIL_IT/CONSULTANT_STAFF/
+        COUNCIL_AUDITOR/COUNCIL_IGR_HEAD/AGENT_SUPERVISOR — read-only additions,
+        see get_permissions(). AGENT_SUPERVISOR's own further narrowing (own
         ward/team only) happens in get_queryset() via common.scoping.
+
+        COUNCIL_IT was originally left off list/retrieve — could create an
+        agent but not see the list it just created it into, confirmed live
+        against production by the frontend team (2026-09-11 CHANGELOG entry).
+        A role that can create a resource always needs to be able to list it;
+        that's not a separate grant to weigh, it's the same grant.
       parameters:
       - in: path
         name: id
@@ -265,6 +289,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentPortfolio'
+          description: ''
+  /api/v1/agents/{id}/status_change:
+    post:
+      operationId: v1_agents_status_change_create
+      description: |-
+        Mirrors SubConsultantViewSet.status_change's exact shape — same
+        3-state field, same audit detail keys, for consistency.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldAgentStatusRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FieldAgentStatusRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FieldAgentStatusRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldAgent'
           description: ''
   /api/v1/api-clients:
     get:
@@ -716,6 +776,13 @@ paths:
         GET /api/v1/bills/<bill_ref> — public. Powers the demand-notice/demand-bill
         print pages and USSD option 1/2. Not part of BillViewSet's pk-based routing
         because bill_ref itself contains slashes (KAC/2026/000123).
+
+        Bill references are sequential, so anyone can walk them; what an anonymous
+        caller gets back is therefore only what a ratepayer needs to check a debt
+        (amounts, status, dates, ward) with the payer's identity masked
+        (``pii_masked: true``). Signed-in staff of the bill's council — the print
+        pages — get the full name, phone and address. Also rate-limited per client
+        address (``public_lookup`` scope).
       parameters:
       - in: path
         name: bill_ref
@@ -737,6 +804,26 @@ paths:
         '404':
           description: No response body
   /api/v1/bills/{id}:
+    get:
+      operationId: v1_bills_retrieve_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
     delete:
       operationId: v1_bills_destroy
       parameters:
@@ -953,7 +1040,9 @@ paths:
       operationId: v1_channels_USSD_session_create
       description: |-
         Stateless menu driven entirely by the accumulated input string a telco
-        gateway sends per keypress. 1 pay a bill, 2 check balance, 3 verify a receipt.
+        gateway sends per keypress. 1 check balance, 2 verify a receipt. Bill payment
+        via USSD is disabled until a payment gateway integration (HMAC client +
+        feed rows) is in place.
       tags:
       - channels
       requestBody:
@@ -982,6 +1071,11 @@ paths:
   /api/v1/consultants:
     get:
       operationId: v1_consultants_list
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - name: page
         required: false
@@ -1007,6 +1101,11 @@ paths:
           description: ''
     post:
       operationId: v1_consultants_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       tags:
       - v1
       requestBody:
@@ -1033,6 +1132,11 @@ paths:
   /api/v1/consultants/{id}:
     get:
       operationId: v1_consultants_retrieve
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -1054,6 +1158,11 @@ paths:
   /api/v1/consultants/{id}/contract_dates:
     post:
       operationId: v1_consultants_contract_dates_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -1086,6 +1195,11 @@ paths:
   /api/v1/consultants/{id}/portfolio:
     get:
       operationId: v1_consultants_portfolio_list
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -1108,6 +1222,11 @@ paths:
           description: ''
     post:
       operationId: v1_consultants_portfolio_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -1141,6 +1260,11 @@ paths:
   /api/v1/consultants/{id}/portfolio/{portfolio_id}/end:
     post:
       operationId: v1_consultants_portfolio_end_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -1235,9 +1359,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/RevenueOfficer'
           description: ''
+  /api/v1/consultants/{id}/revenue-officers/{officer_id}/deactivate:
+    post:
+      operationId: v1_consultants_revenue_officers_deactivate_create
+      description: |-
+        AppUser.is_active is already the login's active flag — a
+        deactivated user's Django auth backend already refuses login by
+        default, no new auth-layer code needed. Idempotent, same shape as
+        APIClientViewSet.revoke.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      - in: path
+        name: officer_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevenueOfficer'
+          description: ''
   /api/v1/consultants/{id}/status_change:
     post:
       operationId: v1_consultants_status_change_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -1506,6 +1666,30 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/PatchedDepartmentRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+          description: ''
+  /api/v1/departments/{id}/deactivate:
+    post:
+      operationId: v1_departments_deactivate_create
+      description: |-
+        Doesn't touch its revenue items' FK — see WardZoneViewSet.deactivate's
+        identical reasoning. Idempotent, same shape as APIClientViewSet.revoke.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
       security:
       - jwtAuth: []
       responses:
@@ -1788,6 +1972,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedReceiptList'
+          description: ''
+  /api/v1/ops/client-ip:
+    get:
+      operationId: v1_ops_client_ip_retrieve
+      description: |-
+        What the server sees of the caller's own connection — the raw proxy
+        headers and the address the anonymous throttles will key on. It exists so the
+        production ``NUM_PROXIES`` value (docs/DEPLOYMENT.md §8) is read off a real
+        request instead of guessed: log in, call this once, and count the entries in
+        ``x_forwarded_for`` from the right. Signed-in callers only, and it echoes
+        nothing but that caller's own request headers.
+      tags:
+      - health
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientIPResponse'
           description: ''
   /api/v1/payers:
     get:
@@ -2455,6 +2660,16 @@ paths:
   /api/v1/revenue-items:
     get:
       operationId: v1_revenue_items_list
+      description: |-
+        The catalogue is ~111 KB of nested rate bands and tiers — ~90 ms of
+        server CPU to build, fetched by every user on most screens, and it
+        changes only when someone edits an item, a rate or a portfolio. So it is
+        (a) built once per (council, caller's visibility scope, query string) and
+        reused until a catalogue write invalidates it (apps/common/signals.py),
+        and (b) sent with an ETag and ``Cache-Control: no-cache``: the browser
+        always asks, and gets a body-less 304 when nothing changed, so an edit is
+        visible on the very next request but an unchanged catalogue costs one
+        cache lookup instead of a database round-trip and a re-serialisation.
       parameters:
       - name: page
         required: false
@@ -2472,6 +2687,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedCouncilRevenueItemList'
+          description: ''
+    post:
+      operationId: v1_revenue_items_create
+      description: Only COUNCIL_ADMIN may manually create a council-local revenue
+        item.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCouncilRevenueItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateCouncilRevenueItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateCouncilRevenueItemRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilRevenueItem'
           description: ''
   /api/v1/revenue-items/{id}:
     get:
@@ -2494,6 +2736,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/CouncilRevenueItem'
           description: ''
+    delete:
+      operationId: v1_revenue_items_destroy
+      description: Only COUNCIL_ADMIN may retire a revenue item (DELETE /api/v1/revenue-items/{id}).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/revenue-items/{id}/department:
     post:
       operationId: v1_revenue_items_department_create
@@ -2599,9 +2858,36 @@ paths:
               schema:
                 $ref: '#/components/schemas/CouncilRevenueItem'
           description: ''
+  /api/v1/revenue-items/{id}/retire:
+    post:
+      operationId: v1_revenue_items_retire_create
+      description: Only COUNCIL_ADMIN may retire a revenue item (POST /api/v1/revenue-items/{id}/retire).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilRevenueItem'
+          description: ''
   /api/v1/settlements:
     get:
       operationId: v1_settlements_list
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: query
         name: consultant_id
@@ -2667,6 +2953,11 @@ paths:
   /api/v1/settlements/{id}/status_change:
     post:
       operationId: v1_settlements_status_change_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - in: path
         name: id
@@ -2700,6 +2991,11 @@ paths:
   /api/v1/settlements/compute:
     post:
       operationId: v1_settlements_compute_create
+      description: |-
+        Mixin fixing platform-tier list/detail reads. The concrete view must
+        implement ``get_platform_queryset_fn(council_id)`` returning the per-council
+        queryset (search/ordering filters included) and return ``Model.objects.none()``
+        from its platform-wide ``get_queryset()`` branch.
       parameters:
       - name: page
         required: false
@@ -2844,6 +3140,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/Stakeholder'
           description: ''
+  /api/v1/stakeholders/{id}/deactivate:
+    post:
+      operationId: v1_stakeholders_deactivate_create
+      description: |-
+        Same dormant-is_active/idempotent shape as SubConsultantViewSet.
+        deactivate_revenue_officer — see that action's own docstring.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stakeholder'
+          description: ''
   /api/v1/terminals:
     get:
       operationId: v1_terminals_list
@@ -2868,8 +3188,11 @@ paths:
   /api/v1/verify/{qr_token}:
     get:
       operationId: v1_verify_retrieve
-      description: 'Public: anyone with a receipt''s QR/SMS qr_token can confirm it''s
-        real.'
+      description: |-
+        Public: anyone with a receipt's QR/SMS qr_token can confirm it's real. The
+        token is an unguessable UUID, so possession of it is the credential; the
+        endpoint still counts each check (``verified_count`` — a receipt verified
+        dozens of times is a fraud signal) and is rate-limited per client address.
       parameters:
       - in: path
         name: qr_token
@@ -2940,6 +3263,31 @@ paths:
   /api/v1/wards/{id}:
     get:
       operationId: v1_wards_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WardZone'
+          description: ''
+  /api/v1/wards/{id}/deactivate:
+    post:
+      operationId: v1_wards_deactivate_create
+      description: |-
+        Doesn't touch payers/bills already assigned here — they keep
+        their historical FK. Idempotent, same shape as
+        APIClientViewSet.revoke: a repeat call is a silent no-op, still 200.
       parameters:
       - in: path
         name: id
@@ -3536,6 +3884,34 @@ components:
         * `USSD` - USSD
         * `FIRSTMONIE` - FirstMonie Agent Banking
         * `CASH` - Cash
+    ClientIPResponse:
+      type: object
+      properties:
+        remote_addr:
+          type: string
+          nullable: true
+        x_forwarded_for:
+          type: string
+          nullable: true
+        cf_connecting_ip:
+          type: string
+          nullable: true
+        true_client_ip:
+          type: string
+          nullable: true
+        num_proxies:
+          type: integer
+          nullable: true
+        resolved_ip:
+          type: string
+          nullable: true
+      required:
+      - cf_connecting_ip
+      - num_proxies
+      - remote_addr
+      - resolved_ip
+      - true_client_ip
+      - x_forwarded_for
     CollectedByChannel:
       type: object
       properties:
@@ -3860,6 +4236,43 @@ components:
       - rate_bands
       - rate_id
       - unit_of_charge
+    CreateCouncilRevenueItemRequest:
+      type: object
+      properties:
+        harmonised_code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        item_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        category_id:
+          type: integer
+        unit_of_charge:
+          type: string
+          minLength: 1
+          maxLength: 64
+        department_id:
+          type: integer
+          nullable: true
+        rate_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        bye_law_reference:
+          type: string
+          default: ''
+          maxLength: 64
+        bye_law_description:
+          type: string
+          default: ''
+      required:
+      - category_id
+      - harmonised_code
+      - item_name
+      - rate_amount
+      - unit_of_charge
     CreateDelegationRequest:
       type: object
       properties:
@@ -4074,9 +4487,13 @@ components:
         head_phone:
           type: string
           maxLength: 32
+        is_active:
+          type: boolean
+          readOnly: true
       required:
       - department_name
       - id
+      - is_active
     DepartmentRequest:
       type: object
       properties:
@@ -4228,7 +4645,7 @@ components:
           maxLength: 32
         status:
           allOf:
-          - $ref: '#/components/schemas/FieldAgentStatusEnum'
+          - $ref: '#/components/schemas/Status3f3Enum'
           readOnly: true
         consultant_id:
           type: integer
@@ -4299,16 +4716,13 @@ components:
       required:
       - full_name
       - username
-    FieldAgentStatusEnum:
-      enum:
-      - ACTIVE
-      - SUSPENDED
-      - EXITED
-      type: string
-      description: |-
-        * `ACTIVE` - Active
-        * `SUSPENDED` - Suspended
-        * `EXITED` - Exited
+    FieldAgentStatusRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/Status3f3Enum'
+      required:
+      - status
     GlobalException:
       type: object
       description: |-
@@ -5347,6 +5761,12 @@ components:
         access_level and the agent_*/consultant_* denormalized fields all stay
         admin-managed, not self-service. Only what's actually "my profile" is
         writable here.
+
+        The email is also the login identifier, so changing it is an account-
+        takeover step: it needs the current password, otherwise a stolen access
+        token (30 minutes of life) could repoint the account at an attacker's
+        address permanently. Re-sending the unchanged email — as the profile form
+        does on every save — needs nothing extra.
       properties:
         full_name:
           type: string
@@ -5360,6 +5780,9 @@ components:
         phone:
           type: string
           maxLength: 32
+        current_password:
+          type: string
+          writeOnly: true
     Payer:
       type: object
       properties:
@@ -5427,7 +5850,11 @@ components:
           type: string
           format: date-time
           readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
       required:
+      - consultant_name
       - created_at
       - first_name
       - full_name
@@ -5503,10 +5930,14 @@ components:
           type: string
           format: date-time
           readOnly: true
+        consultant_name:
+          type: string
+          readOnly: true
         draft_assessments_created:
           type: integer
           readOnly: true
       required:
+      - consultant_name
       - created_at
       - draft_assessments_created
       - first_name
@@ -5629,6 +6060,7 @@ components:
       required:
       - allocations
       - amount
+      - bank_txn_ref
       - bill
       - bill_ref
       - channel
@@ -5733,8 +6165,9 @@ components:
     PublicBillLookup:
       type: object
       description: |-
-        Shapes the public (unauthenticated) bill lookup response — payer identity
-        plus bill/lines/arrears, matching what the print pages need.
+        Shapes the public bill lookup response — bill/lines/arrears plus the
+        payer's identity, which is masked (``pii_masked`` true) unless the caller is
+        signed-in staff of the bill's council. See PublicBillLookupView.
       properties:
         bill_ref:
           type: string
@@ -5769,6 +6202,10 @@ components:
           type: string
         ward_name:
           type: string
+        pii_masked:
+          type: boolean
+          description: True when full_name/phone/payer_ref are redacted and address
+            is blank (anonymous caller).
         lines:
           type: array
           items:
@@ -5788,6 +6225,7 @@ components:
       - lines
       - payer_ref
       - phone
+      - pii_masked
       - status
       - superseded_bills
       - total_amount
@@ -6365,6 +6803,16 @@ components:
       required:
       - full_name
       - username
+    Status3f3Enum:
+      enum:
+      - ACTIVE
+      - SUSPENDED
+      - EXITED
+      type: string
+      description: |-
+        * `ACTIVE` - Active
+        * `SUSPENDED` - Suspended
+        * `EXITED` - Exited
     Status5d5Enum:
       enum:
       - COMPUTED
@@ -6752,6 +7200,12 @@ components:
         access_level and the agent_*/consultant_* denormalized fields all stay
         admin-managed, not self-service. Only what's actually "my profile" is
         writable here.
+
+        The email is also the login identifier, so changing it is an account-
+        takeover step: it needs the current password, otherwise a stolen access
+        token (30 minutes of life) could repoint the account at an attacker's
+        address permanently. Re-sending the unchanged email — as the profile form
+        does on every save — needs nothing extra.
       properties:
         full_name:
           type: string
@@ -6808,8 +7262,12 @@ components:
           maxLength: 120
         zone_type:
           $ref: '#/components/schemas/ZoneTypeEnum'
+        is_active:
+          type: boolean
+          readOnly: true
       required:
       - id
+      - is_active
       - ward_code
       - ward_name
     WardZoneRequest:

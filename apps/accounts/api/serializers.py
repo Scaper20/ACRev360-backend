@@ -2,6 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.accounts.models import AppUser, FieldAgent, SubConsultant
+from apps.accounts.validators import validate_account_password
 from apps.revenue.models import AgentPortfolio, ConsultantPortfolio
 
 
@@ -18,16 +19,42 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
     reusing MeSerializer for writes too: username/council/role/consultant/
     access_level and the agent_*/consultant_* denormalized fields all stay
     admin-managed, not self-service. Only what's actually "my profile" is
-    writable here."""
+    writable here.
+
+    The email is also the login identifier, so changing it is an account-
+    takeover step: it needs the current password, otherwise a stolen access
+    token (30 minutes of life) could repoint the account at an attacker's
+    address permanently. Re-sending the unchanged email — as the profile form
+    does on every save — needs nothing extra."""
+
+    current_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = AppUser
-        fields = ["full_name", "email", "phone"]
+        fields = ["full_name", "email", "phone", "current_password"]
 
     def validate_full_name(self, value):
         if not value.strip():
             raise serializers.ValidationError("Full name can't be blank.")
         return value
+
+    def validate_email(self, value):
+        # The model's unique=True is case-sensitive but login matches email
+        # case-insensitively, so "Victim@Corp.com" would collide with an
+        # existing "victim@corp.com" at sign-in.
+        if AppUser.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError("This email is already in use.")
+        return value
+
+    def validate(self, attrs):
+        current_password = attrs.pop("current_password", None)
+        new_email = attrs.get("email")
+        if new_email is not None and new_email.strip().lower() != (self.instance.email or "").strip().lower():
+            if not current_password or not self.instance.check_password(current_password):
+                raise serializers.ValidationError(
+                    {"current_password": "Enter your current password to change your login email."}
+                )
+        return attrs
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -43,7 +70,7 @@ class ChangePasswordSerializer(serializers.Serializer):
         # self-chosen change is the one case where it's this user's own
         # judgment, not an admin's — worth the baseline strength check here
         # even though nothing upstream of it currently has one.
-        validate_password(value)
+        validate_password(value, user=self.context.get("user"))
         return value
 
 
@@ -84,7 +111,7 @@ class SubConsultantSerializer(serializers.ModelSerializer):
     # FieldAgentSerializer's shape, but here the login is for one manager of
     # the firm, not the firm itself, hence the manager_ prefix).
     manager_username = serializers.CharField(write_only=True, required=False)
-    manager_password = serializers.CharField(write_only=True, required=False)
+    manager_password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
     manager_full_name = serializers.CharField(write_only=True, required=False)
     has_login = serializers.SerializerMethodField()
     is_contract_expired = serializers.BooleanField(read_only=True)
@@ -139,7 +166,7 @@ class SubConsultantContractDatesSerializer(serializers.Serializer):
 class StakeholderSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField()
     username = serializers.CharField()
-    password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
 
     class Meta:
         model = AppUser
@@ -155,7 +182,7 @@ class RevenueOfficerSerializer(serializers.ModelSerializer):
 
     full_name = serializers.CharField()
     username = serializers.CharField()
-    password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
 
     class Meta:
         model = AppUser
@@ -166,7 +193,7 @@ class RevenueOfficerSerializer(serializers.ModelSerializer):
 class FieldAgentSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(write_only=True)
     username = serializers.CharField(write_only=True)
-    password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
     phone = serializers.CharField(write_only=True, required=False, allow_blank=True)
     consultant_id = serializers.IntegerField(read_only=True, source="user.consultant_id")
     # Separate from the write-only `full_name`/`phone` above (those set the

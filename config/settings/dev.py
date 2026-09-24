@@ -9,9 +9,11 @@ CORS_ALLOW_ALL_ORIGINS = True
 # throttle mechanism itself still runs here; only the budget is effectively
 # unlimited. prod.py sets the real (env-required, strict-default) numbers.
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {  # noqa: F405
-    "login": "100000/hour",
-    "login_email_burst": "100000/hour",
-    "login_email_sustained": "100000/hour",
+    scope: "100000/hour"
+    for scope in (
+        "login", "login_email_burst", "login_email_sustained",
+        "anon", "user", "public_lookup", "ussd", "webhook",
+    )
 }
 
 # Convenient for local `manage.py runserver` against the locally-installed Postgres 18

@@ -1,11 +1,12 @@
 from django.urls import include, path
 
 from apps.common.api.dashboard import DashboardGlobalView, DashboardSummaryView
-from apps.common.api.health import HealthView
+from apps.common.api.health import ClientIPView, HealthView
 from apps.common.api.reports import ReportsView
 
 urlpatterns = [
     path("health", HealthView.as_view(), name="health"),
+    path("ops/client-ip", ClientIPView.as_view(), name="ops-client-ip"),
     path("", include("apps.accounts.api.urls")),
     path("", include("apps.tenancy.api.urls")),
     path("", include("apps.registry.api.urls")),

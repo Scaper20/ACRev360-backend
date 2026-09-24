@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole, FieldAgent
 from apps.billing.models import Assessment, Bill
+from apps.common.cachekeys import cached
 from apps.common.filtering import date_span_bounds
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
@@ -97,11 +98,30 @@ class DashboardSummaryView(APIView):
 
     @extend_schema(responses=OpenApiResponse(_SummaryResponseSerializer), tags=["dashboard"])
     def get(self, request):
+        user = request.user
+        if user.council_id is None:
+            return Response(self._compute(request))
+        # Six aggregate scans over bills/payments/assessments — ~340 ms and
+        # growing with every bill — recomputed by every user on every dashboard
+        # view. Memoised per (council, the caller's visibility scope, day) and
+        # dropped the moment a bill, payment, payer, assessment, agent or
+        # settlement in this council is written (apps/common/signals.py), so a
+        # payment just recorded shows up on the next load. The scope parts are
+        # exactly what portfolio_filter and the active-agents count branch on.
+        scope = (
+            user.access_level, user.consultant_id,
+            user.id if user.access_level in (AppRole.AGENT, AppRole.AGENT_SUPERVISOR) else None,
+        )
+        return Response(cached("dashboard", user.council_id, ("summary", *scope, timezone.localdate()), lambda: self._compute(request)))
+
+    def _compute(self, request):
         bills = Bill.objects.filter(council_id=request.user.council_id).exclude(
             status__in=[Bill.SUPERSEDED, Bill.CANCELLED]
         )
         bills = portfolio_filter(bills, request)
-        billed = bills.aggregate(total=Sum(F("total_amount") - F("arrears_amount")))["total"] or 0
+        # One scan for both figures the summary needs from `bills`.
+        bill_totals = bills.aggregate(total=Sum(F("total_amount") - F("arrears_amount")), n=Count("id"))
+        billed = bill_totals["total"] or 0
 
         payments = Payment.objects.filter(council_id=request.user.council_id, txn_status=Payment.CONFIRMED)
         payments = portfolio_filter(payments, request, payer_path="bill__payer")
@@ -168,19 +188,19 @@ class DashboardSummaryView(APIView):
             for i in range(_TREND_DAYS)
         ]
 
-        return Response({
+        return {
             "billed": billed,
             "collected": collected,
             "outstanding": billed - collected,
             "bills_by_status": by_status,
-            "bills": bills.count(),
+            "bills": bill_totals["n"],
             "assessments": assessments.count(),
             "payers": payers.count(),
             "active_agents": active_agents.count(),
             "by_channel": by_channel,
             "by_item": by_item,
             "trend": trend,
-        })
+        }
 
 
 class DashboardGlobalView(APIView):
@@ -218,7 +238,13 @@ class DashboardGlobalView(APIView):
                         **self._compute(request, council_id),
                     })
             return Response({"councils": blocks})
-        return Response(self._compute(request, request.user.council_id))
+        user = request.user
+        # Same memoisation as the summary above; `access_level` is in the key
+        # because GLOBAL_VIEW/BD_VIEW/ANALYTICS_VIEW get the anonymised roll-up.
+        return Response(cached(
+            "dashboard", user.council_id, ("global", user.access_level),
+            lambda: self._compute(request, user.council_id),
+        ))
 
     def _compute(self, request, council_id):
         payments = Payment.objects.filter(council_id=council_id, txn_status=Payment.CONFIRMED)

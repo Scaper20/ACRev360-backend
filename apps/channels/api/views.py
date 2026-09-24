@@ -1,11 +1,13 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
@@ -53,6 +55,8 @@ class WebhookView(APIView):
 
     permission_classes = [AllowAny]
     parser_classes = [JSONParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "webhook"
 
     @extend_schema(
         request=OpenApiTypes.OBJECT,
@@ -193,6 +197,8 @@ class USSDSessionView(APIView):
     feed rows) is in place."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ussd"
 
     @extend_schema(
         request=USSDSessionRequestSerializer,
@@ -200,7 +206,13 @@ class USSDSessionView(APIView):
         tags=["channels"],
     )
     def post(self, request):
-        text = request.data.get("text", "")
+        # request.data is whatever the caller sent — a JSON array or a
+        # non-string "text" used to blow up on .get()/.split() as an
+        # unauthenticated 500. A gateway that sends something else gets a
+        # well-formed END message instead.
+        text = request.data.get("text", "") if isinstance(request.data, dict) else None
+        if not isinstance(text, str):
+            return self._plain("END Invalid input.")
         parts = text.split("*") if text else []
 
         if not parts or parts[0] == "":
@@ -240,5 +252,8 @@ class USSDSessionView(APIView):
         return self._plain("END Invalid option.")
 
     @staticmethod
-    def _plain(body: str) -> Response:
-        return Response(body, content_type="text/plain")
+    def _plain(body: str) -> HttpResponse:
+        # Not a DRF Response: this API only renders JSON, which would wrap the
+        # menu in quotes and escape its newlines — a USSD gateway shows the
+        # body verbatim.
+        return HttpResponse(body, content_type="text/plain; charset=utf-8")

@@ -126,8 +126,9 @@ class UpdateLineSerializer(serializers.Serializer):
 
 
 class PublicBillLookupSerializer(serializers.Serializer):
-    """Shapes the public (unauthenticated) bill lookup response — payer identity
-    plus bill/lines/arrears, matching what the print pages need."""
+    """Shapes the public bill lookup response — bill/lines/arrears plus the
+    payer's identity, which is masked (``pii_masked`` true) unless the caller is
+    signed-in staff of the bill's council. See PublicBillLookupView."""
 
     bill_ref = serializers.CharField()
     status = serializers.CharField()
@@ -141,5 +142,8 @@ class PublicBillLookupSerializer(serializers.Serializer):
     phone = serializers.CharField()
     address = serializers.CharField()
     ward_name = serializers.CharField()
+    pii_masked = serializers.BooleanField(
+        help_text="True when full_name/phone/payer_ref are redacted and address is blank (anonymous caller)."
+    )
     lines = BillLineDetailSerializer(many=True)
     superseded_bills = SupersededBillSerializer(many=True)

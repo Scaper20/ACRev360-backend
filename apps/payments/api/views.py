@@ -1,5 +1,5 @@
 from django.db import IntegrityError
-from django.db.models import DecimalField, Prefetch, Q, Sum
+from django.db.models import DecimalField, F, Prefetch, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
@@ -8,6 +8,7 @@ from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
@@ -28,7 +29,7 @@ from apps.payments.api.serializers import (
 from apps.payments.models import APIClient, PaymentAllocation, PaymentChannel, POSTerminal, Payment, Receipt
 from apps.payments.notifications import send_receipt
 from apps.payments.services import PaymentRejected, post_payment, reverse_payment
-from apps.tenancy.context import find_across_active_councils
+from apps.tenancy.context import council_context, find_across_active_councils
 
 
 @extend_schema_view(
@@ -284,9 +285,14 @@ _VerifyReceiptResponseSerializer = inline_serializer(
 
 
 class VerifyReceiptView(APIView):
-    """Public: anyone with a receipt's QR/SMS qr_token can confirm it's real."""
+    """Public: anyone with a receipt's QR/SMS qr_token can confirm it's real. The
+    token is an unguessable UUID, so possession of it is the credential; the
+    endpoint still counts each check (``verified_count`` — a receipt verified
+    dozens of times is a fraud signal) and is rate-limited per client address."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_lookup"
 
     @extend_schema(responses={200: _VerifyReceiptResponseSerializer, 404: OpenApiResponse(description="Receipt not found")}, tags=["payments"])
     def get(self, request, qr_token):
@@ -297,8 +303,12 @@ class VerifyReceiptView(APIView):
         if receipt is None:
             return Response({"error": "Receipt not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        receipt.verified_count += 1
-        receipt.save(update_fields=["verified_count"])
+        # One atomic increment in SQL instead of read-modify-write + a full-row
+        # save: concurrent verifications no longer lose counts, and a stale read
+        # can't overwrite other columns of the receipt.
+        with council_context(receipt.council_id):
+            Receipt.objects.filter(pk=receipt.pk).update(verified_count=F("verified_count") + 1)
+            receipt.refresh_from_db(fields=["verified_count"])
         payment = receipt.payment
         return Response({
             "receipt_ref": receipt.receipt_ref,

@@ -48,8 +48,9 @@ Both are easy to upgrade later without re-architecting anything below.
    fastest). Free tier: 0.5GB storage, autosuspends after idle — no 30-day
    expiry like Render's free Postgres.
 2. **New Project** → name it (e.g. `acrev360`), pick a region close to your
-   Render web service's region (US or EU — match whatever you pick for the
-   web service below), Postgres version 17 to match what `render.yaml`
+   Render web service's region — **Frankfurt (`eu-central-1`) for both** is the
+   right pick for users in Nigeria/West Africa (see §7 for why, and how to move an
+   existing Oregon deployment), Postgres version 17 to match what `render.yaml`
    previously pinned. Neon creates a default database and role for you.
 3. Project dashboard → **Connection Details** → copy the **pooled**
    connection string (the one with `-pooler` in the hostname — use this one,
@@ -233,6 +234,160 @@ SELECT count(*) FROM payer; ROLLBACK;                -- KAC's rows only
 
 A new migration that needs DDL always runs as the owner (via
 `MIGRATE_DATABASE_URL`), so the runtime role never needs schema privileges.
+
+## 7. Moving to another region (Oregon → Frankfurt) without losing anything
+
+**Why:** the app makes several database round-trips per request, and from West
+Africa / Europe the round-trip to Oregon is ~400 ms against ~130–150 ms for
+Frankfurt (measured TCP connect from the operator's location: Oregon 407 ms,
+London 134 ms, Cape Town 147 ms). Both Render and Neon offer Frankfurt, both free.
+**Render and Neon must move together** — the web service and its database must sit
+in the same region, or every query pays the cross-ocean hop instead.
+
+**Neither can be moved in place.** A Render service's region and a Neon project's
+region are fixed at creation, so this is "build a second copy in Frankfurt, prove
+it identical, switch, keep the old one as the rollback". Nothing is deleted until
+the new stack has run cleanly for a week.
+
+### What has to be carried over (the checklist that stops "settings" going missing)
+
+| Item | Where it lives | How it moves |
+|---|---|---|
+| All table data, sequences, RLS policies and `FORCE ROW LEVEL SECURITY` flags | Neon database | `pg_dump` → `pg_restore` (below); proven with `manage.py db_fingerprint` |
+| Database name + owner role (`ACRev360` / `ACRev360_owner`) | Neon project | Create the new project with the **same** database and role names, so only the hostname changes |
+| Any extra roles (e.g. `acrev360_app` from §6) and their grants | Neon (roles aren't in a `pg_dump`) | Re-run the §6 SQL on the new project |
+| Neon project settings: autosuspend delay, compute size, IP allow-list, retention | Neon console → Settings | Screenshot/copy them from the Oregon project first; set the same on the new one |
+| Render env vars: `DJANGO_SECRET_KEY`, `WEBHOOK_ENCRYPTION_KEY`, `CORS_ALLOWED_ORIGINS`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_SECURE_SSL_REDIRECT`, `WEBHOOK_STRICT_SIGNATURES`, `DATABASE_URL`, plus any of `NUM_PROXIES`, `MIGRATE_DATABASE_URL`, rate-limit overrides | Render dashboard → the service → Environment | Copy each by hand (Render has no export). **`WEBHOOK_ENCRYPTION_KEY` must be byte-identical** or every stored API-client secret becomes unreadable. **`DJANGO_SECRET_KEY` identical** keeps everyone logged in; a new one just forces one re-login. **`DJANGO_ALLOWED_HOSTS` must include the new service's hostname** or every request is a 400 |
+| Health check path `/api/v1/health`, plan, Docker build | Render service settings | Same values when creating the service |
+| GitHub secret `ACREV_DATABASE_URL` (the nightly debt-ageing job) | GitHub → Settings → Secrets → Actions | Point at the Frankfurt database at cutover |
+| Frontend API base URL (`VITE_API_BASE_URL`, and the fallback hard-coded in `packages/api/src/client.ts`) | Frontend deploy env | New service URL — or use a custom domain (see below) so this never has to change again |
+
+### Phase A — build and rehearse (no downtime, nothing live is touched)
+
+1. **Neon:** New project → region **AWS Europe (Frankfurt) `eu-central-1`**, Postgres
+   version the same as the Oregon project (Settings shows it), database name
+   `ACRev360`, owner role `ACRev360_owner`. Copy its **direct** (non-pooler) and
+   **pooled** connection strings.
+2. **Rehearsal dump/restore.** Use the **direct** endpoint (the one without `-pooler`)
+   for both ends — PgBouncer's transaction mode isn't safe for `pg_dump`/`pg_restore`.
+   Use a client at least as new as the server (`pg_dump --version`).
+   ```bash
+   pg_dump  "<OREGON direct url>"    --format=custom --no-owner --no-acl --file=acrev.dump
+   pg_restore --no-owner --no-acl --dbname="<FRANKFURT direct url>" acrev.dump
+   ```
+   `--no-owner --no-acl` makes every object owned by whichever role restores it (the
+   new project's `ACRev360_owner`) instead of failing on missing roles.
+3. **Prove it.** Run the fingerprint against each database — as the *owner* role (a
+   role subject to RLS reads tenant tables as empty; the command refuses to run as one):
+   ```bash
+   DATABASE_URL="<OREGON direct url>"    python manage.py db_fingerprint --checksums --output oregon.json
+   DATABASE_URL="<FRANKFURT direct url>" python manage.py db_fingerprint --checksums --compare oregon.json
+   ```
+   (`DJANGO_SETTINGS_MODULE=config.settings.prod` plus the usual dummy
+   `DJANGO_ALLOWED_HOSTS` / `CORS_ALLOWED_ORIGINS` / `DJANGO_SECRET_KEY` /
+   `WEBHOOK_ENCRYPTION_KEY`, as in §2.5.) It compares exact row counts, content hashes,
+   sequence positions, RLS flags/policy counts, extensions and applied migrations, and
+   exits non-zero on any difference. At rehearsal time small differences are expected if
+   the live app took writes since the dump — the point is that the mechanics work.
+4. **Render:** New → **Web Service** (not Blueprint — the blueprint's `render.yaml`
+   would collide with the running service) → same repo/branch `master`, **Docker**,
+   **Frankfurt**, **Free**, health check `/api/v1/health`, a new name (e.g.
+   `acrev360-api-fra`). Add every env var from the table; set `DATABASE_URL` to the
+   Frankfurt **pooled** string and `DJANGO_ALLOWED_HOSTS` to include the new hostname.
+   Deploy. Its start-up `migrate` is a no-op because the restored database already has
+   every migration.
+5. **Smoke-test the new stack** while the old one keeps serving: `/api/v1/health`,
+   a login, a payer list, the dashboard, a revenue-items load. Compare speed:
+   `curl -o /dev/null -s -w "connect %{time_connect}s  first-byte %{time_starttransfer}s\n" <url>/api/v1/health`
+   against both services (run it 5 times; the first hit after idle includes a cold start).
+
+### Phase B — cutover (15–20 minutes; pick a quiet hour, not 01:00 UTC when the nightly job runs)
+
+1. **Freeze writes.** Render dashboard → the *old* service → **Suspend**. From here the
+   old database can't change, which is what makes the copy lossless.
+2. **Final copy into a clean database.** Recreate the Frankfurt database empty (Neon
+   console → Databases → delete and recreate `ACRev360`, or `DROP SCHEMA public CASCADE;
+   CREATE SCHEMA public;` as owner), then repeat the dump and restore from step A2.
+3. **Fingerprint must be identical** (step A3, with `--checksums`). If it prints any
+   difference: **stop, don't cut over** — unsuspend the old service and investigate.
+4. **Re-create extra roles/grants** if §6 was already applied (roles aren't in the dump).
+5. In the Frankfurt Render service confirm `DATABASE_URL` is the Frankfurt pooled string
+   (if you change it now, Render redeploys on its own). Watch the logs until healthy.
+6. **Switch traffic.**
+   - *No custom domain:* set the frontend's `VITE_API_BASE_URL` to the new
+     `https://acrev360-api-fra.onrender.com`, redeploy the frontend (Vite inlines it at
+     build time), and update `CORS_ALLOWED_ORIGINS` on the new service if the
+     frontend's own URL changed (it shouldn't).
+   - *Custom domain (recommended for good):* give the API a domain you control
+     (`api.example.com`, Render → Settings → Custom Domains — free), point the frontend
+     at it once, and from then on a move like this one is a DNS/Render edit with no
+     frontend change and an instant rollback.
+7. Update the GitHub secret **`ACREV_DATABASE_URL`** to the Frankfurt string, then run
+   the "Daily debt ageing refresh" workflow once manually (Actions → Run workflow) to
+   prove the nightly job still works.
+8. Re-run the smoke tests against the real frontend: log in as each role you care
+   about, walk one bill → payment → receipt.
+
+### Rollback
+
+- **Before any new write lands on Frankfurt** (first few minutes): unsuspend the old
+  service, point the frontend back. Nothing was lost; the old database never changed.
+- **After real traffic has hit Frankfurt:** do not roll back — copy the other way
+  (same dump/restore, reversed) or roll forward. Keeping the window short and testing
+  in Phase A is what keeps this from being needed.
+
+### Afterwards
+
+- Keep the **old service suspended** (not deleted) and the **Oregon Neon project** for
+  7 days as the fallback, then delete both. Watch Render's free allowance: 750
+  instance-hours a month is shared by every free service in the workspace, so don't
+  leave two awake around the clock — an idle service that has spun down doesn't burn
+  hours, a busy one does.
+- Update `render.yaml` (`region: frankfurt`, the new `name`, the `DJANGO_ALLOWED_HOSTS`
+  value) and this file so the repo matches reality.
+- Re-measure with the same `curl` line and compare with the Phase A numbers for Oregon.
+
+## 8. Client IP behind the proxies (`NUM_PROXIES`)
+
+Traffic reaches gunicorn through Cloudflare and Render's own proxy, so the caller's
+address is a *position* in `X-Forwarded-For`, not the whole header. Unset, DRF keys
+IP-based throttles on the entire header: a client rotating it gets a fresh budget on
+every request (confirmed: 14 of 14 bad logins allowed), and behind Cloudflare the value
+changes per request anyway, so the IP throttles never trip. The per-email login limits
+and the per-user limit don't depend on this; the **anonymous** limits (public
+bill/receipt lookups, the anonymous ceiling, the `actor_ip` on audit rows) do.
+
+Set `NUM_PROXIES` on the Render service to the number of trusted proxies that append
+to the header. Verify rather than guess — from your own machine, against the live URL:
+
+```bash
+# 40 quick requests, each with a different spoofed first entry. If NUM_PROXIES is
+# right you should see 404s (or 200s) and then 429s: the spoof doesn't get a fresh budget.
+for i in $(seq 1 40); do
+  curl -s -o /dev/null -w "%{http_code} " -H "X-Forwarded-For: 198.51.100.$i" \
+    https://<service>/api/v1/bills/KAC/2026/000001
+done; echo
+```
+
+- Never a 429 → the setting picks a spoofable or per-request-varying entry: try 1, 2 or 3
+  until spoofing stops helping.
+- 429s start after ~30 requests with *your* address counted once → correct. (If a
+  colleague on a different network gets 429s at the same moment, the value is too small
+  and is picking a shared proxy address — raise it.)
+
+Until it is set the anonymous limits are best-effort; nothing breaks.
+
+## 9. Scaling past one worker
+
+Caches and throttle counters use Django's default per-process cache (`LocMemCache`).
+That is correct for the single gunicorn worker the free tier runs — the process that
+handles a write is the one that serves the next read, so the dashboard and
+revenue-item caches invalidate instantly. Running more workers (`WEB_CONCURRENCY` > 1)
+or more instances gives each its own cache: a write in one no longer invalidates the
+others (they catch up within 2 minutes — `apps/common/cachekeys.py`, `TOKEN_TTL`) and
+throttle budgets multiply by the worker count. Before doing that, point `CACHES` at a
+shared backend (Render's free Key Value / Redis instance, or Upstash) so all workers
+agree.
 
 ## Upgrading off the free tier later
 

@@ -20,6 +20,15 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-dev-only-change-m
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 
+# Django admin mount point (trailing slash, no leading one). Moving it off the
+# guessable default is free obscurity on top of the login throttle below.
+ADMIN_URL = env("DJANGO_ADMIN_URL", default="admin/")
+# The admin login form is throttled per client address: this many POSTs per
+# window, then 429. Generous enough for a human who mistypes twice, hopeless
+# for a guessing script.
+ADMIN_LOGIN_ATTEMPTS = env.int("ADMIN_LOGIN_ATTEMPTS", default=10)
+ADMIN_LOGIN_WINDOW_SECONDS = env.int("ADMIN_LOGIN_WINDOW_SECONDS", default=300)
+
 # Account provisioning policy: when on, onboarding without an explicit password
 # generates a strong one and forces a change at first login (apps/accounts/
 # security.py + apps/tenancy/middleware.py). Off in dev/test, which share the
@@ -45,6 +54,9 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    # Abstract base models + cache-invalidation signals (apps/common/signals.py);
+    # no tables of its own.
+    "apps.common",
     "apps.tenancy",
     "apps.accounts",
     "apps.registry",
@@ -63,6 +75,8 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.common.middleware.RejectNulBytesMiddleware",
+    "apps.common.middleware.AdminLoginThrottleMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -117,6 +131,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {"NAME": "apps.accounts.validators.NotPublishedPasswordValidator"},
 ]
 
 LANGUAGE_CODE = "en-us"
@@ -145,6 +160,19 @@ REST_FRAMEWORK = {
     ),
     "EXCEPTION_HANDLER": "apps.common.exceptions.acrev360_exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    # How many trusted proxies append to X-Forwarded-For — see apps/common/net.py.
+    # Unset (None) = DRF keys IP throttles on the whole header, which is
+    # spoofable; set it in production once the hop count is verified.
+    "NUM_PROXIES": env.int("NUM_PROXIES", default=None),
+    # Every endpoint gets a generous per-caller ceiling: it never touches a human
+    # (10 req/s per user, 2 per IP for anonymous callers), it stops a runaway
+    # script or a stolen token from starving the one small instance everybody
+    # shares. Views that need something tighter (login, the public lookups)
+    # declare their own throttle_classes and are unaffected by these two.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
     # Login throttling (S5): brute-force guard on the one public credential-
     # checking endpoint, scoped to LoginView ("login" scope) so it never
     # touches the rest of the API. dev.py raises this to a never-trips level
@@ -155,6 +183,17 @@ REST_FRAMEWORK = {
         # scope above is bypassable via X-Forwarded-For, these aren't.
         "login_email_burst": env("LOGIN_EMAIL_BURST_RATE", default="10/min"),
         "login_email_sustained": env("LOGIN_EMAIL_SUSTAINED_RATE", default="60/hour"),
+        "anon": env("ANON_THROTTLE_RATE", default="120/min"),
+        "user": env("USER_THROTTLE_RATE", default="600/min"),
+        # Unauthenticated bill/receipt lookups: every reference is guessable
+        # (sequential), so a scan has to be slow enough to be pointless.
+        "public_lookup": env("PUBLIC_LOOKUP_THROTTLE_RATE", default="30/min"),
+        # One telco gateway fronts every USSD user, so this is per-gateway, not
+        # per-person — sized for a whole network's traffic, not one caller.
+        "ussd": env("USSD_THROTTLE_RATE", default="1200/min"),
+        # Bank/gateway pushes — signature-verified, but the check itself costs
+        # database work, so an unsigned flood still needs a ceiling.
+        "webhook": env("WEBHOOK_THROTTLE_RATE", default="600/min"),
     },
 }
 

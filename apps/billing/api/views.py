@@ -6,6 +6,7 @@ from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
@@ -30,6 +31,7 @@ from apps.common.filtering import (
     parse_decimal,
     parse_int,
 )
+from apps.common.masking import mask_name, mask_tail
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.models import Payment
@@ -310,12 +312,43 @@ class BillViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.Creat
         return Response(BillLineDetailSerializer(line).data)
 
 
+#: Roles that may see a payer's identity on the demand-notice/bill print pages —
+#: the same set BillViewSet lets read bills at all. GLOBAL_VIEW (stakeholders)
+#: and the ratepayer roles are deliberately absent.
+_PAYER_DETAIL_LEVELS = (
+    AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT, AppRole.REVENUE_OFFICER,
+    AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
+    AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
+)
+
+
+def _may_see_payer_details(request, bill) -> bool:
+    """A signed-in staff member of the bill's own council, and only for a bill
+    inside their own portfolio (a consultant or agent gets no more here than
+    the bill list would give them)."""
+    user = request.user
+    if not user.is_authenticated or user.access_level not in _PAYER_DETAIL_LEVELS:
+        return False
+    if user.council_id != bill.council_id:
+        return False
+    return portfolio_filter(Bill.objects.filter(pk=bill.pk), request).exists()
+
+
 class PublicBillLookupView(APIView):
     """GET /api/v1/bills/<bill_ref> — public. Powers the demand-notice/demand-bill
     print pages and USSD option 1/2. Not part of BillViewSet's pk-based routing
-    because bill_ref itself contains slashes (KAC/2026/000123)."""
+    because bill_ref itself contains slashes (KAC/2026/000123).
+
+    Bill references are sequential, so anyone can walk them; what an anonymous
+    caller gets back is therefore only what a ratepayer needs to check a debt
+    (amounts, status, dates, ward) with the payer's identity masked
+    (``pii_masked: true``). Signed-in staff of the bill's council — the print
+    pages — get the full name, phone and address. Also rate-limited per client
+    address (``public_lookup`` scope)."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_lookup"
 
     @extend_schema(responses={200: PublicBillLookupSerializer, 404: None}, tags=["billing"])
     def get(self, request, bill_ref):
@@ -337,6 +370,8 @@ class PublicBillLookupView(APIView):
             if bill is None:
                 return Response({"error": "Bill not found"}, status=status.HTTP_404_NOT_FOUND)
 
+            full_detail = _may_see_payer_details(request, bill)
+            payer = bill.payer
             lines = bill.lines.select_related("assessment__council_revenue_item")
             return Response({
                 "bill_ref": bill.bill_ref,
@@ -346,11 +381,12 @@ class PublicBillLookupView(APIView):
                 "amount_paid": bill.amount_paid,
                 "balance": bill.balance,
                 "arrears_amount": bill.arrears_amount,
-                "payer_ref": bill.payer.payer_ref,
-                "full_name": bill.payer.full_name,
-                "phone": bill.payer.phone,
-                "address": bill.payer.address,
-                "ward_name": bill.payer.ward.ward_name,
+                "payer_ref": payer.payer_ref if full_detail else mask_tail(payer.payer_ref),
+                "full_name": payer.full_name if full_detail else mask_name(payer.full_name),
+                "phone": payer.phone if full_detail else mask_tail(payer.phone),
+                "address": payer.address if full_detail else "",
+                "ward_name": payer.ward.ward_name,
+                "pii_masked": not full_detail,
                 "lines": BillLineDetailSerializer(lines, many=True).data,
                 "superseded_bills": SupersededBillSerializer(bill.supersedes.all(), many=True).data,
             })

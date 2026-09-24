@@ -16,15 +16,21 @@ from apps.revenue.models import CouncilRevenueItem
 
 
 def get_worklist(*, council_id, agent, q=None):
-    """Ward-scoped payer list, sorted by outstanding balance — the agent's
-    field worklist. Deliberately NOT portfolio-scoped by revenue item: a
-    payer owing on a mix of items still belongs on the agent's list so they
-    can collect against whichever of those items they *are* assigned; item
-    scoping applies at enumeration/registration time instead (the existing
-    GET /revenue-items already does this correctly for AGENT — see
-    CouncilRevenueItemViewSet.get_queryset()). An agent with no ward assigned
-    gets an empty list rather than the whole council — an unset ward reads as
-    a setup gap, not an intentional "see everyone" grant."""
+    """The agent's field worklist: payers in their assigned ward that are theirs
+    to collect from, sorted by outstanding balance. "Theirs" is exactly what
+    common.scoping.portfolio_filter gives an AGENT everywhere else — payers
+    explicitly assigned to them, or unassigned ones they registered themselves.
+
+    Until 2026-09 this was every payer in the ward, whichever consultant firm
+    had enumerated them: an agent of any firm could read the name, phone,
+    address and balance of every competitor's payers in their ward — data the
+    same agent is refused on GET /payers and GET /bills, and the Collect screen
+    (GET /bills?payer=) showed those payers as empty anyway. Item scoping still
+    doesn't apply here: a payer owing on a mix of items belongs on the list so
+    the agent can collect against whichever of them they are assigned (the
+    GET /revenue-items endpoint scopes AGENT correctly). An agent with no ward
+    assigned gets an empty list rather than the whole council — an unset ward
+    reads as a setup gap, not an intentional "see everyone" grant."""
     if not agent.assigned_ward_id:
         return Payer.objects.none()
 
@@ -32,6 +38,10 @@ def get_worklist(*, council_id, agent, q=None):
     # row — 58 queries for one 50-row page before this, on the endpoint the
     # largest user group (field agents) hits most.
     qs = Payer.objects.filter(council_id=council_id, ward_id=agent.assigned_ward_id).select_related("ward")
+    qs = qs.filter(
+        Q(assigned_agent_id=agent.user_id)
+        | Q(assigned_agent__isnull=True, enumerated_by_id=agent.user_id)
+    )
     if q:
         qs = qs.filter(name_search_q(q) | Q(payer_ref__icontains=q))
 

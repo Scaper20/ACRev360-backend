@@ -1,5 +1,6 @@
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
+from django.utils.cache import patch_vary_headers
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -7,6 +8,7 @@ from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
+from apps.common.cachekeys import cached, digest, version_token
 from apps.common.filtering import parse_int as parse_int_params
 from apps.common.permissions import access_level_permission
 from apps.revenue.api.serializers import (
@@ -66,6 +68,35 @@ class CouncilRevenueItemViewSet(
         if self.action in ("create", "destroy", "retire"):
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
         return super().get_permissions()
+
+    def list(self, request, *args, **kwargs):
+        """The catalogue is ~111 KB of nested rate bands and tiers — ~90 ms of
+        server CPU to build, fetched by every user on most screens, and it
+        changes only when someone edits an item, a rate or a portfolio. So it is
+        (a) built once per (council, caller's visibility scope, query string) and
+        reused until a catalogue write invalidates it (apps/common/signals.py),
+        and (b) sent with an ETag and ``Cache-Control: no-cache``: the browser
+        always asks, and gets a body-less 304 when nothing changed, so an edit is
+        visible on the very next request but an unchanged catalogue costs one
+        cache lookup instead of a database round-trip and a re-serialisation."""
+        user = request.user
+        if user.access_level in _PORTFOLIO_SCOPED_LEVELS:
+            scope = ("consultant", user.consultant_id)
+        elif user.access_level == AppRole.AGENT:
+            scope = ("agent", user.id, user.consultant_id)  # own AgentPortfolio, else the firm's
+        else:
+            scope = ("all",)
+        parts = (user.council_id, *scope, request.META.get("QUERY_STRING", ""))
+        etag = f'W/"{digest(version_token("catalogue"), *parts)}"'
+        if request.headers.get("If-None-Match") == etag:
+            response = Response(status=status.HTTP_304_NOT_MODIFIED)
+        else:
+            data = cached("catalogue", None, parts, lambda: super(CouncilRevenueItemViewSet, self).list(request, *args, **kwargs).data)
+            response = Response(data)
+        response["ETag"] = etag
+        response["Cache-Control"] = "private, no-cache"
+        patch_vary_headers(response, ("Authorization",))
+        return response
 
     def get_queryset(self):
         # select_related + prefetch_related (with to_attr, which the model's

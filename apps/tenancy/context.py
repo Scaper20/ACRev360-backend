@@ -19,6 +19,7 @@ a bare queryset in any RunPython that touches one of those tables.
 """
 from contextlib import contextmanager
 
+from django.core.cache import cache
 from django.db import connection, transaction
 
 
@@ -39,20 +40,47 @@ def council_context(council_id: int | None):
         yield
 
 
+#: bill_ref prefix -> council id, cached because every public lookup and every
+#: channel webhook resolves its council from the reference itself — before this,
+#: each of those requests opened one transaction and ran two queries per active
+#: council just to answer "whose bill is KAC/...?". The answer changes only when
+#: a council or its config is edited, which drops the entry (apps/tenancy/signals.py).
+BILL_REF_PREFIX_CACHE_KEY = "tenancy:bill-ref-prefix-map"
+_BILL_REF_PREFIX_TTL = 300
+
+
+def _bill_ref_prefix_map() -> dict:
+    mapping = cache.get(BILL_REF_PREFIX_CACHE_KEY)
+    if mapping is None:
+        from apps.tenancy.models import Council
+
+        mapping = {}
+        for council in Council.objects.filter(is_active=True).order_by("id"):
+            with council_context(council.id):
+                config = getattr(council, "config", None)
+            if config and config.bill_ref_prefix:
+                mapping.setdefault(config.bill_ref_prefix, council.id)
+        cache.set(BILL_REF_PREFIX_CACHE_KEY, mapping, _BILL_REF_PREFIX_TTL)
+    return mapping
+
+
 def resolve_council_from_bill_ref(bill_ref: str):
     """A bill_ref (`KAC/2026/000123`) embeds its council's configured prefix — so
     public/pre-auth callers (bill lookup, channel webhooks) can resolve the target
     council from the reference itself, no bypass needed. See apps/billing and
     apps/channels public views."""
+    if not isinstance(bill_ref, str):
+        return None
     prefix = bill_ref.split("/")[0] if bill_ref else None
     if not prefix:
         return None
+    council_id = _bill_ref_prefix_map().get(prefix)
+    if council_id is None:
+        return None
 
-    def lookup(council):
-        config = getattr(council, "config", None)
-        return council if config and config.bill_ref_prefix == prefix else None
+    from apps.tenancy.models import Council
 
-    return find_across_active_councils(lookup)
+    return Council.objects.filter(pk=council_id, is_active=True).first()
 
 
 def find_across_active_councils(query_fn):
