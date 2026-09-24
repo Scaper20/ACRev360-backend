@@ -36,7 +36,9 @@ class DebtCaseViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     lookup_value_regex = r"[0-9]+"
 
     def get_queryset(self):
-        qs = DebtCase.objects.filter(council_id=self.request.user.council_id).order_by("-opened_at")
+        # DebtCaseSerializer reads bill.bill_ref, bill.payer.full_name and
+        # bill.balance per row.
+        qs = DebtCase.objects.filter(council_id=self.request.user.council_id).select_related("bill__payer").order_by("-opened_at")
         qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
         q = self.request.query_params.get("q")
         if q:

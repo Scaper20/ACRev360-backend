@@ -50,7 +50,8 @@ class RevenueCategoryViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 class RevenueItemTemplateViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = RevenueItemTemplateSerializer
-    queryset = RevenueItemTemplate.objects.all()
+    # select_related("category") — the serializer reads category.name per row.
+    queryset = RevenueItemTemplate.objects.select_related("category")
     permission_classes = [access_level_permission(*READ_ONLY_LEVELS)]
 
 

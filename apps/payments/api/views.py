@@ -1,5 +1,5 @@
 from django.db import IntegrityError
-from django.db.models import DecimalField, Q, Sum
+from django.db.models import DecimalField, Prefetch, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import AppRole
 from apps.audit.services import audit
-from apps.billing.models import Bill
+from apps.billing.models import Bill, BillLine
 from apps.common.api.views import PlatformWideListMixin
 from apps.common.filtering import date_span_bounds, name_search_q, parse_date, parse_int
 from apps.common.permissions import access_level_permission
@@ -25,7 +25,7 @@ from apps.payments.api.serializers import (
     ReceiptSerializer,
     ReversePaymentSerializer,
 )
-from apps.payments.models import APIClient, PaymentChannel, POSTerminal, Payment, Receipt
+from apps.payments.models import APIClient, PaymentAllocation, PaymentChannel, POSTerminal, Payment, Receipt
 from apps.payments.notifications import send_receipt
 from apps.payments.services import PaymentRejected, post_payment, reverse_payment
 from apps.tenancy.context import find_across_active_councils
@@ -66,7 +66,9 @@ class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
 
     def get_queryset(self):
         qs = Payment.objects.filter(council_id=self.request.user.council_id).order_by("-created_at")
-        qs = qs.select_related("bill", "bill__payer", "channel", "terminal", "posted_by")
+        # "receipt" is a reverse one-to-one the serializer reads twice
+        # (receipt_ref, qr_token) — without it, one extra query per row.
+        qs = qs.select_related("bill", "bill__payer", "channel", "terminal", "posted_by", "receipt")
         qs = qs.prefetch_related("allocations__bill_line__assessment__council_revenue_item")
         qs = portfolio_filter(qs, self.request, payer_path="bill__payer")
 
@@ -220,11 +222,25 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         # to-many hop off Bill, select_related can't cover that one. Neither
         # existed before; ReceiptSerializer.lines (new) would otherwise add
         # its own N+1 on top of ones already latent here.
+        # `lines` is BillLineDetailSerializer, which walks assessment ->
+        # council_revenue_item / rate_band / rate_tier per line and calls
+        # BillLine.paid_amount (an aggregate query) — a plain "payment__bill__
+        # lines" prefetch left all of that lazy: 210 queries for one page of
+        # 50 receipts. The Prefetch below pulls the whole tree in a handful.
+        lines_qs = BillLine.objects.select_related(
+            "assessment__council_revenue_item", "assessment__rate_band", "assessment__rate_tier",
+        ).prefetch_related(
+            Prefetch(
+                "allocations",
+                queryset=PaymentAllocation.objects.filter(payment__txn_status=Payment.CONFIRMED),
+                to_attr="_prefetched_confirmed_allocations",
+            )
+        )
         qs = (
             Receipt.objects.filter(council_id=self.request.user.council_id)
             .select_related("payment__bill__payer")
             .prefetch_related(
-                "payment__bill__lines",
+                Prefetch("payment__bill__lines", queryset=lines_qs),
                 "payment__allocations__bill_line__assessment__council_revenue_item",
             )
             .order_by("-created_at")
@@ -344,7 +360,9 @@ class APIClientViewSet(PlatformWideListMixin, viewsets.ModelViewSet):
             # Platform tier: materialize per council via PlatformWideListMixin,
             # never a lazy queryset evaluated outside a council RLS context.
             return APIClient.objects.none()
-        return APIClient.objects.filter(council_id=user.council_id)
+        # Explicit order — an unordered queryset paginates inconsistently
+        # (Django's UnorderedObjectListWarning), rows can repeat/skip pages.
+        return APIClient.objects.filter(council_id=user.council_id).order_by("-id")
 
     def perform_create(self, serializer):
         import secrets

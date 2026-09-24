@@ -159,6 +159,14 @@ class BillLine(models.Model):
         a reversed payment's allocations are left in place as history (same
         "mark, don't delete" discipline as Payment itself) but must not count
         here, or this would drift from Bill.amount_paid."""
+        # Summed in Python from `Prefetch("allocations", queryset=<CONFIRMED
+        # only>, to_attr="_prefetched_confirmed_allocations")` when a list
+        # endpoint (ReceiptViewSet) supplied it — otherwise this was one
+        # aggregate query per line, ~4 queries per receipt row. Falls back to
+        # the original aggregate for every caller that didn't prefetch.
+        if hasattr(self, "_prefetched_confirmed_allocations"):
+            return sum((a.amount for a in self._prefetched_confirmed_allocations), Decimal("0"))
+
         from apps.payments.models import Payment
 
         total = self.allocations.filter(payment__txn_status=Payment.CONFIRMED).aggregate(

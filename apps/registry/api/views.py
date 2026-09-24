@@ -93,7 +93,14 @@ class PayerViewSet(
         return CreatePayerSerializer if self.request.method == "POST" else PayerSerializer
 
     def get_queryset(self):
-        qs = Payer.objects.filter(council_id=self.request.user.council_id).order_by("last_name", "first_name")
+        # select_related("enumerated_by__consultant") — PayerSerializer.
+        # consultant_name walks exactly that path per row; without it, two
+        # extra queries per payer on every list page.
+        qs = (
+            Payer.objects.filter(council_id=self.request.user.council_id)
+            .select_related("enumerated_by__consultant")
+            .order_by("last_name", "first_name")
+        )
         qs = portfolio_filter(qs, self.request, payer_path="")  # payer IS the root here
         params = self.request.query_params
         # Layered on top of portfolio_filter above, never instead of it — see
@@ -352,7 +359,7 @@ class EnumeratedAssetViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, vie
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.AGENT)]
 
     def get_queryset(self):
-        return EnumeratedAsset.objects.filter(council_id=self.request.user.council_id)
+        return EnumeratedAsset.objects.filter(council_id=self.request.user.council_id).order_by("id")
 
     def perform_create(self, serializer):
         serializer.save(council_id=self.request.user.council_id)

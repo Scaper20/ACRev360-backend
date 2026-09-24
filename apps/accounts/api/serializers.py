@@ -107,7 +107,11 @@ class SubConsultantSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "status", "created_at", "has_login", "is_contract_expired", "registration_payer"]
 
     def get_has_login(self, obj):
-        return obj.users.exists()
+        # SubConsultantViewSet.get_queryset annotates this as one EXISTS
+        # subquery; only an instance built elsewhere (e.g. right after create)
+        # falls back to a query of its own.
+        annotated = getattr(obj, "_has_login", None)
+        return annotated if annotated is not None else obj.users.exists()
 
     def validate(self, attrs):
         if attrs.get("manager_username") and not attrs.get("manager_full_name"):
