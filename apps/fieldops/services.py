@@ -28,7 +28,10 @@ def get_worklist(*, council_id, agent, q=None):
     if not agent.assigned_ward_id:
         return Payer.objects.none()
 
-    qs = Payer.objects.filter(council_id=council_id, ward_id=agent.assigned_ward_id)
+    # select_related("ward"): WorklistPayerSerializer reads ward.ward_name per
+    # row — 58 queries for one 50-row page before this, on the endpoint the
+    # largest user group (field agents) hits most.
+    qs = Payer.objects.filter(council_id=council_id, ward_id=agent.assigned_ward_id).select_related("ward")
     if q:
         qs = qs.filter(name_search_q(q) | Q(payer_ref__icontains=q))
 

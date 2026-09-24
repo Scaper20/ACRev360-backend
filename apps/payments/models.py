@@ -233,6 +233,14 @@ class Receipt(CouncilScopedModel):
 
     class Meta:
         db_table = "receipt"
+        indexes = [
+            # ReceiptViewSet lists newest-first after a council filter. Without
+            # this the planner joined every receipt to its payment and bill and
+            # external-merge-sorted them on disk to keep 50 rows (164 ms at
+            # 20k receipts, growing with the table) — this lets it read the
+            # newest page straight off the index.
+            models.Index(fields=["council", "-created_at"], name="receipt_council_created_idx"),
+        ]
 
     def __str__(self):
         return self.receipt_ref or f"(unsaved receipt #{self.pk})"
