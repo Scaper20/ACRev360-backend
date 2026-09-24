@@ -25,6 +25,10 @@ ENFORCE_ACCOUNT_PASSWORD_POLICY = env.bool("ENFORCE_ACCOUNT_PASSWORD_POLICY", de
 # base's generous 30/min only if a deploy ops team explicitly relaxes it.
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {  # noqa: F405
     "login": env("LOGIN_THROTTLE_RATE", default="10/min"),
+    # See apps/accounts/throttles.py — the IP-keyed "login" scope above is
+    # bypassable (X-Forwarded-For), these per-email ones are what hold.
+    "login_email_burst": env("LOGIN_EMAIL_BURST_RATE", default="10/min"),
+    "login_email_sustained": env("LOGIN_EMAIL_SUSTAINED_RATE", default="60/hour"),
 }
 
 # Default True for a real deploy behind a TLS-terminating proxy (nginx/ALB —

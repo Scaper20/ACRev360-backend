@@ -43,4 +43,14 @@ ENTRYPOINT ["./docker-entrypoint.sh"]
 # on any environment where it isn't set. Confirmed live on a second, separate
 # Render account/service: identical symptom — one "Booting worker" line
 # logged, then silence forever, health check never passing.
-CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-1}
+#
+# Threads, not more workers: with the single sync worker the free tier forces,
+# requests were served strictly one at a time — measured live (8 simultaneous
+# GETs of a ~1.2s endpoint: latencies 1.4s, 2.4s, 3.4s ... 6.6s, each waiting
+# behind the last). Most of a request is waiting on Postgres, so threads let
+# them overlap that wait inside the same process — no extra memory-hungry
+# worker, so none of the OOM above. Safe for this app: tenant context is
+# SET LOCAL inside each request's own transaction (apps/tenancy/context.py),
+# not process-global state, and Django gives every thread its own DB
+# connection. Tunable via GUNICORN_THREADS.
+CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --threads ${GUNICORN_THREADS:-4}

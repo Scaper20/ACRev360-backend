@@ -151,6 +151,10 @@ REST_FRAMEWORK = {
     # for the test suite; prod.py makes it env-required with a strict default.
     "DEFAULT_THROTTLE_RATES": {
         "login": env("LOGIN_THROTTLE_RATE", default="30/min"),
+        # Per-submitted-email budgets (apps/accounts/throttles.py) — the IP
+        # scope above is bypassable via X-Forwarded-For, these aren't.
+        "login_email_burst": env("LOGIN_EMAIL_BURST_RATE", default="10/min"),
+        "login_email_sustained": env("LOGIN_EMAIL_SUSTAINED_RATE", default="60/hour"),
     },
 }
 

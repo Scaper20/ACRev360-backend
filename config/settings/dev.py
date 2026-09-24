@@ -10,6 +10,8 @@ CORS_ALLOW_ALL_ORIGINS = True
 # unlimited. prod.py sets the real (env-required, strict-default) numbers.
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {  # noqa: F405
     "login": "100000/hour",
+    "login_email_burst": "100000/hour",
+    "login_email_sustained": "100000/hour",
 }
 
 # Convenient for local `manage.py runserver` against the locally-installed Postgres 18

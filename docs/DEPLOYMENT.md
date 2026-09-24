@@ -175,6 +175,65 @@ Same checklist as `GETTING_STARTED.md`, against the real URLs:
 - Check the Render **Logs** tab for the web service — should show real request
   traffic, no 500s, no CORS-rejection lines.
 
+## 6. Enforce row-level security (do this before a second council goes live)
+
+This app's tenant isolation is two layers: every viewset filters by the caller's
+council, **and** Postgres RLS (`FORCE ROW LEVEL SECURITY` on 24 tables) makes the
+database itself refuse cross-council rows if a filter is ever missed. The second
+layer only exists if the app connects as a role that RLS applies to.
+
+**Neon's default project owner role does not qualify** — it is a member of
+`neon_superuser`, which carries `BYPASSRLS`. Connecting as it, RLS is silently
+off: acting as a council with no data still returns every council's rows
+(verified 2026-09-24: 115 payers visible as an empty council). The local Docker
+setup already does this right (`docker/postgres-init/01-appuser.sql`); production
+needs the equivalent, with two connection strings:
+
+| Env var | Role | Used for |
+|---|---|---|
+| `DATABASE_URL` | `acrev360_app` (NOBYPASSRLS, DML only) | the running web service, the debt-refresh cron |
+| `MIGRATE_DATABASE_URL` | the Neon owner role | `manage.py migrate` in `docker-entrypoint.sh` only |
+
+One-time setup, run as the owner role (`psql` or Neon's SQL editor; pick a fresh
+40+ char password):
+
+```sql
+CREATE ROLE acrev360_app WITH LOGIN PASSWORD '<strong-random>'
+  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT CONNECT ON DATABASE "<dbname>" TO acrev360_app;
+GRANT USAGE ON SCHEMA public TO acrev360_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO acrev360_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO acrev360_app;
+-- Append-only audit trail: nothing at runtime edits or deletes audit rows, so
+-- make that a database guarantee rather than a convention.
+REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM acrev360_app;
+-- Tables/sequences the owner's future migrations create:
+ALTER DEFAULT PRIVILEGES FOR ROLE "<owner-role>" IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO acrev360_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE "<owner-role>" IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO acrev360_app;
+```
+
+Then: set `MIGRATE_DATABASE_URL` on Render to the **current** owner connection
+string, change `DATABASE_URL` to the `acrev360_app` one (same host/db, pooled,
+`?sslmode=require&channel_binding=require`), redeploy, and point the GitHub
+Actions `ACREV_DATABASE_URL` secret at the app-role string too. Ad-hoc ops from
+your own machine (`seed_*`, `reset_council_data`, `migrate`) keep using the owner
+string.
+
+Verify it took (should print `False`, then `0`, then a non-zero count):
+
+```sql
+SELECT rolbypassrls FROM pg_roles WHERE rolname = 'acrev360_app';
+BEGIN; SELECT set_config('app.council_id', '<a council with no payers>', true);
+SELECT count(*) FROM payer; ROLLBACK;                -- 0: RLS is filtering
+BEGIN; SELECT set_config('app.council_id', '1', true);
+SELECT count(*) FROM payer; ROLLBACK;                -- KAC's rows only
+```
+
+A new migration that needs DDL always runs as the owner (via
+`MIGRATE_DATABASE_URL`), so the runtime role never needs schema privileges.
+
 ## Upgrading off the free tier later
 
 - **Web service**: change `plan: free` to `starter` (or another paid plan) in

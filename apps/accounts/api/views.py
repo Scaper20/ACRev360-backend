@@ -30,7 +30,8 @@ from apps.accounts.api.serializers import (
     UpdateProfileSerializer,
 )
 from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
-from apps.accounts.security import provision_password
+from apps.accounts.security import provision_password, revoke_all_sessions
+from apps.accounts.throttles import LoginEmailBurstThrottle, LoginEmailSustainedThrottle
 from apps.accounts.tokens import AppTokenObtainPairSerializer
 from apps.audit.services import audit
 from apps.billing.models import Bill
@@ -73,10 +74,13 @@ class TokenPairResponseSerializer(serializers.Serializer):
 class LoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = AppTokenObtainPairSerializer
-    # Public credential-checking endpoint — brute-force throttled ("login"
-    # scope, see DEFAULT_THROTTLE_RATES in config/settings). The rest of the
-    # API needs a valid JWT, so this is the only thing that needs a budget.
-    throttle_classes = [ScopedRateThrottle]
+    # Public credential-checking endpoint — brute-force throttled, see
+    # DEFAULT_THROTTLE_RATES in config/settings. The rest of the API needs a
+    # valid JWT, so this is the only thing that needs a budget. The two
+    # per-email throttles are the ones that actually hold: the IP-scoped one
+    # keys on X-Forwarded-For, which a client can rotate (see
+    # apps/accounts/throttles.py for the confirmed bypass).
+    throttle_classes = [ScopedRateThrottle, LoginEmailBurstThrottle, LoginEmailSustainedThrottle]
     throttle_scope = "login"
 
 
@@ -151,7 +155,14 @@ class ChangePasswordView(APIView):
             user.must_change_password = False
             update_fields.append("must_change_password")
         user.save(update_fields=update_fields)
-        audit(council_id=user.council_id, actor=user, action="PASSWORD_CHANGED", entity_type="APP_USER", entity_id=user.id, detail={})
+        # Ends every other session too — including any an attacker opened
+        # with the old password. This device signs back in on its next token
+        # refresh (access tokens live 30 minutes).
+        revoked = revoke_all_sessions(user)
+        audit(
+            council_id=user.council_id, actor=user, action="PASSWORD_CHANGED", entity_type="APP_USER", entity_id=user.id,
+            detail={"sessions_revoked": revoked},
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -209,7 +220,12 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
-        return qs
+        # SubConsultantSerializer reads registration_payer.payer_ref and
+        # has_login per row — one join + one EXISTS subquery in the main
+        # query instead of two extra queries per consultant.
+        return qs.select_related("registration_payer").annotate(
+            _has_login=models.Exists(AppUser.objects.filter(consultant_id=models.OuterRef("pk")))
+        )
 
     @transaction.atomic
     def perform_create(self, serializer):
