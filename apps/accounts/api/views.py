@@ -208,12 +208,27 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
             )()]
         return super().get_permissions()
 
+    @staticmethod
+    def _with_serializer_relations(qs):
+        # SubConsultantSerializer reads registration_payer.payer_ref and
+        # has_login per row — one join + one EXISTS subquery in the main
+        # query instead of two extra queries per consultant. For the
+        # platform-tier path this is also a correctness matter, not just
+        # speed: rows are materialised inside each council's RLS context
+        # (platform_wide_queryset), and anything left to load lazily at
+        # serialisation time runs after that context has closed, where RLS
+        # hides it — registration_payer_ref came back null under an
+        # RLS-enforced role.
+        return qs.select_related("registration_payer").annotate(
+            _has_login=models.Exists(AppUser.objects.filter(consultant_id=models.OuterRef("pk")))
+        )
+
     def get_platform_queryset_fn(self, council_id):
-        qs = SubConsultant.objects.filter(council_id=council_id).order_by("consultant_name")
+        qs = SubConsultant.objects.filter(council_id=council_id).order_by("consultant_name", "id")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
-        return qs
+        return self._with_serializer_relations(qs)
 
     def get_queryset(self):
         user = self.request.user
@@ -222,16 +237,11 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
             # council RLS context — PlatformWideListMixin.list/get_object
             # materialize via get_platform_queryset_fn per council instead.
             return SubConsultant.objects.none()
-        qs = SubConsultant.objects.filter(council_id=user.council_id).order_by("consultant_name")
+        qs = SubConsultant.objects.filter(council_id=user.council_id).order_by("consultant_name", "id")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
-        # SubConsultantSerializer reads registration_payer.payer_ref and
-        # has_login per row — one join + one EXISTS subquery in the main
-        # query instead of two extra queries per consultant.
-        return qs.select_related("registration_payer").annotate(
-            _has_login=models.Exists(AppUser.objects.filter(consultant_id=models.OuterRef("pk")))
-        )
+        return self._with_serializer_relations(qs)
 
     @transaction.atomic
     def perform_create(self, serializer):

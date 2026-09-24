@@ -73,6 +73,18 @@ would add write cost and storage for an index that stops working then. Revisit o
 search becomes a bottleneck (options: prefix-only search on a btree `text_pattern_ops`
 index, whose operators are leakproof; or a token table).
 
+**Frankfurt copy + RLS parity (later the same day).** The Oregon database was copied to a new
+Frankfurt Neon project with `pg_dump`/`pg_restore` and proven identical with `db_fingerprint
+--checksums` (2545 rows, every table hash, sequence, RLS flag and migration). A restricted runtime role
+(`acrev360_app`, NOBYPASSRLS, DML only, audit_log append-only) was created there per DEPLOYMENT.md
+section 6, and the new `manage.py rls_parity_sweep` compared 462 API responses across 21 roles as the
+owner vs the restricted role: everything matched except two real bugs the RLS-off production could not
+show — platform-tier `GET /consultants` returned `registration_payer_ref: null` and `GET /settlements`
+returned `consultant_name: null`, because the related row was loaded lazily after the council's RLS
+context closed. Fixed by pre-loading (`select_related`) inside the per-council queryset; settlements also
+got an `id` tie-breaker so their order is reproducible. Regression tests in `tests/test_security_round2.py`
+(they need a second, later-created council to reproduce — the loop leaves the last council's context set).
+
 **Ops:** `manage.py db_fingerprint` (row counts, content hashes, sequences, RLS, migrations)
 for proving a database copy is identical; `docs/DEPLOYMENT.md` §7 Frankfurt move, §8
 `NUM_PROXIES`, §9 scaling past one worker.

@@ -235,6 +235,26 @@ SELECT count(*) FROM payer; ROLLBACK;                -- KAC's rows only
 A new migration that needs DDL always runs as the owner (via
 `MIGRATE_DATABASE_URL`), so the runtime role never needs schema privileges.
 
+**Prove the application behaves the same once RLS is enforced.** The counts above show
+isolation works; they don't show that every endpoint still returns what it did. Code
+that was only ever run with RLS effectively off can depend on it — the classic case is a
+related row loaded lazily *after* a council's RLS context has closed, which the
+restricted role then sees as missing. Run the read-only parity sweep (it signs in
+in-process as one user per access level, GETs the main endpoints, and writes nothing)
+once as each role and compare:
+
+```bash
+DATABASE_URL=<owner url> python manage.py rls_parity_sweep --output owner.json
+DATABASE_URL=<app url>   python manage.py rls_parity_sweep --output app.json
+python manage.py rls_parity_sweep --compare owner.json app.json   # exit 1 on any 5xx or difference
+```
+
+(Use the same endpoint type — pooled or direct — for both, and the §2.5 dummy settings
+variables.) On 2026-09-24 this caught two bugs that were invisible in production:
+`registration_payer_ref` on the platform-tier consultant list and `consultant_name` on
+the platform-tier settlement list both came back null under the restricted role. Both are
+fixed and covered by tests; the sweep now reports identical responses.
+
 ## 7. Moving to another region (Oregon → Frankfurt) without losing anything
 
 **Why:** the app makes several database round-trips per request, and from West

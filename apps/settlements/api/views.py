@@ -110,7 +110,11 @@ class CommissionSettlementViewSet(PlatformWideListMixin, mixins.ListModelMixin, 
     lookup_value_regex = r"[0-9]+"
 
     def get_platform_queryset_fn(self, council_id):
-        qs = CommissionSettlement.objects.filter(council_id=council_id).order_by("-period_start")
+        # select_related("consultant"): SettlementSerializer reads consultant_name.
+        # Loaded lazily it would run after this council's RLS context has closed
+        # and come back null under an RLS-enforced role. "id" breaks ties between
+        # settlements that share a period_start, so the order is reproducible.
+        qs = CommissionSettlement.objects.filter(council_id=council_id).select_related("consultant").order_by("-period_start", "id")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(consultant__consultant_name__icontains=q)
@@ -122,7 +126,7 @@ class CommissionSettlementViewSet(PlatformWideListMixin, mixins.ListModelMixin, 
             # Platform tier: materialize per council via PlatformWideListMixin,
             # never a lazy queryset evaluated outside a council RLS context.
             return CommissionSettlement.objects.none()
-        qs = CommissionSettlement.objects.filter(council_id=user.council_id).select_related("consultant").order_by("-period_start")
+        qs = CommissionSettlement.objects.filter(council_id=user.council_id).select_related("consultant").order_by("-period_start", "id")
         if user.access_level in (AppRole.CONSULTANT, AppRole.REVENUE_OFFICER, AppRole.CONSULTANT_STAFF):
             qs = qs.filter(consultant_id=user.consultant_id)
         else:
