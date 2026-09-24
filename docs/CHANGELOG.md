@@ -95,6 +95,145 @@ change needs `current_password`; password change signs out everywhere; narrower 
 - Any code path that changes catalogue/dashboard data with `queryset.update()` or `bulk_*` skips the
   invalidation signals; the 2-minute token TTL is the backstop. Call `cachekeys.bump()` if it matters.
 
+## 2026-09-24 — Frontend catch-up on backend's security-hardening pass (forced password change, print PII masking, onboarding password validation)
+
+**Ask:** Scaper20 sent three handoff docs (`DEPLOYMENT.md` — backend now
+live on Render + Neon; two "frontend handoff" txt files covering a backend
+hardening pass) after dropping them in `~/Downloads`. Worked through every
+frontend-facing item across both portal and field.
+
+**What changed, and why:**
+
+1. **Forced first-login password change.** `POST /auth/login` can now
+   return `must_change_password: true` (undeclared in the OpenAPI schema —
+   added as `LoginResponse` in `overrides.ts` #13). While true, every
+   endpoint except change-password/logout/me returns 428
+   `{"error": ..., "code": "password_change_required"}`. Restructured
+   `login()` in `packages/api/src/auth.ts` to return `{me, mustChangePassword}`
+   instead of a bare `Me`, added `mustChangePassword` state to both portal
+   and field `AuthContext`s, and built a dedicated change-password screen
+   for each app (`ChangePasswordRequiredPage.tsx` / `ChangePasswordRequiredScreen.tsx`)
+   that `RequireAuth`/`App.tsx` route to instead of the normal app. The old
+   JWT stays 428-gated even after a successful change (per the doc), so
+   success signs the session out and sends the user back to a fresh login
+   rather than trying to resume in-place.
+
+2. **Print pages were serving masked PII.** `DemandBillPrint.tsx`/
+   `DemandNoticePrint.tsx` run inside `DocViewer`'s iframe and call
+   `GET /api/v1/bills/{bill_ref}` with no prior request in that iframe to
+   have triggered a token refresh — the access token is memory-only, so a
+   fresh iframe load had none even with a valid parent-tab session, and the
+   now-public endpoint silently returned `pii_masked: true` data instead of
+   erroring. Added `ensureAccessToken()` (exported from `packages/api`,
+   reusing the existing single-flight refresh) and awaited it before the
+   fetch in both print routes; also added a loud, non-suppressed-under-print
+   warning banner (`.print-masked-warning`) that shows if the response comes
+   back masked anyway, so a masked print can never pass as a real one.
+
+3. **Password validation on every typed-password onboarding flow.** Added
+   `fieldErrors()` to `packages/api/src/client.ts` (returns the raw
+   `{field: [msg, ...]}` shape `errorMessage()` collapses to one string) and
+   wired it into every UI surface that lets an admin type a password: the
+   forced-change screens, both `MyProfileModal`s' self-service change, and —
+   the one this pass almost missed — the ratepayer-invite dialogs in
+   `PayerDetailModal.tsx`/`PayerContextPanel.tsx` (the handoff doc's item 3
+   names it in the same sentence as the other four, easy to skip if you only
+   grep for `manager_password`). Confirmed live that stakeholder/revenue-
+   officer/field-agent/consultant-manager onboarding in this codebase has no
+   typed-password field at all today (always the generated-password path),
+   so those four are currently dead paths for this validation — only
+   ratepayer-invite actually exercises it right now.
+
+4. **Email-change requires current password.** `PATCH /auth/me` now 400s
+   with `{"current_password": [...]}` when `email` differs from the stored
+   one (case-insensitive). Both `MyProfileModal`s now only send
+   `current_password` (and only show that field) when the email input was
+   actually edited from the user's current one — re-saving the unchanged
+   email needs nothing extra, matching the doc's note that the profile form
+   re-sends it on every save.
+
+5. **Password change signs out everywhere.** A successful
+   `/auth/change-password` revokes every refresh token the user holds,
+   including the tab that just changed it. Added an optional `reason` param
+   to `authStore.clear()` (`packages/api/src/auth-store.ts`) so a caller
+   that already knows why the session is ending can say so — both
+   `MyProfileModal`s now call `authStore.clear('password-changed')`
+   proactively on success instead of waiting for the next request to 401
+   and discover it reactively; `LoginPage`/`LoginScreen` read the reason
+   once (via a new `sessionEndedReason` on `AuthContext`) to show "Password
+   changed — please sign in again" instead of a silent bounce.
+
+6. **429 handling, bad-filter 400s, duplicate-payment/line-delete 409s,
+   `{"error": ...}` body shape.** All confirmed already correctly handled
+   by existing code with zero changes needed: `errorMessage()` already
+   extracts `{"error": "..."}"` (including the throttle message's own
+   `Retry-After` countdown text) and every mutating call site already
+   catches and displays it; `queryClient.ts`'s `retry: 1` uses TanStack's
+   default backoff, not a tight loop; the bill-line-delete 409 and payment
+   409 both already surface via the same catch/toast pattern.
+
+7. **Field worklist empty-state copy.** Updated to the doc's suggested
+   copy ("Nothing assigned to you yet — register a payer or ask your
+   supervisor to assign some") now that the backend narrowed
+   `GET /mobile/worklist` to payers registered-by-or-assigned-to the
+   calling agent — the frontend already renders whatever the backend
+   returns, so this was purely a copy fix, not a data-shape change.
+
+8. **Regenerated `packages/api/src/generated/schema.ts`** against the live
+   Render backend — this is also how `Payer.consultant_name` (added in a
+   separate, earlier request that same week) and the deactivate/status-
+   change endpoints picked up their types.
+
+**Not changed:** `GET /api/v1/bills/{id}` (new pk-based read) — informational,
+no existing call site needed it. The `VITE_API_BASE_URL` hardcoded-fallback
+removal noted in the doc's "worth knowing" section — deferred until every
+deployed environment reliably sets the env var, per the doc's own
+conditional wording.
+
+**Repo(s)/files:** `ACRev360-frontend` only.
+`packages/api/src/{auth.ts,auth-store.ts,client.ts,overrides.ts,index.ts,auth-store.test.ts,generated/schema.ts}`;
+`apps/portal/src/{App.tsx,auth/{AuthContext.tsx,RequireAuth.tsx},routes/{LoginPage.tsx,ChangePasswordRequiredPage.tsx (new),print/{DemandBillPrint.tsx,DemandBillPrint.css,DemandNoticePrint.tsx,DemandNoticePrint.css},payers/{PayerDetailModal.tsx,PayerContextPanel.tsx}},layout/MyProfileModal.tsx}`;
+`apps/field/src/{App.tsx,auth/AuthContext.tsx,views/{LoginScreen.tsx,ChangePasswordRequiredScreen.tsx (new),WorklistView.tsx},components/MyProfileModal.tsx}`.
+
+**Gotchas:** `must_change_password` and the 428 `code` field are both
+undeclared in the OpenAPI schema (drf-spectacular can't type an ad-hoc
+splice into a response or an exception handler's body) — they live in
+`overrides.ts` as `LoginResponse`/`ErrorWithCode`, same pattern as the
+other 12 documented mismatches there. If a future schema regen ever adds
+them properly, these overrides become redundant but harmless — don't
+remove them reflexively without checking the real response shape first.
+`authStore.clear('password-changed')` only covers the tab that itself
+changed the password; a *different* tab/device sharing the same account
+will still discover the revocation the normal reactive way (next request
+401s, generic message) — there's no cross-tab signal for that, by design
+(no realtime channel to carry it).
+
+**Live-verified against the deployed Render backend** (local Docker's image
+was stale — a rebuild kept stalling mid-`pip install` on a slow connection,
+abandoned in favor of testing live) by temporarily pointing the portal's
+Vite dev-server proxy at `acrev360-backend.onrender.com` (proxying avoids
+the CORS gap a direct `VITE_API_BASE_URL` override hits — that origin's
+`CORS_ALLOWED_ORIGINS` doesn't list `localhost:5173`, by design, since dev
+is meant to run against local Docker). Reverted `vite.config.ts` back to
+`localhost:8000` immediately after. Confirmed for real:
+- **Print masking fix**: printed a real bill (`KAC/2026/000078`) as
+  signed-in staff and got the actual payer name/address; a raw anonymous
+  `curl` to the same `GET /bills/{ref}` came back `pii_masked: true` with
+  `"H*** O***"` / blank address — proves `ensureAccessToken()` is what
+  closes the gap, not a coincidence of already having a token.
+- **Email-change password field**: appears the instant the email input is
+  edited, disappears again once reverted to the stored value.
+- **Password validation display**: submitting a deliberately weak new
+  password (`123456`) rendered all three real backend messages ("too
+  short", "too common", "entirely numeric") in the notice box, correctly
+  did *not* trigger the sign-out flow (change failed, nothing to revoke).
+- **Login / must_change_password**: this test account's JWT decodes to
+  `must_change_password: false`, and login landed straight on the
+  dashboard as expected — didn't get a chance to exercise the *true* forced-
+  change branch live (would need a account seeded with that flag set),
+  but the response-shape handling and 428 code path were confirmed
+  structurally correct via the JWT payload and the code review above.
+
 ## 2026-09-20 — Fix print preview rendering behind the bill detail window; give print docs a real title
 
 **Ask:** "when i hit print bill, it comes up behind the bill window, also could
