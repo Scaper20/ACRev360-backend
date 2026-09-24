@@ -21,6 +21,78 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-24 — FirstMonie label fix; loading/disabled states on every mutating button
+
+**Ask:** six items reported together. Two were actionable now: (1) the field app's payment
+channel picker showed "FirstMonie" instead of "Agent Banking" like everywhere else; (6) no
+button that triggers a backend write shows a loading state or disables itself, so a fast
+double-click can fire the same mutation twice. Three items (report-page expansion,
+click-to-drill-down on report rows, address field for field-agent/stakeholder/revenue-officer
+onboarding) were explicitly paused by the user pending further discussion — not built. One item
+(onboarding forms still ask for a username even though login is fully email-based) needs a
+backend schema change and was scoped as a handoff spec instead of built directly.
+
+**Fixed — FirstMonie label (`ACRev360-frontend`):** `apps/field/src/views/CollectView.tsx` had
+`{ code: 'FIRSTMONIE', label: 'FirstMonie' }` hardcoded in its own channel list instead of
+matching the portal's "Agent Banking" label used everywhere else for the same `ChannelCodeEnum`
+value. One-line label change; no other files reference the string.
+
+**Added — loading/disabled states, full-app sweep (`ACRev360-frontend`):** every button that
+calls `apiClient.POST/PATCH/DELETE/PUT` across `apps/portal` and `apps/field` (41 files) now
+sets a `useState` in-flight flag before the call and clears it in `finally` (or on the `catch`
+path only, for the handful of mutations that call `onClose()`/navigate away on success — see
+Gotchas), disables the triggering button while that flag is true, and flips its label to a
+present-participle form (`"Saving…"`, `"Adding…"`, `"Deleting…"`, etc.). List-row actions (e.g.
+`ConsultantsPage`'s status `<select>`, portfolio "revoke" links) track the specific row's id
+(`useState<number | null>`) rather than one shared flag, so only the row actually being acted on
+shows as busy. Adjacent Cancel/Close buttons in the same modal footer are disabled too, so a user
+can't dismiss a dialog mid-request. Confirmed via a repo-wide re-scan
+(`grep -cE "disabled(=\{|:)"` against every file with a mutating `apiClient` call) that zero
+files were left with no disabled-state coverage at all, then a full `tsc -b --force` across both
+apps and the existing `vitest` suite (37 tests, all workspaces) — both clean, no regressions.
+
+**Gotchas:**
+- **Success-path unmounts skip the `finally` reset.** `deleteBill` (`BillDetailModal.tsx`,
+  `BillContextPanel.tsx`), `retireItem`/`changeRate` (`RevenueItemsPage.tsx`,
+  `RevenueItemContextPanel.tsx`), and `deletePayer` (`PayerDetailModal.tsx`,
+  `PayerContextPanel.tsx`) all call `onClose()` (or otherwise navigate the component away) on
+  success *before* their query invalidation resolves. Resetting the in-flight flag in a `finally`
+  there would run after the component starts unmounting for no benefit, so those reset the flag
+  only in the `catch` block. Don't "fix" this into a blanket `finally` — it's deliberate.
+- **`TypeaheadPicker` (`packages/ui/src/components/TypeaheadPicker.tsx`) has no `disabled`/busy
+  prop at all.** Its own hit buttons vanish from the DOM the instant one is clicked (the results
+  dropdown closes), so the double-click risk on the *picker itself* is low — the real risk is the
+  parent's `onPick` handler (e.g. `AgentContextPanel.assignPayer`) firing twice if a user reopens
+  and picks again fast. Rather than add a prop to the shared component for one narrow call site,
+  the in-flight state there is tracked and surfaced as a small status line under the picker
+  instead of a disabled control. If a second call site needs the same thing, that's the signal to
+  actually add the prop to the shared component.
+- **`V2DetailModalAction` (`packages/ui/src/components/V2DetailModal.tsx`) already had a
+  `disabled?: boolean` field before this sweep** — it just wasn't being passed from most call
+  sites. No shared-component change was needed; every v2 context-panel action (delete, reverse,
+  retire, escalate, etc.) just needed `disabled: <flag>` added to its `actions.push({...})` call.
+- **v1/v2 page pairs and page/context-panel splits duplicate the exact same mutating functions.**
+  A dozen-plus files here are near-identical forks of each other (e.g. `DebtPage.tsx` /
+  `DebtPageV2.tsx`, `PayerDetailModal.tsx` / `PayerContextPanel.tsx`,
+  `RevenueItemLinePicker.tsx` / `RevenueItemLinePickerV2.tsx`) — a fix in one needs porting to its
+  sibling(s), verified by actually reading each file rather than assuming the header comment's
+  "byte-identical" claim is current.
+- **Reports page work (items 2/3 from the original ask) is explicitly out of scope** — user asked
+  to pause and discuss further before any print/expand/drill-down work starts there.
+
+**Not yet built — handoff spec written:** onboarding forms (field agent, revenue officer,
+stakeholder, ratepayer invite, consultant sub-manager) still collect a `username`, not an email,
+even though login is fully email-based — none of those account types can actually sign in with a
+real email today (they get an auto-generated `{username}@placeholder.acrev360.local` address).
+Also, Field Agent / Stakeholder / Revenue Officer have no `address` field at all (Payer and
+Consultant already do — Consultant's is named `registered_address`, not `address`). Full spec
+with exact file:line citations, the fix shape for each of the 5 onboarding flows, and a
+duplicate-username 500 bug found on the way (4 of 5 flows have no pre-check before hitting the
+raw DB unique constraint, so a collision 500s instead of 400ing) is in
+`docs/BACKEND_HANDOFF_ONBOARDING_EMAIL_ADDRESS.md`. Not built directly — this needs a backend
+schema/serializer change first, so it's scoped as a handoff doc for Scaper20 rather than built
+against the frontend.
+
 ## 2026-09-24 — Second security review: fixes, throttling, caching, region-move runbook
 
 **Ask:** run a deep security probe (two-council world, RLS off, 99 routes x 14 roles),
