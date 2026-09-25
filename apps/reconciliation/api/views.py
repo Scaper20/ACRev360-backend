@@ -36,11 +36,26 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """COUNCIL_IGR_HEAD and COUNCIL_TREASURY (docs/RBAC_EXPANSION_DESIGN.md)
     get the same run/resolve rights as COUNCIL_ADMIN here — reconciling
     remittances is literally their job per the matrix, unlike every other
-    viewset those two roles only read. COUNCIL_AUDITOR stays read-only."""
+    viewset those two roles only read. COUNCIL_AUDITOR stays read-only.
+
+    CONSULTANT deliberately excluded (confirmed with the client, 2026-09):
+    every figure this viewset and its live-summary/exceptions actions expose
+    (total_platform, total_bank, unmatched credits) is a whole-council
+    bank-vs-platform match for a channel/day — get_queryset() below only
+    ever filtered by council_id, never by consultant, because there is no
+    per-consultant reading of "does the bank statement match the platform"
+    to filter down to; a run reconciles the entire day's feed against the
+    entire platform, not one consultant's slice of it. A freshly onboarded
+    consultant with zero payments of their own was seeing the exact same
+    council-wide total as everyone else, which read as a data leak (and
+    would have kept doing so at any consultant-scoped total, since there
+    genuinely isn't one). This is finance/admin-tier data, not portfolio
+    data — unlike Payment/Receipt/POSTerminal, it was never a scoping bug
+    to fix, it was a permission grant that should not have been there."""
 
     serializer_class = ReconciliationRunSerializer
     permission_classes = [access_level_permission(
-        AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY,
+        AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY,
         AppRole.COUNCIL_AUDITOR,
     )]
     # All real ReconciliationRun columns — unlike ReceiptViewSet/DebtCaseViewSet,

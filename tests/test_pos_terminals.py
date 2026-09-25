@@ -8,6 +8,7 @@ import pytest
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
+from apps.accounts.models import AppRole
 from apps.payments.models import Payment, PaymentChannel
 from apps.payments.services import post_payment
 from apps.billing.services import issue_bill
@@ -137,6 +138,53 @@ def test_terminal_collected_total_annotation(scoped, authed_api_client):
     row = next(row for row in r.json()["results"] if row["id"] == terminal.id)
     assert row["collected"] == "10000.00"
     assert row["bank_terminal_id"] == "BANK-1"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_terminal_list_scoped_to_own_consultant(scoped, authed_api_client, make_consultant, make_user, make_field_agent, make_terminal):
+    """A CONSULTANT caller must only see their own fleet — confirmed live
+    that get_queryset() only ever filtered by council_id, so every
+    consultant in the council (including one freshly onboarded with no
+    agents/terminals of its own) saw every other consultant's terminals
+    too. agent is a direct FK to FieldAgent -> consultant, so this is a
+    plain agent__consultant_id filter, not portfolio_filter (which assumes
+    a payer relation this model doesn't have)."""
+    council, ward = scoped["council"], scoped["ward"]
+
+    consultant_a = make_consultant(council, name="Terminal Co A", contract_ref="CR-TRM-A")
+    manager_a = make_user(council, username="trm-mgr-a", access_level=AppRole.CONSULTANT, consultant=consultant_a)
+    agent_a_user = make_user(council, username="trm-agent-a2", access_level=AppRole.AGENT, consultant=consultant_a)
+    agent_a = make_field_agent(council, agent_a_user, ward=ward, agent_code="AGT-A2")
+    terminal_a = make_terminal(council, agent_a, ward, terminal_id="T-A")
+
+    consultant_b = make_consultant(council, name="Terminal Co B", contract_ref="CR-TRM-B")
+    make_user(council, username="trm-mgr-b", access_level=AppRole.CONSULTANT, consultant=consultant_b)
+
+    r = authed_api_client(manager_a).get("/api/v1/terminals")
+    assert r.status_code == 200, r.content
+    ids = {row["id"] for row in r.json()["results"]}
+    # scoped["terminal"] belongs to no consultant manager_a is linked to (it
+    # was created directly under scoped["agent"], not consultant_a) — only
+    # terminal_a, which is actually agent_a's (consultant_a's own agent),
+    # should be visible.
+    assert ids == {terminal_a.id}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_terminal_list_unscoped_for_council_admin(scoped, authed_api_client, make_consultant, make_user, make_field_agent, make_terminal):
+    """COUNCIL_ADMIN keeps seeing the whole council's fleet, unaffected by
+    the new CONSULTANT-only scoping branch."""
+    council, ward, admin, terminal = scoped["council"], scoped["ward"], scoped["admin"], scoped["terminal"]
+
+    consultant_a = make_consultant(council, name="Terminal Co A", contract_ref="CR-TRM-A2")
+    agent_a_user = make_user(council, username="trm-agent-a3")
+    agent_a = make_field_agent(council, agent_a_user, ward=ward, agent_code="AGT-A3")
+    terminal_a = make_terminal(council, agent_a, ward, terminal_id="T-A3")
+
+    r = authed_api_client(admin).get("/api/v1/terminals")
+    assert r.status_code == 200, r.content
+    ids = {row["id"] for row in r.json()["results"]}
+    assert ids == {terminal.id, terminal_a.id}
 
 
 @pytest.mark.django_db(transaction=True)

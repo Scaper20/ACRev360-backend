@@ -383,6 +383,18 @@ class POSTerminalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 output_field=DecimalField(max_digits=14, decimal_places=2),
             )
         )
+        # CONSULTANT is in permission_classes above but this never actually
+        # scoped to their own fleet — every consultant in the council saw
+        # every other consultant's terminals too (confirmed live: a freshly
+        # onboarded consultant with zero agents/terminals of their own still
+        # saw the whole council's list). agent is a FK to FieldAgent, which
+        # has no consultant field of its own — the consultant FK lives on
+        # FieldAgent.user (AppUser), so the path goes through that OneToOne,
+        # not agent.consultant directly. No payer/portfolio relation on this
+        # model either, so common.scoping.portfolio_filter doesn't apply
+        # here; this is the terminal-fleet equivalent of it.
+        if self.request.user.access_level == AppRole.CONSULTANT:
+            qs = qs.filter(agent__user__consultant_id=self.request.user.consultant_id)
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(Q(terminal_id__icontains=q) | Q(bank_terminal_id__icontains=q))

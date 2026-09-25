@@ -155,8 +155,13 @@ CASES = [
       R.CONSULTANT_STAFF}),
     ("DebtCaseViewSet.refresh", lambda: _via_action_decorator(DebtCaseViewSet, "refresh"), {R.COUNCIL_ADMIN}),
     ("DebtCaseViewSet.escalate", lambda: _via_action_decorator(DebtCaseViewSet, "escalate"), {R.COUNCIL_ADMIN}),
+    # CONSULTANT deliberately excluded — see ReconciliationRunViewSet's own
+    # docstring: every figure here (total_platform, total_bank, unmatched
+    # credits, live-summary, exceptions) is a whole-council bank-vs-platform
+    # match with no per-consultant reading to scope down to, not portfolio
+    # data. Confirmed with the client, 2026-09.
     ("ReconciliationRunViewSet list", lambda: _via_class_attribute(ReconciliationRunViewSet),
-     {R.COUNCIL_ADMIN, R.CONSULTANT, R.COUNCIL_IGR_HEAD, R.COUNCIL_TREASURY, R.COUNCIL_AUDITOR}),
+     {R.COUNCIL_ADMIN, R.COUNCIL_IGR_HEAD, R.COUNCIL_TREASURY, R.COUNCIL_AUDITOR}),
     ("ReconciliationRunViewSet.run", lambda: _via_action_decorator(ReconciliationRunViewSet, "run"),
      {R.COUNCIL_ADMIN, R.COUNCIL_IGR_HEAD, R.COUNCIL_TREASURY}),
     ("ReconciliationRunViewSet.resolve_exception", lambda: _via_action_decorator(ReconciliationRunViewSet, "resolve_exception"),
