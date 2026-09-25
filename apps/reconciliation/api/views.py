@@ -2,13 +2,13 @@ from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import AppRole
-from apps.common.filtering import parse_date
+from apps.common.filtering import StableOrderingFilter, parse_date
 from apps.common.permissions import access_level_permission
 from apps.payments.models import PaymentChannel
 from apps.reconciliation.api.serializers import (
@@ -22,6 +22,16 @@ from apps.reconciliation.models import ReconciliationException, ReconciliationRu
 from apps.reconciliation.services import ReconciliationError, live_reconciliation_summary, run_reconciliation
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("channel", OpenApiTypes.STR, description="Filter by channel code"),
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by status — OPEN, BALANCED, EXCEPTIONS, CLOSED"),
+            OpenApiParameter("date_from", OpenApiTypes.DATE, description="Only runs on/after this run_date"),
+            OpenApiParameter("date_to", OpenApiTypes.DATE, description="Only runs on/before this run_date"),
+        ]
+    )
+)
 class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """COUNCIL_IGR_HEAD and COUNCIL_TREASURY (docs/RBAC_EXPANSION_DESIGN.md)
     get the same run/resolve rights as COUNCIL_ADMIN here — reconciling
@@ -33,13 +43,17 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT, AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY,
         AppRole.COUNCIL_AUDITOR,
     )]
+    # All real ReconciliationRun columns — unlike ReceiptViewSet/DebtCaseViewSet,
+    # no annotation needed here (no serializer-only alias among these).
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["run_date", "total_platform", "total_bank", "status"]
 
     def get_queryset(self):
         # ReconciliationRunSerializer walks channel.code plus a nested
         # exceptions list that each read feed_row.bank_txn_ref/amount — the
         # select_related + Prefetch keep the run list at 3 queries total
         # instead of 1 per run + 2 per exception (PERF-3).
-        return (
+        qs = (
             ReconciliationRun.objects.filter(council_id=self.request.user.council_id)
             .select_related("channel")
             .prefetch_related(
@@ -50,6 +64,25 @@ class ReconciliationRunViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             )
             .order_by("-run_date")
         )
+        channel = self.request.query_params.get("channel")
+        if channel:
+            qs = qs.filter(channel__code=channel)
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+        # run_date is a plain DateField, not a timestamp — unlike
+        # PaymentViewSet/ReceiptViewSet's created_at, there's no time-of-day
+        # component to worry about, so a direct gte/lte date comparison is
+        # already sargable against the column's own b-tree with no __date
+        # cast or timezone-aware span-bounds helper needed (date_span_bounds
+        # is explicitly for a DateTimeField — see its own docstring).
+        date_from = parse_date(self.request.query_params, "date_from")
+        if date_from is not None:
+            qs = qs.filter(run_date__gte=date_from)
+        date_to = parse_date(self.request.query_params, "date_to")
+        if date_to is not None:
+            qs = qs.filter(run_date__lte=date_to)
+        return qs
 
     @extend_schema(request=RunReconciliationSerializer, responses=ReconciliationRunSerializer)
     @action(

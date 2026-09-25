@@ -15,7 +15,7 @@ from apps.accounts.models import AppRole
 from apps.audit.services import audit
 from apps.billing.models import Bill, BillLine
 from apps.common.api.views import PlatformWideListMixin
-from apps.common.filtering import date_span_bounds, name_search_q, parse_date, parse_int
+from apps.common.filtering import StableOrderingFilter, date_span_bounds, name_search_q, parse_date, parse_int
 from apps.common.permissions import access_level_permission
 from apps.common.scoping import portfolio_filter
 from apps.payments.api.serializers import (
@@ -191,7 +191,11 @@ _SendReceiptResponseSerializer = inline_serializer(
 
 @extend_schema_view(
     list=extend_schema(
-        parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by receipt ref, bill ref or payer name")]
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by receipt ref, bill ref or payer name"),
+            OpenApiParameter("date_from", OpenApiTypes.DATE, description="Only receipts on/after this date"),
+            OpenApiParameter("date_to", OpenApiTypes.DATE, description="Only receipts on/before this date"),
+        ]
     )
 )
 class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -206,6 +210,19 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         AppRole.COUNCIL_IGR_HEAD, AppRole.COUNCIL_TREASURY, AppRole.COUNCIL_AUDITOR,
         AppRole.CONSULTANT_STAFF, AppRole.AGENT_SUPERVISOR,
     )]
+    # Same StableOrderingFilter/ordering_fields shape as BillViewSet/
+    # PayerViewSet — a plain `.order_by("-created_at")` default plus a
+    # deterministic pk tiebreaker once the client picks a sort. Added for the
+    # Reports page's Receipts tab; ReceiptsPage/ReceiptsPageV2 don't expose a
+    # sort control today and can keep not sending `ordering` — StableOrderingFilter
+    # leaves the queryset's own default order_by in place when it's absent.
+    # "amount" isn't a real Receipt column (see ReceiptSerializer.amount,
+    # sourced from payment.amount) — DRF's OrderingFilter validates and then
+    # applies the client's raw `ordering` term as a literal order_by() arg, with
+    # no translation from a display name to a different queryset path, so this
+    # only works because get_queryset() below annotates the same literal name.
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["receipt_ref", "created_at", "amount"]
     # Numeric-only URL matching, same as PaymentViewSet/PayerViewSet/APIClientViewSet —
     # a non-numeric id 404s cleanly at routing instead of reaching get_object().
     # (drf-spectacular types path-param ids as string regardless of this; every
@@ -244,6 +261,9 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 Prefetch("payment__bill__lines", queryset=lines_qs),
                 "payment__allocations__bill_line__assessment__council_revenue_item",
             )
+            # Real column name, literally "amount" — see ordering_fields'
+            # comment above for why this exact name matters, not just any alias.
+            .annotate(amount=F("payment__amount"))
             .order_by("-created_at")
         )
         qs = portfolio_filter(qs, self.request, payer_path="payment__bill__payer")
@@ -253,6 +273,18 @@ class ReceiptViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 Q(receipt_ref__icontains=q) | Q(payment__bill__bill_ref__icontains=q)
                 | name_search_q(q, prefix="payment__bill__payer")
             )
+        # Same date_span_bounds/parse_date pattern as PaymentViewSet — sargable
+        # bounds on the raw timestamp, malformed input 400s via parse_date
+        # rather than a raw ValueError 500ing (see PaymentViewSet's identical
+        # comment on that class of bug).
+        date_from = parse_date(self.request.query_params, "date_from")
+        if date_from is not None:
+            start, _ = date_span_bounds(date_from)
+            qs = qs.filter(created_at__gte=start)
+        date_to = parse_date(self.request.query_params, "date_to")
+        if date_to is not None:
+            _, end = date_span_bounds(date_to)
+            qs = qs.filter(created_at__lt=end)
         return qs
 
     @extend_schema(request=None, responses=_SendReceiptResponseSerializer)
@@ -321,24 +353,56 @@ class VerifyReceiptView(APIView):
         })
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by terminal ID or bank terminal ID"),
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by status — ACTIVE, FAULTY, RETIRED"),
+            OpenApiParameter("ward", OpenApiTypes.INT, description="Filter to one area/ward"),
+        ]
+    )
+)
 class POSTerminalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = POSTerminalSerializer
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
+    # Added for the Reports page's POS Terminals tab. `collected` is a
+    # computed annotation (see get_queryset), not a real column — ordering
+    # by it works because the client-facing name and the annotation name are
+    # already identical (StableOrderingFilter/DRF's OrderingFilter apply the
+    # client's raw `ordering` string as a literal order_by() arg with no
+    # name translation, same gotcha documented for every other annotated
+    # field this rework has touched).
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["terminal_id", "status", "collected"]
 
     def get_queryset(self):
-        return (
-            POSTerminal.objects.filter(council_id=self.request.user.council_id)
-            .annotate(
-                collected=Coalesce(
-                    Sum("payments__amount", filter=Q(payments__txn_status=Payment.CONFIRMED)),
-                    0,
-                    output_field=DecimalField(max_digits=14, decimal_places=2),
-                )
+        qs = POSTerminal.objects.filter(council_id=self.request.user.council_id).annotate(
+            collected=Coalesce(
+                Sum("payments__amount", filter=Q(payments__txn_status=Payment.CONFIRMED)),
+                0,
+                output_field=DecimalField(max_digits=14, decimal_places=2),
             )
-            .order_by("terminal_id")
         )
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(Q(terminal_id__icontains=q) | Q(bank_terminal_id__icontains=q))
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+        ward = parse_int(self.request.query_params, "ward")
+        if ward is not None:
+            qs = qs.filter(ward_id=ward)
+        return qs.order_by("terminal_id")
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by client name or API key"),
+            OpenApiParameter("is_active", OpenApiTypes.BOOL, description="Filter by active/revoked status"),
+        ]
+    )
+)
 class APIClientViewSet(PlatformWideListMixin, viewsets.ModelViewSet):
     """DEVOPS_ADMIN (platform tier, council=null — docs/RBAC_EXPANSION_DESIGN.md)
     reads/manages integration keys across every active council, matching the
@@ -355,14 +419,31 @@ class APIClientViewSet(PlatformWideListMixin, viewsets.ModelViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN)]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
+    # Council-tier only, same PlatformWideListMixin/StableOrderingFilter split
+    # as SubConsultantViewSet — the platform-tier path below applies the same
+    # q/is_active filters manually but deliberately does NOT expose ordering:
+    # platform_wide_queryset concatenates each council's own block without a
+    # global re-sort (see apps/common/api/views.py's own docstring and the
+    # identical reasoning already documented for SubConsultantViewSet).
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["name", "expires_at", "last_used_at", "is_active"]
 
     def get_permissions(self):
         if self.action == "create":
             return [access_level_permission(AppRole.COUNCIL_ADMIN)()]
         return [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.DEVOPS_ADMIN)()]
 
+    def _apply_common_filters(self, qs):
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(api_key__icontains=q))
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active.lower() in ("1", "true"))
+        return qs
+
     def get_platform_queryset_fn(self, council_id):
-        return APIClient.objects.filter(council_id=council_id)
+        return self._apply_common_filters(APIClient.objects.filter(council_id=council_id))
 
     def get_queryset(self):
         user = self.request.user
@@ -372,7 +453,8 @@ class APIClientViewSet(PlatformWideListMixin, viewsets.ModelViewSet):
             return APIClient.objects.none()
         # Explicit order — an unordered queryset paginates inconsistently
         # (Django's UnorderedObjectListWarning), rows can repeat/skip pages.
-        return APIClient.objects.filter(council_id=user.council_id).order_by("-id")
+        qs = self._apply_common_filters(APIClient.objects.filter(council_id=user.council_id))
+        return qs.order_by("-id")
 
     def perform_create(self, serializer):
         import secrets

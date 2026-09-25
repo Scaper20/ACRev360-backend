@@ -21,6 +21,63 @@ wrong or accidentally undo. If there's nothing non-obvious to warn about, say so
 explicitly ("Gotchas: none") rather than omitting the line, so it's clear it wasn't
 forgotten.
 
+## 2026-09-25 — Reports page expanded to 12 entities (Revenue Items through API Clients)
+
+**Ask:** the Reports page should be able to generate a report for any other feature on the
+platform. User named the scope explicitly after a first pass: every entity with both a
+backend list endpoint and a frontend page but no report tab — 12 in total. Each report tab
+needed its own filter/sort criteria, row-click detail "without necessarily switching over to
+its originating page" where the entity warranted one, CSV export of the full filtered set
+(not just the on-screen page), and print preview (CSV/PDF choice resolved as "print-to-PDF via
+the browser," reusing the existing `DocViewer` mechanism, not real server-side PDF generation).
+Order and one-entity-per-turn pace were set by the user directly; the back half was built
+autonomously per "Go according to the list, switch to auto mode if possible."
+
+**Added (`ACRev360-frontend`):** `ReportsPage.tsx`/`ReportsPageV2.tsx` now have 15 tabs (3
+pre-existing + 12 new): Revenue Items, Receipts, Debt Cases, Reconciliation Runs,
+Sub-Consultants, Field Agents, Stakeholders, Departments, Wards/Areas, Audit Log, POS
+Terminals, API Clients. Each got a report tab pair (v1 + v2), a `/print/report/<entity>`
+route, and — for the 7 entities whose row hid real data behind a click (everything except
+Stakeholders/Departments/Wards/Terminals/API Clients, where every field was already visible
+in the row) — a self-sufficient detail view extracted from or newly built alongside the
+entity's existing page. `lib/clientExport.ts` (new) holds the shared `fetchAllPages()`/CSV
+helpers used by every server-paginated entity's export button.
+
+**Fixed (`ACRev360-backend-latest`) — `AuditLogViewSet.get_object()` crashed on retrieve
+(`apps/audit/api/views.py`):** adding `RetrieveModelMixin` for the new Audit Log detail view
+surfaced that `get_queryset()` always returns something already `[:300]`-sliced (a real
+queryset for single-council, a materialized list for platform-tier). DRF's default
+`get_object()` calls `get_object_or_404(get_queryset(), pk=...)`, and Django raises
+`TypeError: Cannot filter a query once a slice has been taken` the instant that tries
+`.get(pk=...)` on the sliced queryset — confirmed live in `manage.py shell` before trusting the
+fix. Gave `get_object()` its own small, unsliced, per-branch query instead of reusing
+`get_queryset()` at all.
+
+**Fixed (`ACRev360-frontend`) — `packages/api/src/generated/schema.ts` was missing Field
+Agents' `status`/`assigned_ward`/`ordering` params entirely.** A prior regen this session had
+been claimed complete but the committed file never actually picked them up (root cause
+unclear — possibly run but not saved before a mid-session interruption). Found only because a
+neighbouring entity's regen (Stakeholders) produced an unexpectedly large diff that included
+unrelated-looking Agents lines. Fixed by regenerating from the live local backend and applying
+the full diff; verified purely additive by reading it in full, not just its line count.
+
+**Gotchas:** (1) a viewset returning an already-sliced queryset from `get_queryset()` breaks
+`RetrieveModelMixin`'s default `get_object()` — any future `@action`/mixin addition to a
+viewset with a `[:N]`-capped `get_queryset()` needs to check this before assuming DRF's
+defaults will just work. (2) `PlatformWideListMixin` viewsets need filters applied on
+*both* `get_queryset()` and `get_platform_queryset_fn()` by hand (DRF's `filter_backends`
+only runs on the council-tier path) — but never expose `ordering` on the platform-tier path,
+since `platform_wide_queryset()` concatenates each council's own block without a global
+re-sort. (3) after any backend query-param change, regenerate
+`packages/api/src/generated/schema.ts` from the **local** backend (not the prod-pointing
+`codegen` npm script) and read the full diff, not just trust that a regen "was done" — an
+`apiClient.GET(...)` call whose query object comes from a helper function skips TypeScript's
+excess-property check entirely, so a missing/wrong param silently passes typecheck forever
+until someone actually greps the committed schema file. Full detail, per-entity build notes,
+and the client-vs-server filtering decision tree live in this session's own working memory
+(`project_acrev360_reports_rework.md`, not duplicated here — see that file for the complete
+record if this summary isn't enough).
+
 ## 2026-09-24 — FirstMonie label fix; loading/disabled states on every mutating button
 
 **Ask:** six items reported together. Two were actionable now: (1) the field app's payment

@@ -37,6 +37,7 @@ from apps.audit.services import audit, audit_user_event
 from apps.billing.models import Bill
 from apps.billing.services import BillingError, issue_bill
 from apps.common.api.views import GeneratedPasswordCreateMixin, PlatformWideListMixin
+from apps.common.filtering import StableOrderingFilter
 from apps.common.net import client_ip
 from apps.common.permissions import access_level_permission
 from apps.payments.api.serializers import PaymentSerializer
@@ -173,12 +174,30 @@ class ChangePasswordView(APIView):
 
 
 @extend_schema_view(
-    list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by consultant name or contract reference")])
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by consultant name or contract reference"),
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by status — PENDING, ACTIVE, SUSPENDED, EXITED"),
+        ]
+    )
 )
 class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     serializer_class = SubConsultantSerializer
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
+    # Council-tier only — PlatformWideListMixin's own docstring says its
+    # get_platform_queryset_fn must do its own filtering/ordering, and its
+    # list() only runs DRF's filter_backends machinery (this) on the
+    # non-platform-wide branch (super().list()). The platform-tier path
+    # below applies the same status filter manually but deliberately does
+    # NOT expose ordering: platform_wide_queryset (apps/common/platform_scope.py)
+    # concatenates each council's own separately-ordered results in
+    # council-iteration order, not one globally re-sorted list — sorting
+    # each council's block internally while leaving the blocks themselves
+    # unordered relative to each other would look sorted but not actually
+    # be, which is worse than visibly not supporting it.
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["consultant_name", "commission_rate", "contract_start_date", "contract_end_date", "status"]
     # Governs create (and end_portfolio, which declares no override of its
     # own) — COUNCIL_ADMIN-only, since onboarding/firm-level commercial terms
     # stay a council admin decision (docs/RBAC_EXPANSION_DESIGN.md: this is
@@ -223,11 +242,18 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
             _has_login=models.Exists(AppUser.objects.filter(consultant_id=models.OuterRef("pk")))
         )
 
-    def get_platform_queryset_fn(self, council_id):
-        qs = SubConsultant.objects.filter(council_id=council_id).order_by("consultant_name", "id")
+    def _apply_common_filters(self, qs):
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+        return qs
+
+    def get_platform_queryset_fn(self, council_id):
+        qs = SubConsultant.objects.filter(council_id=council_id).order_by("consultant_name", "id")
+        qs = self._apply_common_filters(qs)
         return self._with_serializer_relations(qs)
 
     def get_queryset(self):
@@ -238,9 +264,7 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
             # materialize via get_platform_queryset_fn per council instead.
             return SubConsultant.objects.none()
         qs = SubConsultant.objects.filter(council_id=user.council_id).order_by("consultant_name", "id")
-        q = self.request.query_params.get("q")
-        if q:
-            qs = qs.filter(models.Q(consultant_name__icontains=q) | models.Q(contract_ref__icontains=q))
+        qs = self._apply_common_filters(qs)
         return self._with_serializer_relations(qs)
 
     @transaction.atomic
@@ -510,7 +534,13 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
 
 
 @extend_schema_view(
-    list=extend_schema(parameters=[OpenApiParameter("q", OpenApiTypes.STR, description="Search by agent code or agent name")])
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by agent code or agent name"),
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by status — ACTIVE, SUSPENDED, EXITED"),
+            OpenApiParameter("assigned_ward", OpenApiTypes.INT, description="Filter to one ward"),
+        ]
+    )
 )
 class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     """create stays COUNCIL_ADMIN/CONSULTANT/COUNCIL_IT (account-management,
@@ -530,6 +560,17 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.CONSULTANT)]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
+    # Same StableOrderingFilter shape as SubConsultantViewSet/ReceiptViewSet.
+    # "agent_full_name" isn't a real FieldAgent column — FieldAgentSerializer's
+    # own agent_full_name aliases user.full_name — so get_queryset annotates
+    # it under that exact name (see ReceiptViewSet's comment on why the name
+    # has to match literally). This class also has several @action methods
+    # (portfolio, activity, deactivate, etc.) that build their own Response
+    # directly and never call self.filter_queryset() — class-level
+    # filter_backends is inert for those, only list() actually uses it (see
+    # the identical finding on SubConsultantViewSet.portfolio).
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["agent_code", "status", "agent_full_name"]
 
     def get_permissions(self):
         if self.action == "create":
@@ -546,7 +587,11 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
         # FieldAgentSerializer walks user.full_name/phone/consultant_id and
         # assigned_ward on every row — select_related kills the per-row user
         # query (PERF-3).
-        qs = FieldAgent.objects.filter(council_id=user.council_id).select_related("user", "assigned_ward")
+        qs = (
+            FieldAgent.objects.filter(council_id=user.council_id)
+            .select_related("user", "assigned_ward")
+            .annotate(agent_full_name=models.F("user__full_name"))
+        )
         if user.access_level in (AppRole.CONSULTANT, AppRole.CONSULTANT_STAFF):
             qs = qs.filter(user__consultant_id=user.consultant_id)
         elif user.access_level == AppRole.AGENT:
@@ -568,6 +613,12 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(agent_code__icontains=q) | models.Q(user__full_name__icontains=q))
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+        assigned_ward = self.request.query_params.get("assigned_ward")
+        if assigned_ward:
+            qs = qs.filter(assigned_ward_id=assigned_ward)
         return qs.order_by("agent_code")
 
     def perform_create(self, serializer):
@@ -798,6 +849,14 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
         })
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Search by name or username"),
+            OpenApiParameter("is_active", OpenApiTypes.BOOL, description="Filter by account status"),
+        ]
+    )
+)
 class StakeholderViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     """Read-only oversight accounts (GLOBAL_VIEW access level) — council/FCT
     stakeholders who need a performance pulse but must never see individual
@@ -815,11 +874,20 @@ class StakeholderViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     permission_classes = [access_level_permission(AppRole.COUNCIL_ADMIN, AppRole.COUNCIL_IT)]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[0-9]+"
+    # Added for the Reports page's Stakeholders tab — all three are real
+    # AppUser columns, no annotation needed.
+    filter_backends = [StableOrderingFilter]
+    ordering_fields = ["full_name", "date_joined", "is_active"]
 
     def get_queryset(self):
-        return AppUser.objects.filter(
-            council_id=self.request.user.council_id, role__access_level=AppRole.GLOBAL_VIEW
-        ).order_by("full_name")
+        qs = AppUser.objects.filter(council_id=self.request.user.council_id, role__access_level=AppRole.GLOBAL_VIEW)
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(models.Q(full_name__icontains=q) | models.Q(username__icontains=q))
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active.lower() in ("1", "true"))
+        return qs.order_by("full_name")
 
     def perform_create(self, serializer):
         user = self.request.user
