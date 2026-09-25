@@ -29,8 +29,9 @@ from apps.accounts.api.serializers import (
     SubConsultantStatusSerializer,
     UpdateProfileSerializer,
 )
-from apps.accounts.models import AppRole, AppUser, FieldAgent, SubConsultant
+from apps.accounts.models import AppRole, AppUser, FieldAgent, RevenueOfficerProfile, StakeholderProfile, SubConsultant
 from apps.accounts.security import provision_password, revoke_all_sessions
+from apps.accounts.services import derive_username_from_email
 from apps.accounts.throttles import LoginEmailBurstThrottle, LoginEmailSustainedThrottle
 from apps.accounts.tokens import AppTokenObtainPairSerializer
 from apps.audit.services import audit, audit_user_event
@@ -270,7 +271,7 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
     @transaction.atomic
     def perform_create(self, serializer):
         data = serializer.validated_data
-        manager_username = data.pop("manager_username", None)
+        manager_email = data.pop("manager_email", None)
         manager_password = data.pop("manager_password", None)
         manager_full_name = data.pop("manager_full_name", None)
         registration_ward_id = data.pop("registration_ward_id")
@@ -310,14 +311,15 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
         audit(
             council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_ONBOARDED",
             entity_type="SUB_CONSULTANT", entity_id=instance.id,
-            detail={"consultant_name": instance.consultant_name, "manager_login_created": bool(manager_username)},
+            detail={"consultant_name": instance.consultant_name, "manager_login_created": bool(manager_email)},
         )
 
-        if manager_username:
+        if manager_email:
             consultant_role, _ = AppRole.objects.get_or_create(name="CONSULTANT_MANAGER", defaults={"access_level": AppRole.CONSULTANT})
             manager_password, must_change = provision_password(manager_password)
-            AppUser.objects.create_user(
-                username=manager_username, password=manager_password, full_name=manager_full_name,
+            manager_user = AppUser.objects.create_user(
+                username=derive_username_from_email(manager_email), email=manager_email,
+                password=manager_password, full_name=manager_full_name,
                 council_id=instance.council_id, role=consultant_role, consultant=instance,
                 must_change_password=must_change,
             )
@@ -326,7 +328,7 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
                 self._last_generated_password = manager_password
             audit(
                 council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_MANAGER_ONBOARDED",
-                entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"username": manager_username},
+                entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"username": manager_user.username},
             )
 
         # The firm as a payer, billed for its own registration — see item 7 of
@@ -426,7 +428,9 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
         consultant = self.get_object()
 
         if request.method == "GET":
-            officers = AppUser.objects.filter(consultant=consultant, role__access_level=AppRole.REVENUE_OFFICER).order_by("full_name")
+            officers = AppUser.objects.filter(
+                consultant=consultant, role__access_level=AppRole.REVENUE_OFFICER
+            ).select_related("revenue_officer_profile").order_by("full_name")
             return Response(RevenueOfficerSerializer(officers, many=True).data)
 
         serializer = RevenueOfficerSerializer(data=request.data)
@@ -434,14 +438,19 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
         data = serializer.validated_data
         officer_role, _ = AppRole.objects.get_or_create(name="REVENUE_OFFICER", defaults={"access_level": AppRole.REVENUE_OFFICER})
         password, must_change = provision_password(data.pop("password", None))
-        instance = AppUser.objects.create_user(
-            username=data.pop("username"),
-            password=password,
-            full_name=data.pop("full_name"),
-            phone=data.pop("phone", ""),
-            council_id=consultant.council_id, role=officer_role, consultant=consultant,
-            must_change_password=must_change,
-        )
+        email = data.pop("email")
+        address = data.pop("address", "")
+        with transaction.atomic():
+            instance = AppUser.objects.create_user(
+                username=derive_username_from_email(email),
+                email=email,
+                password=password,
+                full_name=data.pop("full_name"),
+                phone=data.pop("phone", ""),
+                council_id=consultant.council_id, role=officer_role, consultant=consultant,
+                must_change_password=must_change,
+            )
+            RevenueOfficerProfile.objects.create(user=instance, address=address)
         audit(
             council_id=consultant.council_id, actor=request.user, action="REVENUE_OFFICER_ONBOARDED",
             entity_type="SUB_CONSULTANT", entity_id=consultant.id, detail={"username": instance.username},
@@ -649,11 +658,9 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
                 raise serializers.ValidationError({"consultant_id": "Not a valid active consultant for this council."})
 
         password, must_change = provision_password(data.pop("password", None))
-        username = data.pop("username")
+        email = data.pop("email")
         full_name = data.pop("full_name")
         phone = data.pop("phone", "")
-        if AppUser.objects.filter(username=username).exists():
-            raise serializers.ValidationError({"username": "That username is already in use."})
         # AGT-#### is derived from a count that can collide (a previously
         # deleted/retired agent's code leaves a gap) — retry on a unique-code
         # collision (each attempt in its own transaction, so a failed
@@ -663,7 +670,8 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
             try:
                 with transaction.atomic():
                     app_user = AppUser.objects.create_user(
-                        username=username,
+                        username=derive_username_from_email(email),
+                        email=email,
                         password=password,
                         full_name=full_name,
                         phone=phone,
@@ -880,7 +888,15 @@ class StakeholderViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
     ordering_fields = ["full_name", "date_joined", "is_active"]
 
     def get_queryset(self):
-        qs = AppUser.objects.filter(council_id=self.request.user.council_id, role__access_level=AppRole.GLOBAL_VIEW)
+        # select_related("stakeholder_profile") from origin/master's
+        # onboarding-email/address change (StakeholderProfile is now read
+        # off this row somewhere the serializer touches) combined with this
+        # session's q/is_active filtering for the Reports page's
+        # Stakeholders tab — the two changes touched the same method for
+        # unrelated reasons and both need to survive.
+        qs = AppUser.objects.filter(
+            council_id=self.request.user.council_id, role__access_level=AppRole.GLOBAL_VIEW
+        ).select_related("stakeholder_profile")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(models.Q(full_name__icontains=q) | models.Q(username__icontains=q))
@@ -894,15 +910,20 @@ class StakeholderViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
         data = serializer.validated_data
         stakeholder_role, _ = AppRole.objects.get_or_create(name="STAKEHOLDER", defaults={"access_level": AppRole.GLOBAL_VIEW})
         password, must_change = provision_password(data.pop("password", None))
-        instance = AppUser.objects.create_user(
-            username=data.pop("username"),
-            password=password,
-            full_name=data.pop("full_name"),
-            phone=data.pop("phone", ""),
-            council_id=user.council_id,
-            role=stakeholder_role,
-            must_change_password=must_change,
-        )
+        email = data.pop("email")
+        address = data.pop("address", "")
+        with transaction.atomic():
+            instance = AppUser.objects.create_user(
+                username=derive_username_from_email(email),
+                email=email,
+                password=password,
+                full_name=data.pop("full_name"),
+                phone=data.pop("phone", ""),
+                council_id=user.council_id,
+                role=stakeholder_role,
+                must_change_password=must_change,
+            )
+            StakeholderProfile.objects.create(user=instance, address=address)
         if must_change:
             self._last_generated_password = password
         serializer.instance = instance

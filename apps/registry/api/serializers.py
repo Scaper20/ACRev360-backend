@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.accounts.validators import validate_account_password
+from apps.accounts.validators import validate_account_password, validate_unique_email
 from apps.registry.models import EnumeratedAsset, Payer, PayerDelegation
 
 
@@ -70,9 +70,11 @@ class EnumeratedAssetSerializer(serializers.ModelSerializer):
 
 class InviteRatepayerSerializer(serializers.Serializer):
     """Write-only shape for PayerViewSet.invite_ratepayer — same pattern as
-    FieldAgentViewSet's write-only username/password create fields."""
+    FieldAgentViewSet's write-only email/password create fields. username is
+    never client-supplied — see AppUser.username's own docstring — it's
+    derived from email server-side (PayerViewSet.invite_ratepayer)."""
 
-    username = serializers.CharField(max_length=64)
+    email = serializers.EmailField(validators=[validate_unique_email])
     password = serializers.CharField(write_only=True, validators=[validate_account_password])
 
 
