@@ -323,9 +323,13 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
                 council_id=instance.council_id, role=consultant_role, consultant=instance,
                 must_change_password=must_change,
             )
-            if must_change:
-                self.generated_password_key = "generated_manager_password"
-                self._last_generated_password = manager_password
+            # Surfaced in the create response either way, not just when
+            # must_change generated one — the onboarding admin (the only
+            # caller who can reach this endpoint) needs to see and relay
+            # whatever password the account actually got, standard fallback
+            # included, or there's no other way for them to learn it.
+            self.generated_password_key = "generated_manager_password"
+            self._last_generated_password = manager_password
             audit(
                 council_id=instance.council_id, actor=self.request.user, action="CONSULTANT_MANAGER_ONBOARDED",
                 entity_type="SUB_CONSULTANT", entity_id=instance.id, detail={"username": manager_user.username},
@@ -456,9 +460,10 @@ class SubConsultantViewSet(PlatformWideListMixin, GeneratedPasswordCreateMixin, 
             entity_type="SUB_CONSULTANT", entity_id=consultant.id, detail={"username": instance.username},
         )
         response = RevenueOfficerSerializer(instance).data
-        if must_change:
-            response["generated_password"] = password
-            response["_password_warning"] = "Shown once — share it with the account holder now, it cannot be retrieved again."
+        # Surfaced either way, not just when must_change generated one — see
+        # the same reasoning on the consultant-manager branch above.
+        response["generated_password"] = password
+        response["_password_warning"] = "Shown once — share it with the account holder now, it cannot be retrieved again."
         return Response(response, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -690,8 +695,9 @@ class FieldAgentViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
                 next_seq += 1
         else:
             raise serializers.ValidationError({"agent_code": "Could not allocate a unique agent code — contact support."})
-        if must_change:
-            self._last_generated_password = password
+        # Surfaced either way, not just when must_change generated one — see
+        # SubConsultantViewSet.perform_create's manager-login branch.
+        self._last_generated_password = password
         audit(
             council_id=user.council_id, actor=user, action="AGENT_ONBOARDED", entity_type="FIELD_AGENT",
             entity_id=agent.id, detail={"agent_code": agent.agent_code},
@@ -924,8 +930,9 @@ class StakeholderViewSet(GeneratedPasswordCreateMixin, viewsets.ModelViewSet):
                 must_change_password=must_change,
             )
             StakeholderProfile.objects.create(user=instance, address=address)
-        if must_change:
-            self._last_generated_password = password
+        # Surfaced either way, not just when must_change generated one — see
+        # SubConsultantViewSet.perform_create's manager-login branch.
+        self._last_generated_password = password
         serializer.instance = instance
         audit(
             council_id=user.council_id, actor=user, action="STAKEHOLDER_ONBOARDED",
