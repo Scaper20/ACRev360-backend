@@ -241,6 +241,7 @@ class FieldAgent(CouncilScopedModel):
     id_hash = models.CharField(max_length=128, blank=True)
     next_of_kin_name = models.CharField(max_length=160, blank=True)
     next_of_kin_phone = models.CharField(max_length=32, blank=True)
+    address = models.CharField(max_length=255, blank=True)
 
     class Meta:
         db_table = "field_agent"
@@ -250,3 +251,34 @@ class FieldAgent(CouncilScopedModel):
 
     def __str__(self):
         return self.agent_code
+
+
+class StakeholderProfile(models.Model):
+    """Role-specific fields for a GLOBAL_VIEW stakeholder login. Kept off
+    AppUser itself — every other account type (council-staff logins in
+    particular) has no use for an address, so this stays a separate table
+    joined only for stakeholders, the same way FieldAgent already keeps
+    agent-only fields off AppUser. See StakeholderSerializer/StakeholderViewSet."""
+
+    user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name="stakeholder_profile")
+    address = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        db_table = "stakeholder_profile"
+
+    def __str__(self):
+        return self.user.username
+
+
+class RevenueOfficerProfile(models.Model):
+    """Role-specific fields for a REVENUE_OFFICER login — same reasoning as
+    StakeholderProfile (see its docstring)."""
+
+    user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name="revenue_officer_profile")
+    address = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        db_table = "revenue_officer_profile"
+
+    def __str__(self):
+        return self.user.username

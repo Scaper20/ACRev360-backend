@@ -2,7 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.accounts.models import AppUser, FieldAgent, SubConsultant
-from apps.accounts.validators import validate_account_password
+from apps.accounts.validators import validate_account_password, validate_unique_email
 from apps.revenue.models import AgentPortfolio, ConsultantPortfolio
 
 
@@ -109,8 +109,10 @@ class MeSerializer(serializers.ModelSerializer):
 class SubConsultantSerializer(serializers.ModelSerializer):
     # Optional — onboarding a firm with no login yet is still valid (matches
     # FieldAgentSerializer's shape, but here the login is for one manager of
-    # the firm, not the firm itself, hence the manager_ prefix).
-    manager_username = serializers.CharField(write_only=True, required=False)
+    # the firm, not the firm itself, hence the manager_ prefix). username is
+    # never client-supplied — see AppUser.username's own docstring — it's
+    # derived from manager_email server-side (SubConsultantViewSet.perform_create).
+    manager_email = serializers.EmailField(write_only=True, required=False, validators=[validate_unique_email])
     manager_password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
     manager_full_name = serializers.CharField(write_only=True, required=False)
     has_login = serializers.SerializerMethodField()
@@ -126,7 +128,7 @@ class SubConsultantSerializer(serializers.ModelSerializer):
         fields = [
             "id", "consultant_name", "contract_ref", "commission_rate", "status",
             "contract_start_date", "contract_end_date", "is_contract_expired", "created_at",
-            "manager_username", "manager_password", "manager_full_name", "has_login",
+            "manager_email", "manager_password", "manager_full_name", "has_login",
             "registration_ward_id", "registration_payer", "registration_payer_ref",
             "authorized_signatory_name", "authorized_signatory_id_type", "authorized_signatory_id_hash",
             "registered_address",
@@ -141,8 +143,8 @@ class SubConsultantSerializer(serializers.ModelSerializer):
         return annotated if annotated is not None else obj.users.exists()
 
     def validate(self, attrs):
-        if attrs.get("manager_username") and not attrs.get("manager_full_name"):
-            raise serializers.ValidationError({"manager_full_name": "Required when manager_username is given."})
+        if attrs.get("manager_email") and not attrs.get("manager_full_name"):
+            raise serializers.ValidationError({"manager_full_name": "Required when manager_email is given."})
         start = attrs.get("contract_start_date")
         end = attrs.get("contract_end_date")
         if start and end and start > end:
@@ -164,52 +166,81 @@ class SubConsultantContractDatesSerializer(serializers.Serializer):
 
 
 class StakeholderSerializer(serializers.ModelSerializer):
+    """username is never client-supplied — see AppUser.username's own
+    docstring — it's derived from email server-side
+    (StakeholderViewSet.perform_create) and only ever shown read-only here.
+    address lives on the joined StakeholderProfile (see that model's
+    docstring for why it isn't just a column on AppUser), read and written
+    through this serializer via to_representation/perform_create rather than
+    a dotted `source`, since perform_create already builds the AppUser (and
+    now the profile) by hand instead of calling serializer.save()."""
+
     full_name = serializers.CharField()
-    username = serializers.CharField()
+    email = serializers.EmailField(validators=[validate_unique_email])
+    address = serializers.CharField(required=False, allow_blank=True, default="")
     password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
 
     class Meta:
         model = AppUser
-        fields = ["id", "username", "full_name", "phone", "password", "is_active", "date_joined"]
-        read_only_fields = ["id", "is_active", "date_joined"]
+        fields = ["id", "username", "email", "full_name", "phone", "address", "password", "is_active", "date_joined"]
+        read_only_fields = ["id", "username", "is_active", "date_joined"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        profile = getattr(instance, "stakeholder_profile", None)
+        data["address"] = profile.address if profile else ""
+        return data
 
 
 class RevenueOfficerSerializer(serializers.ModelSerializer):
     """Read-only, single-consultant-scoped oversight account — see
     SubConsultantViewSet.revenue_officers. Same onboarding payload shape as
-    StakeholderSerializer, kept separate since it's a distinct role tied to
-    one consultant rather than a council-wide GLOBAL_VIEW account."""
+    StakeholderSerializer (including the username/address handling — see
+    that serializer's docstring), kept separate since it's a distinct role
+    tied to one consultant rather than a council-wide GLOBAL_VIEW account."""
 
     full_name = serializers.CharField()
-    username = serializers.CharField()
+    email = serializers.EmailField(validators=[validate_unique_email])
+    address = serializers.CharField(required=False, allow_blank=True, default="")
     password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
 
     class Meta:
         model = AppUser
-        fields = ["id", "username", "full_name", "phone", "password", "is_active", "date_joined"]
-        read_only_fields = ["id", "is_active", "date_joined"]
+        fields = ["id", "username", "email", "full_name", "phone", "address", "password", "is_active", "date_joined"]
+        read_only_fields = ["id", "username", "is_active", "date_joined"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        profile = getattr(instance, "revenue_officer_profile", None)
+        data["address"] = profile.address if profile else ""
+        return data
 
 
 class FieldAgentSerializer(serializers.ModelSerializer):
+    # username is never client-supplied — see AppUser.username's own
+    # docstring — it's derived from email server-side
+    # (FieldAgentViewSet.perform_create).
     full_name = serializers.CharField(write_only=True)
-    username = serializers.CharField(write_only=True)
+    email = serializers.EmailField(write_only=True, validators=[validate_unique_email])
     password = serializers.CharField(write_only=True, required=False, validators=[validate_account_password])
     phone = serializers.CharField(write_only=True, required=False, allow_blank=True)
     consultant_id = serializers.IntegerField(read_only=True, source="user.consultant_id")
-    # Separate from the write-only `full_name`/`phone` above (those set the
-    # linked AppUser at creation and are popped from validated_data by
-    # perform_create) — these are the read side, for display/search.
+    # Separate from the write-only `full_name`/`email`/`phone` above (those
+    # set the linked AppUser at creation and are popped from validated_data
+    # by perform_create) — these are the read side, for display/search.
     agent_full_name = serializers.CharField(read_only=True, source="user.full_name")
     agent_phone = serializers.CharField(read_only=True, source="user.phone")
+    agent_email = serializers.EmailField(read_only=True, source="user.email")
 
     class Meta:
         model = FieldAgent
         fields = [
             "id", "agent_code", "assigned_ward", "device_imei", "status",
-            "full_name", "username", "password", "phone", "consultant_id", "agent_full_name", "agent_phone",
+            "full_name", "email", "password", "phone", "address", "consultant_id",
+            "agent_full_name", "agent_phone", "agent_email",
             "id_type", "id_hash", "next_of_kin_name", "next_of_kin_phone",
         ]
-        read_only_fields = ["id", "agent_code", "status", "consultant_id", "agent_full_name", "agent_phone"]
+        read_only_fields = ["id", "agent_code", "status", "consultant_id", "agent_full_name", "agent_phone", "agent_email"]
 
 
 class ConsultantPortfolioSerializer(serializers.ModelSerializer):

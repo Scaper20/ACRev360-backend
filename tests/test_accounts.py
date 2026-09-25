@@ -52,7 +52,7 @@ def test_onboard_consultant_with_manager_fields_creates_linked_login(scoped, aut
         "/api/v1/consultants",
         {
             "consultant_name": "Manager Co", "contract_ref": "CR-M", "commission_rate": "25.00",
-            "manager_username": "managerco1", "manager_full_name": "Manager of Manager Co",
+            "manager_email": "managerco1@example.com", "manager_full_name": "Manager of Manager Co",
             "registration_ward_id": scoped["ward"].id,
         },
         format="json",
@@ -90,11 +90,11 @@ def test_onboard_consultant_with_duplicate_contract_ref_is_rejected_not_500(scop
 
 
 @pytest.mark.django_db(transaction=True)
-def test_onboard_consultant_manager_username_without_full_name_rejected(scoped, authed_api_client):
+def test_onboard_consultant_manager_email_without_full_name_rejected(scoped, authed_api_client):
     r = authed_api_client(scoped["admin"]).post(
         "/api/v1/consultants",
         {
-            "consultant_name": "Bad Co", "contract_ref": "CR-B", "commission_rate": "30.00", "manager_username": "badco1",
+            "consultant_name": "Bad Co", "contract_ref": "CR-B", "commission_rate": "30.00", "manager_email": "badco1@example.com",
             "registration_ward_id": scoped["ward"].id,
         },
         format="json",
@@ -173,7 +173,7 @@ def test_me_exposes_consultant_identity_for_consultant_role_only(scoped, authed_
 def test_stakeholder_creation_is_council_admin_only(scoped, authed_api_client, make_user):
     non_admin = make_user(scoped["council"], username="acc-nonadmin", access_level=AppRole.CONSULTANT)
     r = authed_api_client(non_admin).post(
-        "/api/v1/stakeholders", {"username": "newstake", "full_name": "New Stakeholder"}, format="json",
+        "/api/v1/stakeholders", {"email": "newstake@example.com", "full_name": "New Stakeholder"}, format="json",
     )
     assert r.status_code == 403, r.content
     assert not AppUser.objects.filter(username="newstake").exists()
@@ -182,14 +182,20 @@ def test_stakeholder_creation_is_council_admin_only(scoped, authed_api_client, m
 @pytest.mark.django_db(transaction=True)
 def test_stakeholder_creation_and_login(scoped, authed_api_client, api_client):
     r = authed_api_client(scoped["admin"]).post(
-        "/api/v1/stakeholders", {"username": "newstake2", "full_name": "New Stakeholder 2"}, format="json",
+        "/api/v1/stakeholders",
+        {"email": "newstake2@example.com", "full_name": "New Stakeholder 2", "address": "12 Aso Drive, Abuja"},
+        format="json",
     )
     assert r.status_code == 201, r.content
     assert "password" not in r.json()
+    assert r.json()["email"] == "newstake2@example.com"
+    assert r.json()["address"] == "12 Aso Drive, Abuja"
 
     user = AppUser.objects.get(username="newstake2")
     assert user.access_level == AppRole.GLOBAL_VIEW
+    assert user.email == "newstake2@example.com"
     assert user.check_password("acrev360-2026")
+    assert user.stakeholder_profile.address == "12 Aso Drive, Abuja"
 
     login = api_client.post("/api/v1/auth/login", {"email": user.email, "password": "acrev360-2026"}, format="json")
     assert login.status_code == 200, login.content
@@ -529,7 +535,7 @@ def test_admin_onboarding_agent_without_consultant_is_rejected(scoped, authed_ap
     always was assigned to themselves automatically."""
     before = AppUser.objects.count()
     r = authed_api_client(scoped["admin"]).post(
-        "/api/v1/agents", {"full_name": "No Consultant Agent", "username": "no-consultant-agent"}, format="json",
+        "/api/v1/agents", {"full_name": "No Consultant Agent", "email": "no-consultant-agent@example.com"}, format="json",
     )
     assert r.status_code == 400, r.content
     assert AppUser.objects.count() == before
@@ -540,7 +546,7 @@ def test_admin_onboarding_agent_with_consultant_succeeds(scoped, authed_api_clie
     consultant = make_consultant(scoped["council"], name="Agent Assign Co")
     r = authed_api_client(scoped["admin"]).post(
         "/api/v1/agents",
-        {"full_name": "Assigned Agent", "username": "assigned-agent", "consultant_id": consultant.id},
+        {"full_name": "Assigned Agent", "email": "assigned-agent@example.com", "consultant_id": consultant.id},
         format="json",
     )
     assert r.status_code == 201, r.content
@@ -556,7 +562,7 @@ def test_admin_onboarding_agent_with_another_councils_consultant_is_rejected(sco
     before = AppUser.objects.count()
     r = authed_api_client(scoped["admin"]).post(
         "/api/v1/agents",
-        {"full_name": "Cross Tenant Agent", "username": "cross-tenant-agent", "consultant_id": foreign_consultant.id},
+        {"full_name": "Cross Tenant Agent", "email": "cross-tenant-agent@example.com", "consultant_id": foreign_consultant.id},
         format="json",
     )
     assert r.status_code == 400, r.content
@@ -570,7 +576,7 @@ def test_consultant_onboarding_agent_is_still_auto_assigned_to_self(scoped, auth
     consultant = make_consultant(scoped["council"], name="Self Assign Co")
     manager = make_user(scoped["council"], username="self-assign-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
     r = authed_api_client(manager).post(
-        "/api/v1/agents", {"full_name": "Own Agent", "username": "own-agent"}, format="json",
+        "/api/v1/agents", {"full_name": "Own Agent", "email": "own-agent@example.com"}, format="json",
     )
     assert r.status_code == 201, r.content
     assert AppUser.objects.get(username="own-agent").consultant_id == consultant.id
@@ -584,7 +590,7 @@ def test_pending_consultant_manager_cannot_onboard_agent(scoped, authed_api_clie
     manager = make_user(scoped["council"], username="acc-pend-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
 
     r = authed_api_client(manager).post(
-        "/api/v1/agents", {"full_name": "Blocked Agent", "username": "blocked-agent"}, format="json",
+        "/api/v1/agents", {"full_name": "Blocked Agent", "email": "blocked-agent@example.com"}, format="json",
     )
     assert r.status_code == 400, r.content
     assert not AppUser.objects.filter(username="blocked-agent").exists()
@@ -596,7 +602,7 @@ def test_active_consultant_manager_can_still_onboard_agent(scoped, authed_api_cl
     manager = make_user(scoped["council"], username="acc-active-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
 
     r = authed_api_client(manager).post(
-        "/api/v1/agents", {"full_name": "Allowed Agent", "username": "allowed-agent"}, format="json",
+        "/api/v1/agents", {"full_name": "Allowed Agent", "email": "allowed-agent@example.com"}, format="json",
     )
     assert r.status_code == 201, r.content
 
@@ -781,13 +787,17 @@ def test_onboard_revenue_officer_scoped_to_consultant(scoped, authed_api_client,
     consultant = make_consultant(scoped["council"], name="Officer Co", contract_ref="CR-OFFICER")
     r = authed_api_client(scoped["admin"]).post(
         f"/api/v1/consultants/{consultant.id}/revenue-officers",
-        {"username": "revoff1", "full_name": "Revenue Officer One"},
+        {"email": "revoff1@example.com", "full_name": "Revenue Officer One", "address": "4 Wuse Zone 2, Abuja"},
         format="json",
     )
     assert r.status_code == 201, r.content
+    assert r.json()["email"] == "revoff1@example.com"
+    assert r.json()["address"] == "4 Wuse Zone 2, Abuja"
     user = AppUser.objects.get(username="revoff1")
     assert user.access_level == AppRole.REVENUE_OFFICER
     assert user.consultant_id == consultant.id
+    assert user.email == "revoff1@example.com"
+    assert user.revenue_officer_profile.address == "4 Wuse Zone 2, Abuja"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -796,7 +806,7 @@ def test_revenue_officer_onboarding_is_council_admin_only(scoped, authed_api_cli
     manager = make_user(scoped["council"], username="acc-guardoff-mgr", access_level=AppRole.CONSULTANT, consultant=consultant)
     r = authed_api_client(manager).post(
         f"/api/v1/consultants/{consultant.id}/revenue-officers",
-        {"username": "revoff-blocked", "full_name": "Blocked"},
+        {"email": "revoff-blocked@example.com", "full_name": "Blocked"},
         format="json",
     )
     assert r.status_code == 403, r.content
@@ -808,8 +818,8 @@ def test_revenue_officer_list_scoped_to_own_consultant(scoped, authed_api_client
     own = make_consultant(scoped["council"], name="Own Officer Co", contract_ref="CR-OWNOFFICER")
     other = make_consultant(scoped["council"], name="Other Officer Co", contract_ref="CR-OTHEROFFICER")
     admin_client = authed_api_client(scoped["admin"])
-    admin_client.post(f"/api/v1/consultants/{own.id}/revenue-officers", {"username": "own-off", "full_name": "Own Officer"}, format="json")
-    admin_client.post(f"/api/v1/consultants/{other.id}/revenue-officers", {"username": "other-off", "full_name": "Other Officer"}, format="json")
+    admin_client.post(f"/api/v1/consultants/{own.id}/revenue-officers", {"email": "own-off@example.com", "full_name": "Own Officer"}, format="json")
+    admin_client.post(f"/api/v1/consultants/{other.id}/revenue-officers", {"email": "other-off@example.com", "full_name": "Other Officer"}, format="json")
 
     r = admin_client.get(f"/api/v1/consultants/{own.id}/revenue-officers")
     assert r.status_code == 200, r.content
@@ -871,7 +881,7 @@ def test_onboard_agent_with_kyc_fields_round_trips(scoped, authed_api_client, ma
     r = authed_api_client(manager).post(
         "/api/v1/agents",
         {
-            "full_name": "KYC Agent", "username": "kyc-agent",
+            "full_name": "KYC Agent", "email": "kyc-agent@example.com", "address": "7 Gwarinpa Estate, Abuja",
             "id_type": "VOTERS_CARD", "id_hash": "b" * 64,
             "next_of_kin_name": "Chidi Okafor", "next_of_kin_phone": "08099998888",
         },
@@ -883,3 +893,129 @@ def test_onboard_agent_with_kyc_fields_round_trips(scoped, authed_api_client, ma
     assert body["id_hash"] == "b" * 64
     assert body["next_of_kin_name"] == "Chidi Okafor"
     assert body["next_of_kin_phone"] == "08099998888"
+    assert body["address"] == "7 Gwarinpa Estate, Abuja"
+    assert body["agent_email"] == "kyc-agent@example.com"
+
+
+# --- email-based onboarding — username stops being client-supplied (frontend audit item 1) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_field_agent_with_email_can_then_log_in_by_that_email(scoped, authed_api_client, api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Email Login Co")
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/agents",
+        {"full_name": "Email Agent", "email": "email-agent@example.com", "consultant_id": consultant.id},
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+
+    user = AppUser.objects.get(email="email-agent@example.com")
+    assert user.username == "email-agent"  # derived from the email's local-part, never client-supplied
+
+    login = api_client.post("/api/v1/auth/login", {"email": "email-agent@example.com", "password": "acrev360-2026"}, format="json")
+    assert login.status_code == 200, login.content
+
+
+@pytest.mark.django_db(transaction=True)
+def test_username_derivation_appends_numeric_suffix_on_collision(scoped, authed_api_client):
+    admin_client = authed_api_client(scoped["admin"])
+    first = admin_client.post("/api/v1/stakeholders", {"email": "collide@example.com", "full_name": "First"}, format="json")
+    assert first.status_code == 201, first.content
+    assert AppUser.objects.get(email="collide@example.com").username == "collide"
+
+    second = admin_client.post("/api/v1/stakeholders", {"email": "collide@other-domain.com", "full_name": "Second"}, format="json")
+    assert second.status_code == 201, second.content
+    assert AppUser.objects.get(email="collide@other-domain.com").username == "collide2"
+
+
+# --- bug fix: 4 of 5 onboarding flows 500'd on a duplicate email (previously username) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_duplicate_stakeholder_email_is_rejected_not_500(scoped, authed_api_client):
+    admin_client = authed_api_client(scoped["admin"])
+    first = admin_client.post("/api/v1/stakeholders", {"email": "dupe-stake@example.com", "full_name": "First"}, format="json")
+    assert first.status_code == 201, first.content
+
+    # Differs only in case — the DB constraint on AppUser.email is case-sensitive,
+    # so this only 400s because of the app-level email__iexact pre-check.
+    second = admin_client.post("/api/v1/stakeholders", {"email": "Dupe-Stake@example.com", "full_name": "Second"}, format="json")
+    assert second.status_code == 400, second.content
+    assert "email" in second.json()
+    assert AppUser.objects.filter(email__iexact="dupe-stake@example.com").count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_duplicate_revenue_officer_email_is_rejected_not_500(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="Dupe Officer Co", contract_ref="CR-DUPEOFFICER")
+    admin_client = authed_api_client(scoped["admin"])
+    first = admin_client.post(
+        f"/api/v1/consultants/{consultant.id}/revenue-officers", {"email": "dupe-officer@example.com", "full_name": "First"}, format="json",
+    )
+    assert first.status_code == 201, first.content
+
+    second = admin_client.post(
+        f"/api/v1/consultants/{consultant.id}/revenue-officers", {"email": "dupe-officer@example.com", "full_name": "Second"}, format="json",
+    )
+    assert second.status_code == 400, second.content
+    assert "email" in second.json()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_duplicate_consultant_manager_email_is_rejected_not_500(scoped, authed_api_client):
+    admin_client = authed_api_client(scoped["admin"])
+    first = admin_client.post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Dupe Mgr Co", "contract_ref": "CR-DUPEMGR1", "commission_rate": "30.00",
+            "manager_email": "dupe-mgr@example.com", "manager_full_name": "First Manager",
+            "registration_ward_id": scoped["ward"].id,
+        },
+        format="json",
+    )
+    assert first.status_code == 201, first.content
+
+    second = admin_client.post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Dupe Mgr Co 2", "contract_ref": "CR-DUPEMGR2", "commission_rate": "30.00",
+            "manager_email": "dupe-mgr@example.com", "manager_full_name": "Second Manager",
+            "registration_ward_id": scoped["ward"].id,
+        },
+        format="json",
+    )
+    assert second.status_code == 400, second.content
+    assert "manager_email" in second.json()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_duplicate_ratepayer_invite_email_is_rejected_not_500(scoped, authed_api_client, make_payer):
+    payer_a = make_payer(scoped["council"], scoped["ward"], scoped["admin"], name="Payer A", phone="08011110000")
+    payer_b = make_payer(scoped["council"], scoped["ward"], scoped["admin"], name="Payer B", phone="08022220000")
+    admin_client = authed_api_client(scoped["admin"])
+
+    first = admin_client.post(
+        f"/api/v1/payers/{payer_a.id}/invite-ratepayer",
+        {"email": "dupe-ratepayer@example.com", "password": "Correct-Horse-Battery-7"}, format="json",
+    )
+    assert first.status_code == 201, first.content
+
+    second = admin_client.post(
+        f"/api/v1/payers/{payer_b.id}/invite-ratepayer",
+        {"email": "dupe-ratepayer@example.com", "password": "Correct-Horse-Battery-7"}, format="json",
+    )
+    assert second.status_code == 400, second.content
+    assert "email" in second.json()
+
+
+# --- address field for field agent / stakeholder / revenue officer (frontend audit item 2) ---
+
+@pytest.mark.django_db(transaction=True)
+def test_field_agent_address_defaults_to_blank_when_omitted(scoped, authed_api_client, make_consultant):
+    consultant = make_consultant(scoped["council"], name="No Address Co")
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/agents",
+        {"full_name": "No Address Agent", "email": "no-address-agent@example.com", "consultant_id": consultant.id},
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    assert r.json()["address"] == ""

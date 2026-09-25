@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import AppRole, AppUser, SubConsultant
+from apps.accounts.services import derive_username_from_email
 from apps.audit.services import audit
 from apps.billing.api.serializers import BillSerializer
 from apps.billing.models import Assessment, Bill
@@ -226,8 +227,10 @@ class PayerViewSet(
         serializer = InviteRatepayerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role, _created = AppRole.objects.get_or_create(name="RATEPAYER", defaults={"access_level": AppRole.RATEPAYER})
+        email = serializer.validated_data["email"]
         user = AppUser.objects.create_user(
-            username=serializer.validated_data["username"],
+            username=derive_username_from_email(email),
+            email=email,
             password=serializer.validated_data["password"],
             full_name=payer.full_name,
             council_id=payer.council_id,

@@ -11,6 +11,8 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from apps.accounts.models import AppUser
+
 #: Substrings that make a password guessable by anyone who has read this
 #: repository or the product's own name. Case-insensitive.
 _PUBLISHED_FRAGMENTS = ("acrev360",)
@@ -42,4 +44,17 @@ def validate_account_password(value):
         validate_password(value)
     except DjangoValidationError as exc:
         raise serializers.ValidationError(list(exc.messages)) from None
+    return value
+
+
+def validate_unique_email(value):
+    """Field-level pre-check for every onboarding flow that creates a new
+    AppUser via an `email` (or `manager_email`) field. Matches how
+    AppTokenObtainPairSerializer resolves login by email__iexact, and turns
+    a collision into a normal 400 instead of AppUser.email's raw unique
+    constraint raising an uncaught IntegrityError — same failure shape
+    already fixed once for SubConsultant.contract_ref (see
+    SubConsultantViewSet.perform_create)."""
+    if AppUser.objects.filter(email__iexact=value).exists():
+        raise serializers.ValidationError("This email is already in use.")
     return value
