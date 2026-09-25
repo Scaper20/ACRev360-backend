@@ -160,7 +160,7 @@ _WEAK = ["1", "password", "short", "acrev360-2026", "MyAcrev360Pass!", "12345678
 @pytest.mark.parametrize("weak", _WEAK)
 def test_stakeholder_onboarding_rejects_weak_passwords(world, authed_api_client, weak):
     r = authed_api_client(world["admin"]).post(
-        "/api/v1/stakeholders", {"username": "weak-stake", "full_name": "Weak Stake", "password": weak}, format="json",
+        "/api/v1/stakeholders", {"email": "weak-stake@example.com", "full_name": "Weak Stake", "password": weak}, format="json",
     )
     assert r.status_code == 400, r.content
     assert "password" in r.json()
@@ -171,10 +171,11 @@ def test_stakeholder_onboarding_rejects_weak_passwords(world, authed_api_client,
 @pytest.mark.parametrize("weak", ["1", "password", "acrev360-2026"])
 def test_agent_and_ratepayer_onboarding_reject_weak_passwords(world, authed_api_client, weak):
     client = authed_api_client(world["admin"])
-    agent = client.post("/api/v1/agents", {"username": "weak-agent", "full_name": "Weak Agent", "password": weak}, format="json")
+    agent = client.post("/api/v1/agents", {"email": "weak-agent@example.com", "full_name": "Weak Agent", "password": weak}, format="json")
     assert agent.status_code == 400 and "password" in agent.json(), agent.content
     invite = client.post(
-        f"/api/v1/payers/{world['own_payer'].id}/invite-ratepayer", {"username": "weak-ratepayer", "password": weak}, format="json",
+        f"/api/v1/payers/{world['own_payer'].id}/invite-ratepayer",
+        {"email": "weak-ratepayer@example.com", "password": weak}, format="json",
     )
     assert invite.status_code == 400 and "password" in invite.json(), invite.content
     assert not AppUser.objects.filter(username__in=["weak-agent", "weak-ratepayer"]).exists()
@@ -184,7 +185,7 @@ def test_agent_and_ratepayer_onboarding_reject_weak_passwords(world, authed_api_
 def test_strong_explicit_password_is_still_accepted(world, authed_api_client):
     r = authed_api_client(world["admin"]).post(
         "/api/v1/stakeholders",
-        {"username": "strong-stake", "full_name": "Strong Stake", "password": "Correct-Horse-Battery-7"}, format="json",
+        {"email": "strong-stake@example.com", "full_name": "Strong Stake", "password": "Correct-Horse-Battery-7"}, format="json",
     )
     assert r.status_code == 201, r.content
     assert AppUser.objects.get(username="strong-stake").check_password("Correct-Horse-Battery-7")
@@ -193,7 +194,7 @@ def test_strong_explicit_password_is_still_accepted(world, authed_api_client):
 @pytest.mark.django_db(transaction=True)
 def test_omitting_the_password_still_works(world, authed_api_client):
     r = authed_api_client(world["admin"]).post(
-        "/api/v1/stakeholders", {"username": "default-stake", "full_name": "Default Stake"}, format="json",
+        "/api/v1/stakeholders", {"email": "default-stake@example.com", "full_name": "Default Stake"}, format="json",
     )
     assert r.status_code == 201, r.content
 
