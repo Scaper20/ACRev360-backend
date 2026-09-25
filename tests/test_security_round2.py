@@ -386,6 +386,65 @@ def test_platform_tier_user_can_change_password(make_role, authed_api_client):
     assert r.status_code == 204, r.content
 
 
+# --- platform-tier lists must load related rows inside each council's RLS context -----
+
+@pytest.fixture
+def platform_user(make_role):
+    def _make(username, access_level):
+        role = make_role(name=access_level, access_level=access_level)
+        return AppUser.objects.create_user(username=username, password="testpass12345", full_name=username, role=role)
+
+    return _make
+
+
+@pytest.mark.django_db(transaction=True)
+def test_platform_consultant_list_carries_the_registration_payer_ref(
+    world, make_consultant, make_council, platform_user, authed_api_client,
+):
+    """Found when the same API sweep was run as the owner role and as an RLS-enforced
+    role: for council-less callers the consultant list lost registration_payer_ref
+    (null instead of the payer's reference) because the payer was loaded lazily
+    *after* the council's RLS context had closed. Production had RLS effectively off,
+    so it never showed there."""
+    consultant = make_consultant(world["council"], name="Registered Firm", contract_ref="CR-REG")
+    consultant.registration_payer = world["own_payer"]
+    consultant.save(update_fields=["registration_payer"])
+    # A council created *after* the first is iterated last, which leaves its context
+    # set once the loop ends — exactly the production shape (two councils) in which
+    # a lazy load of the first council's rows gets hidden by RLS.
+    make_council(code="SR2LAST")
+    r = authed_api_client(platform_user("sr2-super", AppRole.SUPER_ADMIN)).get("/api/v1/consultants")
+    assert r.status_code == 200, r.content
+    row = next(row for row in r.json()["results"] if row["consultant_name"] == "Registered Firm")
+    assert row["registration_payer_ref"] == world["own_payer"].payer_ref
+    assert row["has_login"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_platform_settlement_list_carries_consultant_name_in_a_stable_order(
+    world, make_consultant, make_council, platform_user, authed_api_client,
+):
+    import datetime
+
+    from apps.settlements.models import CommissionSettlement
+
+    first = make_consultant(world["council"], name="Alpha Firm", contract_ref="CR-A")
+    second = make_consultant(world["council"], name="Bravo Firm", contract_ref="CR-B")
+    start, end = datetime.date(2026, 1, 1), datetime.date(2026, 1, 31)
+    for consultant in (second, first):  # inserted out of id order on purpose
+        CommissionSettlement.objects.create(
+            council=world["council"], consultant=consultant, period_start=start, period_end=end,
+            gross_collections=1000, commission_rate=10, commission_amount=100, computed_by=world["admin"],
+        )
+    make_council(code="SR2LAST")  # created last, so iterated last; see the consultant-list test above
+    client = authed_api_client(platform_user("sr2-finance", AppRole.FINANCE_ADMIN))
+    results = client.get("/api/v1/settlements").json()["results"]
+    assert {row["consultant_name"] for row in results} == {"Alpha Firm", "Bravo Firm"}
+    # Two settlements share a period_start: the order must not depend on how the database happens to return ties.
+    assert [row["id"] for row in results] == sorted(row["id"] for row in results)
+    assert [row["id"] for row in client.get("/api/v1/settlements").json()["results"]] == [row["id"] for row in results]
+
+
 # --- client-address diagnostic -----------------------------------------------------
 
 @pytest.mark.django_db(transaction=True)
