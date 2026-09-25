@@ -190,6 +190,11 @@ def test_stakeholder_creation_and_login(scoped, authed_api_client, api_client):
     assert "password" not in r.json()
     assert r.json()["email"] == "newstake2@example.com"
     assert r.json()["address"] == "12 Aso Drive, Abuja"
+    # Surfaced even though this is the standard fallback, not a policy-generated
+    # one (ENFORCE_ACCOUNT_PASSWORD_POLICY is off in dev/test) — the onboarding
+    # admin has no other way to learn what password the account actually got.
+    assert r.json()["generated_password"] == "acrev360-2026"
+    assert "_password_warning" in r.json()
 
     user = AppUser.objects.get(username="newstake2")
     assert user.access_level == AppRole.GLOBAL_VIEW
@@ -793,6 +798,8 @@ def test_onboard_revenue_officer_scoped_to_consultant(scoped, authed_api_client,
     assert r.status_code == 201, r.content
     assert r.json()["email"] == "revoff1@example.com"
     assert r.json()["address"] == "4 Wuse Zone 2, Abuja"
+    assert r.json()["generated_password"] == "acrev360-2026"
+    assert "_password_warning" in r.json()
     user = AppUser.objects.get(username="revoff1")
     assert user.access_level == AppRole.REVENUE_OFFICER
     assert user.consultant_id == consultant.id
@@ -908,12 +915,32 @@ def test_onboard_field_agent_with_email_can_then_log_in_by_that_email(scoped, au
         format="json",
     )
     assert r.status_code == 201, r.content
+    # Surfaced regardless of whether the policy generated a random password or
+    # (as here, in dev/test) fell back to the standard one — the onboarding
+    # admin has no other way to learn what to hand the new agent.
+    assert r.json()["generated_password"] == "acrev360-2026"
 
     user = AppUser.objects.get(email="email-agent@example.com")
     assert user.username == "email-agent"  # derived from the email's local-part, never client-supplied
 
     login = api_client.post("/api/v1/auth/login", {"email": "email-agent@example.com", "password": "acrev360-2026"}, format="json")
     assert login.status_code == 200, login.content
+
+
+@pytest.mark.django_db(transaction=True)
+def test_onboard_consultant_manager_response_surfaces_standard_password(scoped, authed_api_client):
+    r = authed_api_client(scoped["admin"]).post(
+        "/api/v1/consultants",
+        {
+            "consultant_name": "Password Surfaced Co", "contract_ref": "CR-PWDSURFACED", "commission_rate": "30.00",
+            "manager_email": "pwd-surfaced-mgr@example.com", "manager_full_name": "Manager Name",
+            "registration_ward_id": scoped["ward"].id,
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    assert r.json()["generated_manager_password"] == "acrev360-2026"
+    assert "_password_warning" in r.json()
 
 
 @pytest.mark.django_db(transaction=True)

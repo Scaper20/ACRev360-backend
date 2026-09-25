@@ -72,9 +72,13 @@ class PlatformWideListMixin:
 
 
 class GeneratedPasswordCreateMixin:
-    """Surfaces a provisioned-generated account password exactly once in the
-    create response. perform_create (or a nested onboarding action) stores it
-    via ``self._last_generated_password`` plus an optional
+    """Surfaces a provisioned account password exactly once in the create
+    response — whatever password the account actually got, a
+    policy-enforced random one or the standard fallback, since the caller
+    (always someone with the right to create/onboard accounts — see this
+    mixin's viewsets' own permission_classes) has no other way to learn it.
+    perform_create (or a nested onboarding action) stores it via
+    ``self._last_generated_password`` plus an optional
     ``self.generated_password_key`` (default "generated_password"), and the
     mixin's create() appends it to the response body."""
 
